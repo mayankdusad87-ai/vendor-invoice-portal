@@ -16,6 +16,7 @@ export default function AdminHeader() {
     { href: '/admin/dashboard', label: 'Dashboard' },
     { href: '/admin/invoices', label: 'Invoices' },
     { href: '/admin/vendors', label: 'Vendors' },
+    { href: '/admin/approvers', label: 'Approvers' },
   ];
 
   return (

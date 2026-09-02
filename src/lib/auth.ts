@@ -8,12 +8,18 @@ export interface VendorToken {
   vendorId: string;
 }
 
+export interface ApproverToken {
+  type: 'approver';
+  approverName: string;
+  approverId: string;
+}
+
 export interface AdminToken {
   type: 'admin';
   username: string;
 }
 
-export type TokenPayload = VendorToken | AdminToken;
+export type TokenPayload = VendorToken | ApproverToken | AdminToken;
 
 export function signToken(payload: TokenPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
@@ -40,6 +46,14 @@ export function verifyVendorToken(token: string): VendorToken | null {
   const payload = verifyToken(token);
   if (payload && payload.type === 'vendor') {
     return payload as VendorToken;
+  }
+  return null;
+}
+
+export function verifyApproverToken(token: string): ApproverToken | null {
+  const payload = verifyToken(token);
+  if (payload && payload.type === 'approver') {
+    return payload as ApproverToken;
   }
   return null;
 }

@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import StatusBadge from '@/components/ui/StatusBadge';
 import { INVOICE_STATUSES } from '@/lib/constants';
+import type { InvoiceStatus } from '@/lib/constants';
 
 interface Invoice {
   id: string;
@@ -13,9 +15,14 @@ interface Invoice {
   purpose: string;
   amount: string;
   remarks: string;
-  fileUrl: string;
-  fileName: string;
-  status: keyof typeof INVOICE_STATUSES;
+  invoiceFileUrl: string;
+  invoiceFileName: string;
+  workPhotos: string;
+  measurementSheetUrl: string;
+  measurementSheetName: string;
+  status: InvoiceStatus;
+  approvalComments: string;
+  approvedBy: string;
   submittedAt: string;
 }
 
@@ -57,15 +64,6 @@ export default function VendorInvoices() {
     router.push('/');
   };
 
-  const getStatusBadge = (status: keyof typeof INVOICE_STATUSES) => {
-    const statusInfo = INVOICE_STATUSES[status] || INVOICE_STATUSES.submitted;
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
-        {statusInfo.label}
-      </span>
-    );
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
@@ -95,42 +93,55 @@ export default function VendorInvoices() {
             </svg>
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No invoices yet</h3>
             <p className="text-gray-500 mb-4">Submit your first invoice to get started</p>
-            <Link href="/vendor/submit" className="btn-primary inline-block">
-              Submit Invoice
-            </Link>
+            <Link href="/vendor/submit" className="btn-primary inline-block">Submit Invoice</Link>
           </div>
         ) : (
           <div className="space-y-3">
-            {invoices.map((invoice) => (
-              <div key={invoice.id} className="card">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                  <div>
-                    <span className="text-sm font-bold text-gray-900 dark:text-white">
-                      {invoice.invoiceNumber}
-                    </span>
-                    <span className="text-xs text-gray-400 ml-2">
-                      {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}
-                    </span>
+            {invoices.map((invoice) => {
+              const photoCount = invoice.workPhotos ? invoice.workPhotos.split(',').filter(Boolean).length : 0;
+
+              return (
+                <div key={invoice.id} className="card">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                    <div>
+                      <span className="text-sm font-bold text-gray-900 dark:text-white">{invoice.invoiceNumber}</span>
+                      <span className="text-xs text-gray-400 ml-2">
+                        {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}
+                      </span>
+                    </div>
+                    <StatusBadge status={invoice.status} />
                   </div>
-                  {getStatusBadge(invoice.status)}
-                </div>
-                <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">{invoice.purpose}</p>
-                <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500">
-                  <span className="font-semibold text-gray-900 dark:text-white text-base">
-                    ₹{Number(invoice.amount).toLocaleString('en-IN')}
-                  </span>
-                  {invoice.remarks && <span>• {invoice.remarks}</span>}
-                  {invoice.fileUrl && (
-                    <a href={invoice.fileUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                      📎 {invoice.fileName || 'View File'}
-                    </a>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">{invoice.purpose}</p>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                    <span className="font-semibold text-gray-900 dark:text-white text-base">
+                      ₹{Number(invoice.amount).toLocaleString('en-IN')}
+                    </span>
+                    {photoCount > 0 && <span>📷 {photoCount} photo(s)</span>}
+                    {invoice.measurementSheetUrl && <span>📐 Measurement sheet</span>}
+                    {invoice.invoiceFileUrl && (
+                      <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        📎 Invoice file
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Approval info */}
+                  {invoice.approvedBy && (
+                    <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                      <p className="text-xs text-gray-500">
+                        {invoice.status === 'rejected' ? '❌ Rejected' : '✅ Approved'} by{' '}
+                        <strong>{invoice.approvedBy}</strong>
+                      </p>
+                      {invoice.approvalComments && (
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 italic">
+                          &ldquo;{invoice.approvalComments}&rdquo;
+                        </p>
+                      )}
+                    </div>
                   )}
-                  <span className="ml-auto">
-                    Submitted: {new Date(invoice.submittedAt).toLocaleDateString('en-IN')}
-                  </span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>

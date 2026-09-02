@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getInvoices, getVendorInvoices, addInvoice, updateInvoiceStatus } from '@/lib/google-sheets';
-import { verifyToken, verifyAdminToken, verifyVendorToken } from '@/lib/auth';
+import { verifyToken, verifyAdminToken, verifyVendorToken, verifyApproverToken } from '@/lib/auth';
 
 // GET /api/invoices - get invoices
 export async function GET(request: NextRequest) {
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     }
 
     let invoices;
-    if (payload.type === 'admin') {
+    if (payload.type === 'admin' || payload.type === 'approver') {
       invoices = await getInvoices();
     } else {
       invoices = await getVendorInvoices(payload.vendorName);
@@ -53,7 +53,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { invoiceDate, invoiceNumber, purpose, amount, remarks, fileUrl, fileName } = body;
+    const {
+      invoiceDate, invoiceNumber, purpose, amount, remarks,
+      invoiceFileUrl, invoiceFileName,
+      workPhotos, measurementSheetUrl, measurementSheetName
+    } = body;
 
     if (!invoiceDate || !invoiceNumber || !purpose || !amount) {
       return NextResponse.json(
@@ -69,8 +73,11 @@ export async function POST(request: NextRequest) {
       purpose,
       amount,
       remarks: remarks || '',
-      fileUrl: fileUrl || '',
-      fileName: fileName || '',
+      invoiceFileUrl: invoiceFileUrl || '',
+      invoiceFileName: invoiceFileName || '',
+      workPhotos: workPhotos || '',
+      measurementSheetUrl: measurementSheetUrl || '',
+      measurementSheetName: measurementSheetName || '',
       status: 'submitted',
     });
 
@@ -84,17 +91,24 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT /api/invoices - update invoice status (admin only)
+// PUT /api/invoices - update invoice status (admin or approver)
 export async function PUT(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
 
-    if (!token || !verifyAdminToken(token)) {
+    if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { id, status } = await request.json();
+    const adminPayload = verifyAdminToken(token);
+    const approverPayload = verifyApproverToken(token);
+
+    if (!adminPayload && !approverPayload) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id, status, approvalComments } = await request.json();
 
     if (!id || !status) {
       return NextResponse.json(
@@ -111,7 +125,9 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const success = await updateInvoiceStatus(id, status);
+    const approvedBy = approverPayload?.approverName || adminPayload?.username || '';
+
+    const success = await updateInvoiceStatus(id, status, approvalComments || '', approvedBy);
     if (!success) {
       return NextResponse.json(
         { error: 'Invoice not found' },

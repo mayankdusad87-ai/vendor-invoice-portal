@@ -107,6 +107,88 @@ export async function deleteVendor(id: string): Promise<boolean> {
   return updateVendor(id, { status: 'inactive' });
 }
 
+// ==================== APPROVERS ====================
+
+export interface Approver {
+  id: string;
+  name: string;
+  pin: string;
+  email: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+}
+
+export async function getApprovers(): Promise<Approver[]> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Approvers!A2:F',
+  });
+
+  const rows = response.data.values || [];
+  return rows.map((row) => ({
+    id: row[0] || '',
+    name: row[1] || '',
+    pin: row[2] || '',
+    email: row[3] || '',
+    status: (row[4] as 'active' | 'inactive') || 'active',
+    createdAt: row[5] || '',
+  }));
+}
+
+export async function getActiveApprovers(): Promise<Approver[]> {
+  const approvers = await getApprovers();
+  return approvers.filter((a) => a.status === 'active');
+}
+
+export async function addApprover(approver: Omit<Approver, 'id' | 'createdAt'>): Promise<Approver> {
+  const sheets = getSheets();
+  const id = `A${Date.now()}`;
+  const createdAt = new Date().toISOString();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: 'Approvers!A:F',
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[id, approver.name, approver.pin, approver.email, approver.status, createdAt]],
+    },
+  });
+
+  return { ...approver, id, createdAt };
+}
+
+export async function updateApprover(id: string, updates: Partial<Approver>): Promise<boolean> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Approvers!A2:F',
+  });
+
+  const rows = response.data.values || [];
+  const rowIndex = rows.findIndex((row) => row[0] === id);
+  if (rowIndex === -1) return false;
+
+  const currentRow = rows[rowIndex];
+  const updatedRow = [
+    id,
+    updates.name ?? currentRow[1],
+    updates.pin ?? currentRow[2],
+    updates.email ?? currentRow[3],
+    updates.status ?? currentRow[4],
+    currentRow[5],
+  ];
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Approvers!A${rowIndex + 2}:F${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [updatedRow] },
+  });
+
+  return true;
+}
+
 // ==================== INVOICES ====================
 
 export interface Invoice {
@@ -117,9 +199,14 @@ export interface Invoice {
   purpose: string;
   amount: string;
   remarks: string;
-  fileUrl: string;
-  fileName: string;
+  invoiceFileUrl: string;
+  invoiceFileName: string;
+  workPhotos: string; // comma-separated URLs
+  measurementSheetUrl: string;
+  measurementSheetName: string;
   status: 'submitted' | 'under_review' | 'approved' | 'paid' | 'rejected';
+  approvalComments: string;
+  approvedBy: string;
   submittedAt: string;
   updatedAt: string;
 }
@@ -128,7 +215,7 @@ export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:L',
+    range: 'Invoices!A2:Q',
   });
 
   const rows = response.data.values || [];
@@ -140,11 +227,16 @@ export async function getInvoices(): Promise<Invoice[]> {
     purpose: row[4] || '',
     amount: row[5] || '',
     remarks: row[6] || '',
-    fileUrl: row[7] || '',
-    fileName: row[8] || '',
-    status: (row[9] as Invoice['status']) || 'submitted',
-    submittedAt: row[10] || '',
-    updatedAt: row[11] || '',
+    invoiceFileUrl: row[7] || '',
+    invoiceFileName: row[8] || '',
+    workPhotos: row[9] || '',
+    measurementSheetUrl: row[10] || '',
+    measurementSheetName: row[11] || '',
+    status: (row[12] as Invoice['status']) || 'submitted',
+    approvalComments: row[13] || '',
+    approvedBy: row[14] || '',
+    submittedAt: row[15] || '',
+    updatedAt: row[16] || '',
   }));
 }
 
@@ -153,14 +245,16 @@ export async function getVendorInvoices(vendorName: string): Promise<Invoice[]> 
   return invoices.filter((inv) => inv.vendorName === vendorName);
 }
 
-export async function addInvoice(invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt'>): Promise<Invoice> {
+export async function addInvoice(
+  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvalComments' | 'approvedBy'>
+): Promise<Invoice> {
   const sheets = getSheets();
   const id = `INV${Date.now()}`;
   const now = new Date().toISOString();
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:L',
+    range: 'Invoices!A:Q',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -171,23 +265,33 @@ export async function addInvoice(invoice: Omit<Invoice, 'id' | 'submittedAt' | '
         invoice.purpose,
         invoice.amount,
         invoice.remarks,
-        invoice.fileUrl,
-        invoice.fileName,
+        invoice.invoiceFileUrl,
+        invoice.invoiceFileName,
+        invoice.workPhotos,
+        invoice.measurementSheetUrl,
+        invoice.measurementSheetName,
         invoice.status || 'submitted',
+        '', // approvalComments
+        '', // approvedBy
         now,
         now,
       ]],
     },
   });
 
-  return { ...invoice, id, submittedAt: now, updatedAt: now };
+  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now };
 }
 
-export async function updateInvoiceStatus(id: string, status: Invoice['status']): Promise<boolean> {
+export async function updateInvoiceStatus(
+  id: string,
+  status: Invoice['status'],
+  approvalComments?: string,
+  approvedBy?: string
+): Promise<boolean> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:L',
+    range: 'Invoices!A2:Q',
   });
 
   const rows = response.data.values || [];
@@ -195,13 +299,22 @@ export async function updateInvoiceStatus(id: string, status: Invoice['status'])
   if (rowIndex === -1) return false;
 
   const now = new Date().toISOString();
+  const currentRow = rows[rowIndex];
 
-  // Update status (column J = index 9) and updatedAt (column L = index 11)
+  // Update status (M=12), approval comments (N=13), approved by (O=14), updated at (Q=16)
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `Invoices!J${rowIndex + 2}:L${rowIndex + 2}`,
+    range: `Invoices!M${rowIndex + 2}:Q${rowIndex + 2}`,
     valueInputOption: 'RAW',
-    requestBody: { values: [[status, rows[rowIndex][10], now]] },
+    requestBody: {
+      values: [[
+        status,
+        approvalComments ?? currentRow[13] ?? '',
+        approvedBy ?? currentRow[14] ?? '',
+        currentRow[15] ?? now,
+        now,
+      ]],
+    },
   });
 
   return true;
@@ -212,7 +325,6 @@ export async function updateInvoiceStatus(id: string, status: Invoice['status'])
 export async function initializeSheetHeaders(): Promise<void> {
   const sheets = getSheets();
 
-  // Check if Vendors tab exists
   const spreadsheet = await sheets.spreadsheets.get({
     spreadsheetId: SHEET_ID,
   });
@@ -226,6 +338,9 @@ export async function initializeSheetHeaders(): Promise<void> {
   }
   if (!existingSheets.includes('Invoices')) {
     requests.push({ addSheet: { properties: { title: 'Invoices' } } });
+  }
+  if (!existingSheets.includes('Approvers')) {
+    requests.push({ addSheet: { properties: { title: 'Approvers' } } });
   }
 
   if (requests.length > 0) {
@@ -255,16 +370,38 @@ export async function initializeSheetHeaders(): Promise<void> {
   // Set headers for Invoices tab
   const invoiceHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A1:L1',
+    range: 'Invoices!A1:Q1',
   });
 
   if (!invoiceHeaders.data.values || invoiceHeaders.data.values.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Invoices!A1:L1',
+      range: 'Invoices!A1:Q1',
       valueInputOption: 'RAW',
       requestBody: {
-        values: [['ID', 'Vendor Name', 'Invoice Date', 'Invoice Number', 'Purpose', 'Amount', 'Remarks', 'File URL', 'File Name', 'Status', 'Submitted At', 'Updated At']],
+        values: [[
+          'ID', 'Vendor Name', 'Invoice Date', 'Invoice Number', 'Purpose', 'Amount',
+          'Remarks', 'Invoice File URL', 'Invoice File Name', 'Work Photos',
+          'Measurement Sheet URL', 'Measurement Sheet Name', 'Status',
+          'Approval Comments', 'Approved By', 'Submitted At', 'Updated At'
+        ]],
+      },
+    });
+  }
+
+  // Set headers for Approvers tab
+  const approverHeaders = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Approvers!A1:F1',
+  });
+
+  if (!approverHeaders.data.values || approverHeaders.data.values.length === 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'Approvers!A1:F1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Approver Name', 'PIN', 'Email', 'Status', 'Created At']],
       },
     });
   }
