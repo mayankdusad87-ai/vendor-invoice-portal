@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyVendorToken } from '@/lib/auth';
 import { put } from '@vercel/blob';
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
-    if (!token || !verifyVendorToken(token)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const formData = await request.formData();
     const files = formData.getAll('files') as File[];
     const singleFile = formData.get('file') as File | null;

@@ -1,13 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function SubmitInvoice() {
-  const router = useRouter();
+  const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
   const [vendorName, setVendorName] = useState('');
-  const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -28,15 +26,30 @@ export default function SubmitInvoice() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const t = localStorage.getItem('vendorToken');
-    const name = localStorage.getItem('vendorName');
-    if (!t || !name) {
-      router.push('/vendor/login');
-      return;
-    }
-    setToken(t);
+    // Load vendor list for dropdown
+    const fetchVendors = async () => {
+      try {
+        const res = await fetch('/api/vendors?names=true');
+        const data = await res.json();
+        setVendors(data.vendors || []);
+      } catch {
+        console.error('Failed to load vendors');
+      }
+    };
+    fetchVendors();
+
+    // Restore previously selected vendor
+    const savedName = localStorage.getItem('vendorName');
+    if (savedName) setVendorName(savedName);
+  }, []);
+
+  // Save selected vendor to localStorage
+  const handleVendorChange = (name: string) => {
     setVendorName(name);
-  }, [router]);
+    if (name) {
+      localStorage.setItem('vendorName', name);
+    }
+  };
 
   const uploadFiles = async (files: File[]): Promise<{ url: string; fileName: string }[]> => {
     if (files.length === 0) return [];
@@ -46,7 +59,6 @@ export default function SubmitInvoice() {
 
     const res = await fetch('/api/upload', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
       body: formData,
     });
 
@@ -58,6 +70,12 @@ export default function SubmitInvoice() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!vendorName) {
+      setError('Please select your vendor name');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -97,11 +115,9 @@ export default function SubmitInvoice() {
       setUploadProgress('Submitting invoice...');
       const res = await fetch('/api/invoices', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          vendorName,
           ...form,
           invoiceFileUrl,
           invoiceFileName,
@@ -140,21 +156,12 @@ export default function SubmitInvoice() {
     if (files && files.length > 0) {
       setWorkPhotos((prev) => [...prev, ...Array.from(files)]);
     }
-    // Reset the input so the same file can be selected again
     if (cameraInputRef.current) cameraInputRef.current.value = '';
   };
 
   const removeWorkPhoto = (index: number) => {
     setWorkPhotos((prev) => prev.filter((_, i) => i !== index));
   };
-
-  const handleLogout = () => {
-    localStorage.removeItem('vendorToken');
-    localStorage.removeItem('vendorName');
-    router.push('/');
-  };
-
-  if (!token) return null;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -163,15 +170,15 @@ export default function SubmitInvoice() {
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-gray-900 dark:text-white">Site Engineer Portal</h1>
-            <p className="text-xs text-gray-500">Welcome, {vendorName}</p>
+            {vendorName && <p className="text-xs text-gray-500">Welcome, {vendorName}</p>}
           </div>
           <div className="flex items-center gap-3">
             <Link href="/vendor/invoices" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
               My Invoices
             </Link>
-            <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-600">
-              Logout
-            </button>
+            <Link href="/" className="text-sm text-gray-500 hover:text-gray-700">
+              Home
+            </Link>
           </div>
         </div>
       </header>
@@ -198,9 +205,30 @@ export default function SubmitInvoice() {
         ) : (
           <div className="card">
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Submit Invoice</h2>
-            <p className="text-sm text-gray-500 mb-6">Fill in details and upload evidence</p>
+            <p className="text-sm text-gray-500 mb-6">Select your name, fill in details, and upload evidence</p>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Vendor Selection */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <label className="block text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">
+                  👷 Select Your Name *
+                </label>
+                <select
+                  value={vendorName}
+                  onChange={(e) => handleVendorChange(e.target.value)}
+                  className="input-field text-base"
+                  required
+                >
+                  <option value="">-- Select your name --</option>
+                  {vendors.map((v) => (
+                    <option key={v.id} value={v.name}>{v.name}</option>
+                  ))}
+                </select>
+                {vendors.length === 0 && (
+                  <p className="text-xs text-blue-500 mt-1">No vendors registered yet. Ask admin to add you.</p>
+                )}
+              </div>
+
               {/* Basic Info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -419,7 +447,7 @@ export default function SubmitInvoice() {
                 <div className="bg-blue-50 text-blue-600 text-sm p-3 rounded-lg">{uploadProgress}</div>
               )}
 
-              <button type="submit" className="btn-primary w-full" disabled={loading}>
+              <button type="submit" className="btn-primary w-full" disabled={loading || !vendorName}>
                 {loading ? 'Submitting...' : 'Submit Invoice'}
               </button>
             </form>

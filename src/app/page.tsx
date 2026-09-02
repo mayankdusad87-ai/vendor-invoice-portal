@@ -20,7 +20,7 @@ export default function Home() {
 
   const roles = [
     {
-      href: '/vendor/login',
+      href: '/vendor/submit',
       title: 'Site Engineer',
       description: 'Submit invoices with photos & evidence',
       iconBg: 'bg-blue-100',

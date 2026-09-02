@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { INVOICE_STATUSES } from '@/lib/constants';
 import type { InvoiceStatus } from '@/lib/constants';
 
 interface Invoice {
@@ -33,19 +32,16 @@ export default function VendorInvoices() {
   const [vendorName, setVendorName] = useState('');
 
   useEffect(() => {
-    const token = localStorage.getItem('vendorToken');
     const name = localStorage.getItem('vendorName');
-    if (!token || !name) {
-      router.push('/vendor/login');
+    if (!name) {
+      router.push('/vendor/submit');
       return;
     }
     setVendorName(name);
 
     const fetchInvoices = async () => {
       try {
-        const res = await fetch('/api/invoices', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(`/api/invoices?vendorName=${encodeURIComponent(name)}`);
         const data = await res.json();
         if (res.ok) {
           setInvoices(data.invoices || []);
@@ -57,12 +53,6 @@ export default function VendorInvoices() {
     };
     fetchInvoices();
   }, [router]);
-
-  const handleLogout = () => {
-    localStorage.removeItem('vendorToken');
-    localStorage.removeItem('vendorName');
-    router.push('/');
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -76,9 +66,9 @@ export default function VendorInvoices() {
             <Link href="/vendor/submit" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
               Submit New
             </Link>
-            <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-600">
-              Logout
-            </button>
+            <Link href="/" className="text-sm text-gray-500 hover:text-gray-700">
+              Home
+            </Link>
           </div>
         </div>
       </header>

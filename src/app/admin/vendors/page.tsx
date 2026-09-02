@@ -26,7 +26,6 @@ export default function AdminVendors() {
 
   const [form, setForm] = useState({
     name: '',
-    pin: '',
     phone: '',
     email: '',
   });
@@ -96,7 +95,7 @@ export default function AdminVendors() {
       }
 
       // Reset and refresh
-      setForm({ name: '', pin: '', phone: '', email: '' });
+      setForm({ name: '', phone: '', email: '' });
       setShowForm(false);
       setEditingVendor(null);
       await fetchVendors();
@@ -111,7 +110,6 @@ export default function AdminVendors() {
     setEditingVendor(vendor);
     setForm({
       name: vendor.name,
-      pin: vendor.pin,
       phone: vendor.phone,
       email: vendor.email,
     });
@@ -139,7 +137,7 @@ export default function AdminVendors() {
   const cancelForm = () => {
     setShowForm(false);
     setEditingVendor(null);
-    setForm({ name: '', pin: '', phone: '', email: '' });
+    setForm({ name: '', phone: '', email: '' });
     setError('');
   };
 
@@ -186,7 +184,7 @@ export default function AdminVendors() {
               {editingVendor ? 'Edit Vendor' : 'Add New Vendor'}
             </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Vendor Name *
@@ -197,19 +195,6 @@ export default function AdminVendors() {
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     className="input-field"
                     placeholder="Enter vendor name"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    PIN *
-                  </label>
-                  <input
-                    type="text"
-                    value={form.pin}
-                    onChange={(e) => setForm({ ...form, pin: e.target.value })}
-                    className="input-field"
-                    placeholder="Set a login PIN"
                     required
                   />
                 </div>
@@ -283,7 +268,6 @@ export default function AdminVendors() {
                     <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
                       {vendor.phone && <span>📱 {vendor.phone}</span>}
                       {vendor.email && <span>✉️ {vendor.email}</span>}
-                      <span>PIN: {vendor.pin}</span>
                       <span>Added: {new Date(vendor.createdAt).toLocaleDateString('en-IN')}</span>
                     </div>
                   </div>

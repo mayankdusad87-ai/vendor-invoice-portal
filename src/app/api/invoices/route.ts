@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getInvoices, getVendorInvoices, addInvoice, updateInvoiceStatus } from '@/lib/google-sheets';
-import { verifyToken, verifyAdminToken, verifyVendorToken, verifyApproverToken } from '@/lib/auth';
+import { verifyToken, verifyAdminToken, verifyApproverToken } from '@/lib/auth';
 
 // GET /api/invoices - get invoices
 export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
+    const vendorNameParam = request.nextUrl.searchParams.get('vendorName');
 
+    // Site engineer: filter by vendor name (no auth needed)
+    if (vendorNameParam) {
+      const invoices = await getVendorInvoices(vendorNameParam);
+      invoices.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      return NextResponse.json({ invoices });
+    }
+
+    // Admin/Approver: requires auth token
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -21,7 +30,7 @@ export async function GET(request: NextRequest) {
     if (payload.type === 'admin' || payload.type === 'approver') {
       invoices = await getInvoices();
     } else {
-      invoices = await getVendorInvoices(payload.vendorName);
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Sort by submitted date (newest first)
@@ -37,27 +46,22 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/invoices - submit new invoice (vendor only)
+// POST /api/invoices - submit new invoice (site engineer, no auth needed)
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const vendorPayload = verifyVendorToken(token);
-    if (!vendorPayload) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const body = await request.json();
     const {
-      invoiceDate, invoiceNumber, purpose, amount, remarks,
+      vendorName, invoiceDate, invoiceNumber, purpose, amount, remarks,
       invoiceFileUrl, invoiceFileName,
       workPhotos, measurementSheetUrl, measurementSheetName
     } = body;
+
+    if (!vendorName) {
+      return NextResponse.json(
+        { error: 'Vendor name is required' },
+        { status: 400 }
+      );
+    }
 
     if (!invoiceDate || !invoiceNumber || !purpose || !amount) {
       return NextResponse.json(
@@ -67,7 +71,7 @@ export async function POST(request: NextRequest) {
     }
 
     const invoice = await addInvoice({
-      vendorName: vendorPayload.vendorName,
+      vendorName,
       invoiceDate,
       invoiceNumber,
       purpose,

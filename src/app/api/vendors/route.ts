@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     const token = authHeader?.replace('Bearer ', '');
     const onlyNames = request.nextUrl.searchParams.get('names') === 'true';
 
-    // For vendor login dropdown, return only active vendor names (no auth needed)
+    // For vendor dropdown, return only active vendor names (no auth needed)
     if (onlyNames) {
       const vendors = await getActiveVendors();
       return NextResponse.json({
@@ -44,11 +44,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, pin, phone, email } = body;
+    const { name, phone, email } = body;
 
-    if (!name || !pin) {
+    if (!name) {
       return NextResponse.json(
-        { error: 'Vendor name and PIN are required' },
+        { error: 'Vendor name is required' },
         { status: 400 }
       );
     }
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
     const vendor = await addVendor({
       name,
-      pin,
+      pin: '', // PIN no longer required — site engineers select name directly
       phone: phone || '',
       email: email || '',
       status: 'active',
