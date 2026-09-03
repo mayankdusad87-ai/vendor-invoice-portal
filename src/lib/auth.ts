@@ -25,12 +25,19 @@ export interface ApproverToken {
   approverId: string;
 }
 
+export interface EngineerToken {
+  type: 'engineer';
+  engineerName: string;
+  engineerId: string;
+  engineerEmail: string;
+}
+
 export interface AdminToken {
   type: 'admin';
   username: string;
 }
 
-export type TokenPayload = VendorToken | ApproverToken | AdminToken;
+export type TokenPayload = VendorToken | ApproverToken | EngineerToken | AdminToken;
 
 // ==================== TOKEN SIGN / VERIFY ====================
 
@@ -153,6 +160,35 @@ export function requireVendor(request: NextRequest): VendorToken | NextResponse 
     return NextResponse.json({ error: 'Forbidden: vendor role required' }, { status: 403 });
   }
   return session as VendorToken;
+}
+
+/**
+ * Require an authenticated billing engineer. Returns EngineerToken or 401/403 response.
+ */
+export function requireEngineer(request: NextRequest): EngineerToken | NextResponse {
+  const session = getSessionFromCookie(request);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (session.type !== 'engineer') {
+    return NextResponse.json({ error: 'Forbidden: engineer role required' }, { status: 403 });
+  }
+  return session as EngineerToken;
+}
+
+/**
+ * Require an authenticated engineer or vendor. Returns the payload or error response.
+ * Used by routes where billing engineers submit invoices.
+ */
+export function requireEngineerOrVendor(request: NextRequest): (EngineerToken | VendorToken) | NextResponse {
+  const session = getSessionFromCookie(request);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (session.type !== 'engineer' && session.type !== 'vendor') {
+    return NextResponse.json({ error: 'Forbidden: engineer or vendor role required' }, { status: 403 });
+  }
+  return session as EngineerToken | VendorToken;
 }
 
 /**

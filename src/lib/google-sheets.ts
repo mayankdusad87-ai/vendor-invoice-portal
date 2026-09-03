@@ -107,6 +107,88 @@ export async function deleteVendor(id: string): Promise<boolean> {
   return updateVendor(id, { status: 'inactive' });
 }
 
+// ==================== BILLING ENGINEERS ====================
+
+export interface Engineer {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+}
+
+export async function getEngineers(): Promise<Engineer[]> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Engineers!A2:F',
+  });
+
+  const rows = response.data.values || [];
+  return rows.map((row) => ({
+    id: row[0] || '',
+    name: row[1] || '',
+    email: row[2] || '',
+    password: row[3] || '',
+    status: (row[4] as 'active' | 'inactive') || 'active',
+    createdAt: row[5] || '',
+  }));
+}
+
+export async function getActiveEngineers(): Promise<Engineer[]> {
+  const engineers = await getEngineers();
+  return engineers.filter((e) => e.status === 'active');
+}
+
+export async function addEngineer(engineer: Omit<Engineer, 'id' | 'createdAt'>): Promise<Engineer> {
+  const sheets = getSheets();
+  const id = `ENG${Date.now()}`;
+  const createdAt = new Date().toISOString();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: 'Engineers!A:F',
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[id, engineer.name, engineer.email, engineer.password, engineer.status, createdAt]],
+    },
+  });
+
+  return { ...engineer, id, createdAt };
+}
+
+export async function updateEngineer(id: string, updates: Partial<Engineer>): Promise<boolean> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Engineers!A2:F',
+  });
+
+  const rows = response.data.values || [];
+  const rowIndex = rows.findIndex((row) => row[0] === id);
+  if (rowIndex === -1) return false;
+
+  const currentRow = rows[rowIndex];
+  const updatedRow = [
+    id,
+    updates.name ?? currentRow[1],
+    updates.email ?? currentRow[2],
+    updates.password ?? currentRow[3],
+    updates.status ?? currentRow[4],
+    currentRow[5],
+  ];
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Engineers!A${rowIndex + 2}:F${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [updatedRow] },
+  });
+
+  return true;
+}
+
 // ==================== APPROVERS ====================
 
 export interface Approver {
@@ -487,6 +569,9 @@ export async function initializeSheetHeaders(): Promise<void> {
   if (!existingSheets.includes('RejectionReasons')) {
     requests.push({ addSheet: { properties: { title: 'RejectionReasons' } } });
   }
+  if (!existingSheets.includes('Engineers')) {
+    requests.push({ addSheet: { properties: { title: 'Engineers' } } });
+  }
 
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
@@ -568,6 +653,23 @@ export async function initializeSheetHeaders(): Promise<void> {
       valueInputOption: 'RAW',
       requestBody: {
         values: [['ID', 'Reason', 'Status', 'Created At']],
+      },
+    });
+  }
+
+  // Set headers for Engineers tab
+  const engineerHeaders = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Engineers!A1:F1',
+  });
+
+  if (!engineerHeaders.data.values || engineerHeaders.data.values.length === 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'Engineers!A1:F1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Name', 'Email', 'Password', 'Status', 'Created At']],
       },
     });
   }

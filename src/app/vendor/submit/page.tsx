@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
-import { useVendorAuth } from '@/hooks/useVendorAuth';
+import { useEngineerAuth } from '@/hooks/useEngineerAuth';
 
 export default function SubmitInvoicePage() {
   return (
@@ -23,7 +23,7 @@ export default function SubmitInvoicePage() {
 function SubmitInvoice() {
   const searchParams = useSearchParams();
   const resubmitId = searchParams.get('resubmit');
-  const { vendorName: loggedInName, isReady: authReady, logout } = useVendorAuth();
+  const { engineerName: loggedInName, isReady: authReady, logout } = useEngineerAuth();
 
   // Vendors list for selection (billing engineer can submit for any vendor)
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);

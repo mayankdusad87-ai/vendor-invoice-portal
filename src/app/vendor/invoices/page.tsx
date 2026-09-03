@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import StatusBadge from '@/components/ui/StatusBadge';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
-import { useVendorAuth } from '@/hooks/useVendorAuth';
+import { useEngineerAuth } from '@/hooks/useEngineerAuth';
 import type { InvoiceStatus } from '@/lib/constants';
 
 interface Invoice {
@@ -27,7 +27,7 @@ interface Invoice {
 }
 
 export default function VendorInvoices() {
-  const { vendorName: loggedInName, isReady, logout } = useVendorAuth();
+  const { engineerName: loggedInName, isReady, logout } = useEngineerAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);

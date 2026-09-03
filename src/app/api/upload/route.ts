@@ -8,8 +8,8 @@ export async function POST(request: NextRequest) {
   const session = requireAuth(request);
   if (isAuthError(session)) return session;
 
-  // Only vendors (billing engineers) and admins can upload files
-  if (session.type !== 'vendor' && session.type !== 'admin') {
+  // Only engineers, vendors, and admins can upload files
+  if (session.type !== 'engineer' && session.type !== 'vendor' && session.type !== 'admin') {
     return NextResponse.json({ error: 'Forbidden: upload not allowed for this role' }, { status: 403 });
   }
 

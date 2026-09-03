@@ -22,6 +22,16 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  if (session.type === 'engineer') {
+    return NextResponse.json({
+      authenticated: true,
+      role: 'engineer',
+      engineerName: session.engineerName,
+      engineerId: session.engineerId,
+      engineerEmail: session.engineerEmail,
+    });
+  }
+
   if (session.type === 'approver') {
     return NextResponse.json({
       authenticated: true,

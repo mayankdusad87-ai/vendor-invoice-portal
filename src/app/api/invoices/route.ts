@@ -4,10 +4,10 @@ import {
   addInvoice, updateInvoiceStatus, resubmitInvoice,
 } from '@/lib/google-sheets';
 import {
-  requireAuth, requireVendor, requireAdminOrApprover,
+  requireAuth, requireEngineerOrVendor, requireAdminOrApprover,
   isAuthError,
 } from '@/lib/auth';
-import type { VendorToken, AdminToken, ApproverToken } from '@/lib/auth';
+import type { AdminToken, ApproverToken } from '@/lib/auth';
 import {
   rateLimit, getRateLimitKey, rateLimitResponse,
   sanitizeString, sanitizeAmount, sanitizeDate,
@@ -19,9 +19,9 @@ export async function GET(request: NextRequest) {
     const session = requireAuth(request);
     if (isAuthError(session)) return session;
 
-    // Vendor/billing engineer: can view invoices for a selected vendor name
+    // Engineer or vendor: can view invoices for a selected vendor name
     // but must be authenticated first
-    if (session.type === 'vendor') {
+    if (session.type === 'engineer' || session.type === 'vendor') {
       const vendorNameParam = request.nextUrl.searchParams.get('vendorName');
 
       // Rate limit vendor queries: 30 per minute per IP
@@ -66,12 +66,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/invoices — submit new invoice (vendor/billing engineer only)
+// POST /api/invoices — submit new invoice (engineer or vendor only)
 export async function POST(request: NextRequest) {
-  // Authenticate: must be a vendor/billing engineer
-  const session = requireVendor(request);
+  // Authenticate: must be an engineer or vendor
+  const session = requireEngineerOrVendor(request);
   if (isAuthError(session)) return session;
-  const vendorSession = session as VendorToken;
 
   // Rate limit submissions: 10 per minute per IP
   const key = getRateLimitKey(request, 'submit-invoice');
@@ -204,10 +203,10 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// PATCH /api/invoices — resubmit a rejected invoice (vendor/billing engineer only)
+// PATCH /api/invoices — resubmit a rejected invoice (engineer or vendor only)
 export async function PATCH(request: NextRequest) {
-  // Authenticate: must be a vendor/billing engineer
-  const session = requireVendor(request);
+  // Authenticate: must be an engineer or vendor
+  const session = requireEngineerOrVendor(request);
   if (isAuthError(session)) return session;
 
   // Rate limit resubmissions: 5 per minute per IP

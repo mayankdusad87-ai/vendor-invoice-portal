@@ -13,9 +13,8 @@ export default function LoginPage() {
   const [initialized, setInitialized] = useState(false);
 
   // Billing Engineer state
-  const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
-  const [selectedVendor, setSelectedVendor] = useState('');
-  const [vendorPin, setVendorPin] = useState('');
+  const [engineerEmail, setEngineerEmail] = useState('');
+  const [engineerPassword, setEngineerPassword] = useState('');
 
   // Approver state
   const [approvers, setApprovers] = useState<{ id: string; name: string }[]>([]);
@@ -34,6 +33,7 @@ export default function LoginPage() {
         const data = await res.json();
         if (res.ok && data.authenticated) {
           // Already logged in — redirect to appropriate dashboard
+          if (data.role === 'engineer') { router.push('/vendor/submit'); return; }
           if (data.role === 'vendor') { router.push('/vendor/submit'); return; }
           if (data.role === 'approver') { router.push('/approver/dashboard'); return; }
           if (data.role === 'admin') { router.push('/admin/dashboard'); return; }
@@ -43,16 +43,11 @@ export default function LoginPage() {
     };
     checkSession();
 
-    // Load vendor & approver lists for login dropdowns
+    // Load approver list for login dropdown
     const loadData = async () => {
       try {
-        const [vendorRes, approverRes] = await Promise.all([
-          fetch('/api/vendors?names=true'),
-          fetch('/api/approvers?names=true'),
-        ]);
-        const vendorData = await vendorRes.json();
+        const approverRes = await fetch('/api/approvers?names=true');
         const approverData = await approverRes.json();
-        setVendors(vendorData.vendors || []);
         setApprovers(approverData.approvers || []);
       } catch { /* silent */ }
     };
@@ -60,21 +55,21 @@ export default function LoginPage() {
   }, [router]);
 
   const handleBillingLogin = async () => {
-    if (!selectedVendor) {
-      setError('Please select your name');
+    if (!engineerEmail.trim()) {
+      setError('Please enter your email');
       return;
     }
-    if (!vendorPin) {
-      setError('Please enter your PIN');
+    if (!engineerPassword) {
+      setError('Please enter your password');
       return;
     }
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/auth/vendor-login', {
+      const res = await fetch('/api/auth/engineer-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vendorName: selectedVendor, pin: vendorPin }),
+        body: JSON.stringify({ email: engineerEmail.trim(), password: engineerPassword }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -226,36 +221,28 @@ export default function LoginPage() {
               <div className="space-y-4 fade-in">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(148, 163, 184, 0.7)' }}>
-                    Select Your Name
+                    Email
                   </label>
-                  <select
-                    value={selectedVendor}
-                    onChange={(e) => setSelectedVendor(e.target.value)}
+                  <input
+                    type="email"
+                    value={engineerEmail}
+                    onChange={(e) => setEngineerEmail(e.target.value)}
                     className="glass-input"
-                    aria-label="Select your vendor name"
-                  >
-                    <option value="">-- Select your name --</option>
-                    {vendors.map((v) => (
-                      <option key={v.id} value={v.name}>{v.name}</option>
-                    ))}
-                  </select>
-                  {vendors.length === 0 && (
-                    <p className="text-xs mt-1.5" style={{ color: 'rgba(148, 163, 184, 0.5)' }}>No vendors registered. Contact admin.</p>
-                  )}
+                    placeholder="Enter your email"
+                    autoComplete="username"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(148, 163, 184, 0.7)' }}>
-                    PIN
+                    Password
                   </label>
                   <input
                     type="password"
-                    inputMode="numeric"
-                    value={vendorPin}
-                    onChange={(e) => setVendorPin(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    value={engineerPassword}
+                    onChange={(e) => setEngineerPassword(e.target.value)}
                     className="glass-input"
-                    placeholder="Enter your PIN"
+                    placeholder="Enter your password"
                     autoComplete="current-password"
-                    maxLength={10}
                   />
                 </div>
 
