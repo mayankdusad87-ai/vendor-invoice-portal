@@ -15,112 +15,35 @@ function getDrive() {
   return google.drive({ version: 'v3', auth: getAuth() });
 }
 
-// Cache the folder ID in memory (resets on cold start, but that's fine)
-let cachedFolderId: string | null = null;
-
 /**
- * Get or find the upload folder.
- * - If DRIVE_FOLDER_ID is set → use it directly (preferred for Shared Drives)
- * - Otherwise → search for existing "Vendor Invoice Portal" folder owned by
- *   the service account and create one if missing
- *
- * No public permissions are set — files are served via the /api/files proxy.
+ * Get the Shared Drive folder ID from environment.
+ * Must point to a folder (or Shared Drive root) where the service account
+ * has Content Manager / Contributor access.
  */
-async function getUploadFolderId(): Promise<string> {
-  // 1. Explicit env var takes priority
-  if (process.env.DRIVE_FOLDER_ID) {
-    return process.env.DRIVE_FOLDER_ID;
+function getFolderId(): string {
+  const folderId = process.env.DRIVE_FOLDER_ID;
+  if (!folderId) {
+    throw new Error(
+      'DRIVE_FOLDER_ID is not set. ' +
+      'Create a Shared Drive in Google Workspace, add the service account ' +
+      'as a Content Manager, and set this variable to the Shared Drive or folder ID.'
+    );
   }
-
-  // 2. Cached from a previous call this cold start
-  if (cachedFolderId) return cachedFolderId;
-
-  const drive = getDrive();
-  const folderName = 'Vendor Invoice Portal';
-
-  // 3. Search for existing folder
-  const existing = await drive.files.list({
-    q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: 'files(id)',
-    spaces: 'drive',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-
-  if (existing.data.files && existing.data.files.length > 0) {
-    cachedFolderId = existing.data.files[0].id!;
-
-    // Share with owner if configured
-    await shareWithOwner(cachedFolderId);
-
-    return cachedFolderId;
-  }
-
-  // 4. Create the folder (in the service account's Drive)
-  const folder = await drive.files.create({
-    requestBody: {
-      name: folderName,
-      mimeType: 'application/vnd.google-apps.folder',
-    },
-    fields: 'id',
-  });
-
-  const folderId = folder.data.id!;
-
-  // Share folder with owner so they can browse files in their Drive
-  await shareWithOwner(folderId);
-
-  cachedFolderId = folderId;
   return folderId;
 }
 
 /**
- * Share a file/folder with the owner email so they can see it in their Drive.
- * Silently skips if DRIVE_OWNER_EMAIL is not set or sharing fails.
- */
-async function shareWithOwner(fileId: string) {
-  const ownerEmail = process.env.DRIVE_OWNER_EMAIL;
-  if (!ownerEmail) return;
-
-  const drive = getDrive();
-  try {
-    const perms = await drive.permissions.list({
-      fileId,
-      fields: 'permissions(emailAddress,role)',
-      supportsAllDrives: true,
-    });
-
-    const alreadyShared = perms.data.permissions?.some(
-      (p) => p.emailAddress?.toLowerCase() === ownerEmail.toLowerCase()
-    );
-
-    if (!alreadyShared) {
-      await drive.permissions.create({
-        fileId,
-        requestBody: {
-          role: 'writer',
-          type: 'user',
-          emailAddress: ownerEmail,
-        },
-        sendNotificationEmail: false,
-        supportsAllDrives: true,
-      });
-    }
-  } catch (err) {
-    // Don't fail uploads if sharing fails
-    console.warn('Could not share with owner:', err);
-  }
-}
-
-/**
- * Upload a single file to Google Drive.
+ * Upload a single file to the Shared Drive folder.
  * Files are NOT made public — they are accessed via the /api/files proxy.
+ *
+ * Uses supportsAllDrives so the file is owned by the Shared Drive
+ * (storage quota comes from the organization, not the service account).
  */
 export async function uploadFileToDrive(
   file: File
 ): Promise<{ url: string; fileName: string; fileId: string }> {
   const drive = getDrive();
-  const folderId = await getUploadFolderId();
+  const folderId = getFolderId();
 
   // Convert Web API File to Node.js Readable stream
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -128,7 +51,6 @@ export async function uploadFileToDrive(
 
   const uniqueName = `${Date.now()}-${file.name}`;
 
-  // Upload file to Google Drive (supportsAllDrives for Shared Drive support)
   const uploaded = await drive.files.create({
     requestBody: {
       name: uniqueName,
@@ -144,8 +66,7 @@ export async function uploadFileToDrive(
 
   const fileId = uploaded.data.id!;
 
-  // Return a proxy URL — files are served through /api/files/[fileId]
-  // No public permissions are created; the proxy handles auth
+  // Proxy URL — files are served through /api/files/[fileId]
   const url = `/api/files/${fileId}`;
 
   return { url, fileName: file.name, fileId };
