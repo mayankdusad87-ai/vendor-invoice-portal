@@ -30,15 +30,27 @@ interface RejectionReason {
   reason: string;
 }
 
-function isImageUrl(url: string): boolean {
+function isImageUrl(url: string, fileName?: string): boolean {
   if (!url) return false;
+  // Proxy URLs — check the original file name for extension
+  if (url.startsWith('/api/files/')) {
+    if (fileName) {
+      return /\.(jpg|jpeg|png|webp|gif|heic|heif)$/i.test(fileName);
+    }
+    return false; // Unknown type without filename — treat as non-image
+  }
+  // Legacy direct Google Drive image URLs
   if (url.includes('lh3.googleusercontent.com/d/')) return true;
   if (url.includes('drive.google.com/uc')) return true;
   if (/\.(jpg|jpeg|png|webp|gif|heic)(\?|$)/i.test(url)) return true;
   return false;
 }
 
-function getDrivePreviewUrl(url: string): string | null {
+function getPreviewUrl(url: string): string | null {
+  if (!url) return null;
+  // Proxy URLs work directly in iframes (PDFs render inline)
+  if (url.startsWith('/api/files/')) return url;
+  // Legacy Google Drive URLs
   const match = url.match(/drive\.google\.com\/file\/d\/([^/]+)\//);
   if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
   return null;
@@ -265,10 +277,10 @@ export default function ApproverDashboard() {
             {filteredInvoices.map((invoice) => {
               const isExpanded = expandedId === invoice.id;
               const photoUrls = invoice.workPhotos ? invoice.workPhotos.split(',').filter(Boolean) : [];
-              const invoiceIsImage = isImageUrl(invoice.invoiceFileUrl);
-              const invoiceDrivePreview = !invoiceIsImage ? getDrivePreviewUrl(invoice.invoiceFileUrl) : null;
-              const measurementIsImage = isImageUrl(invoice.measurementSheetUrl);
-              const measurementDrivePreview = !measurementIsImage ? getDrivePreviewUrl(invoice.measurementSheetUrl) : null;
+              const invoiceIsImage = isImageUrl(invoice.invoiceFileUrl, invoice.invoiceFileName);
+              const invoicePreview = !invoiceIsImage ? getPreviewUrl(invoice.invoiceFileUrl) : null;
+              const measurementIsImage = isImageUrl(invoice.measurementSheetUrl, invoice.measurementSheetName);
+              const measurementPreview = !measurementIsImage ? getPreviewUrl(invoice.measurementSheetUrl) : null;
               const isPending = invoice.status === 'submitted' || invoice.status === 'under_review';
 
               return (
@@ -354,16 +366,16 @@ export default function ApproverDashboard() {
                               onClick={() => setLightboxUrl(invoice.invoiceFileUrl)}
                             />
                           )}
-                          {invoiceDrivePreview && (
+                          {invoicePreview && (
                             <iframe
-                              src={invoiceDrivePreview}
+                              src={invoicePreview}
                               className="w-full rounded-lg"
                               style={{ height: '500px', border: '1px solid var(--border)' }}
                               title={`Invoice ${invoice.invoiceNumber} preview`}
                               allow="autoplay"
                             />
                           )}
-                          {!invoiceIsImage && !invoiceDrivePreview && (
+                          {!invoiceIsImage && !invoicePreview && (
                             <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer" className="btn-primary inline-flex text-sm">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
@@ -371,7 +383,7 @@ export default function ApproverDashboard() {
                               Open Invoice in New Tab
                             </a>
                           )}
-                          {(invoiceIsImage || invoiceDrivePreview) && (
+                          {(invoiceIsImage || invoicePreview) && (
                             <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-xs mt-2 hover:underline" style={{ color: 'var(--primary)' }}>
                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -418,12 +430,12 @@ export default function ApproverDashboard() {
                               style={{ background: 'white', border: '1px solid var(--border)' }}
                               onClick={() => setLightboxUrl(invoice.measurementSheetUrl)} />
                           )}
-                          {measurementDrivePreview && (
-                            <iframe src={measurementDrivePreview} className="w-full rounded-lg"
+                          {measurementPreview && (
+                            <iframe src={measurementPreview} className="w-full rounded-lg"
                               style={{ height: '400px', border: '1px solid var(--border)' }}
                               title="Measurement sheet preview" allow="autoplay" />
                           )}
-                          {!measurementIsImage && !measurementDrivePreview && (
+                          {!measurementIsImage && !measurementPreview && (
                             <a href={invoice.measurementSheetUrl} target="_blank" rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-sm hover:underline" style={{ color: 'var(--primary)' }}>
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -432,7 +444,7 @@ export default function ApproverDashboard() {
                               {invoice.measurementSheetName || 'View Measurement Sheet'}
                             </a>
                           )}
-                          {(measurementIsImage || measurementDrivePreview) && (
+                          {(measurementIsImage || measurementPreview) && (
                             <a href={invoice.measurementSheetUrl} target="_blank" rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-xs mt-2 hover:underline" style={{ color: 'var(--primary)' }}>
                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

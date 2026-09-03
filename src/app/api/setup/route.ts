@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeSheetHeaders, getActiveRejectionReasons, addRejectionReason } from '@/lib/google-sheets';
-import { getOrCreateFolder } from '@/lib/google-drive';
 import { requireAdmin, isAuthError } from '@/lib/auth';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
@@ -16,9 +15,6 @@ export async function POST(request: NextRequest) {
 
   try {
     await initializeSheetHeaders();
-
-    // Also ensure Google Drive folder exists and is shared with the owner
-    const folderId = await getOrCreateFolder();
 
     // Seed default rejection reasons if none exist
     const existingReasons = await getActiveRejectionReasons();
@@ -38,11 +34,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const folderId = process.env.DRIVE_FOLDER_ID || '(not set)';
+
     return NextResponse.json({
       success: true,
-      message: 'Sheet initialized and Drive folder shared successfully',
+      message: 'Sheet initialized successfully',
       driveFolderId: folderId,
-      driveFolderUrl: `https://drive.google.com/drive/folders/${folderId}`,
+      driveFolderUrl: folderId !== '(not set)' ? `https://drive.google.com/drive/folders/${folderId}` : null,
     });
   } catch (error) {
     console.error('Setup error:', error);
