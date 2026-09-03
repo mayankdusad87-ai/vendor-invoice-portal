@@ -228,20 +228,17 @@ export default function ApproverDashboard() {
   if (!isReady) return null;
 
   return (
-    <div className="page-container">
-      {/* Header */}
-      <header className="app-header">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div className="min-h-screen bg-gray-50">
+      {/* Header — white premium */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-[var(--text-primary)]">Approver Dashboard</h1>
-            <p className="text-xs text-[var(--text-muted)]">Welcome, {approverName} &bull; {pendingCount} pending</p>
+            <h1 className="text-lg font-bold text-gray-900">Approver Dashboard</h1>
+            <p className="text-xs text-gray-500">Welcome, {approverName} · {pendingCount} pending</p>
           </div>
           <button
             onClick={logout}
-            className="text-sm font-medium min-h-[44px] px-2 transition-colors"
-            style={{ color: 'var(--text-muted)' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+            className="text-sm font-medium min-h-[44px] px-3 text-gray-400 hover:text-red-500 transition-colors"
             aria-label="Log out"
           >
             Logout
@@ -250,39 +247,51 @@ export default function ApproverDashboard() {
       </header>
 
       <main className="max-w-5xl mx-auto p-4 mt-4 fade-in">
-        {/* Summary Stat Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        {/* Summary Stat Cards — dark tiles on white background */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
           <button
             onClick={() => setFilter('all')}
-            className={`stat-card text-left transition-all ${filter === 'all' ? 'ring-2 ring-[var(--primary)]' : ''}`}
+            className={`rounded-xl p-4 text-left transition-all border-2 ${
+              filter === 'all' ? 'border-blue-500 shadow-lg shadow-blue-500/10' : 'border-transparent'
+            }`}
+            style={{ background: '#111827' }}
           >
-            <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Total Invoices</p>
-            <p className="text-2xl font-bold text-[var(--text-primary)]">{stats.total}</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">₹{stats.totalAmount.toLocaleString('en-IN')}</p>
+            <p className="text-xs font-medium text-gray-400 mb-1">Total Invoices</p>
+            <p className="text-2xl font-bold text-white">{stats.total}</p>
+            <p className="text-xs text-gray-500 mt-1">₹{stats.totalAmount.toLocaleString('en-IN')}</p>
           </button>
           <button
             onClick={() => setFilter('pending')}
-            className={`stat-card text-left transition-all ${filter === 'pending' ? 'ring-2 ring-[var(--warning)]' : ''}`}
+            className={`rounded-xl p-4 text-left transition-all border-2 ${
+              filter === 'pending' ? 'border-amber-500 shadow-lg shadow-amber-500/10' : 'border-transparent'
+            }`}
+            style={{ background: '#111827' }}
           >
-            <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Pending Review</p>
-            <p className="text-2xl font-bold" style={{ color: 'var(--warning)' }}>{stats.pendingCount}</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">₹{stats.pendingAmount.toLocaleString('en-IN')}</p>
+            <p className="text-xs font-medium text-gray-400 mb-1">Pending Review</p>
+            <p className="text-2xl font-bold text-amber-400">{stats.pendingCount}</p>
+            <p className="text-xs text-gray-500 mt-1">₹{stats.pendingAmount.toLocaleString('en-IN')}</p>
           </button>
           <button
             onClick={() => setFilter('approved')}
-            className={`stat-card text-left transition-all ${filter === 'approved' ? 'ring-2 ring-[var(--success)]' : ''}`}
+            className={`rounded-xl p-4 text-left transition-all border-2 ${
+              filter === 'approved' ? 'border-emerald-500 shadow-lg shadow-emerald-500/10' : 'border-transparent'
+            }`}
+            style={{ background: '#111827' }}
           >
-            <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Approved</p>
-            <p className="text-2xl font-bold" style={{ color: 'var(--success)' }}>{stats.approvedCount}</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">₹{stats.approvedAmount.toLocaleString('en-IN')}</p>
+            <p className="text-xs font-medium text-gray-400 mb-1">Approved</p>
+            <p className="text-2xl font-bold text-emerald-400">{stats.approvedCount}</p>
+            <p className="text-xs text-gray-500 mt-1">₹{stats.approvedAmount.toLocaleString('en-IN')}</p>
           </button>
           <button
             onClick={() => setFilter('rejected')}
-            className={`stat-card text-left transition-all ${filter === 'rejected' ? 'ring-2 ring-[var(--danger)]' : ''}`}
+            className={`rounded-xl p-4 text-left transition-all border-2 ${
+              filter === 'rejected' ? 'border-red-500 shadow-lg shadow-red-500/10' : 'border-transparent'
+            }`}
+            style={{ background: '#111827' }}
           >
-            <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Rejected</p>
-            <p className="text-2xl font-bold" style={{ color: 'var(--danger)' }}>{stats.rejectedCount}</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">₹{stats.rejectedAmount.toLocaleString('en-IN')}</p>
+            <p className="text-xs font-medium text-gray-400 mb-1">Rejected</p>
+            <p className="text-2xl font-bold text-red-400">{stats.rejectedCount}</p>
+            <p className="text-xs text-gray-500 mt-1">₹{stats.rejectedAmount.toLocaleString('en-IN')}</p>
           </button>
         </div>
 
@@ -301,14 +310,9 @@ export default function ApproverDashboard() {
               aria-selected={filter === tab.key}
               className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors min-h-[44px] ${
                 filter === tab.key
-                  ? 'text-[var(--text-on-primary)]'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  ? 'bg-gray-900 text-white shadow-sm'
+                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-gray-900'
               }`}
-              style={
-                filter === tab.key
-                  ? { background: 'var(--primary)' }
-                  : { background: 'var(--surface)', border: '1px solid var(--border)' }
-              }
             >
               {tab.label}
             </button>
@@ -319,18 +323,18 @@ export default function ApproverDashboard() {
         {loading ? (
           <LoadingSkeleton variant="card" count={3} />
         ) : filteredInvoices.length === 0 ? (
-          <div className="card text-center py-12">
-            <p className="text-[var(--text-muted)]">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm text-center py-12">
+            <p className="text-gray-500">
               {filter === 'pending' ? 'No pending invoices to review' : 'No invoices found'}
             </p>
             {filter === 'pending' && (
-              <svg className="w-10 h-10 mx-auto mt-3" style={{ color: 'var(--success)', opacity: 0.5 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-10 h-10 mx-auto mt-3 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             )}
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {filteredInvoices.map((invoice) => {
               const isExpanded = expandedId === invoice.id;
               const photoUrls = invoice.workPhotos ? invoice.workPhotos.split(',').filter(Boolean) : [];
@@ -341,7 +345,7 @@ export default function ApproverDashboard() {
               const isPending = invoice.status === 'submitted' || invoice.status === 'under_review';
 
               return (
-                <div key={invoice.id} className="card">
+                <div key={invoice.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 transition-shadow hover:shadow-md">
                   {/* Invoice Header — click to expand */}
                   <div
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 cursor-pointer"
@@ -353,15 +357,15 @@ export default function ApproverDashboard() {
                   >
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold text-[var(--text-primary)]">{invoice.invoiceNumber}</span>
-                        <span className="text-sm text-[var(--text-muted)]">&bull;</span>
-                        <span className="text-sm text-[var(--text-secondary)]">{invoice.vendorName}</span>
+                        <span className="font-bold text-gray-900">{invoice.invoiceNumber}</span>
+                        <span className="text-sm text-gray-400">·</span>
+                        <span className="text-sm text-gray-600">{invoice.vendorName}</span>
                         {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
                         <StatusBadge status={invoice.status} />
                       </div>
-                      <p className="text-sm text-[var(--text-secondary)] mt-1">{invoice.purpose}</p>
-                      <div className="flex flex-wrap gap-3 mt-1 text-xs text-[var(--text-muted)]">
-                        <span className="font-semibold text-base text-[var(--text-primary)]">
+                      <p className="text-sm text-gray-600 mt-1">{invoice.purpose}</p>
+                      <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
+                        <span className="font-semibold text-base text-gray-900">
                           ₹{Number(invoice.amount).toLocaleString('en-IN')}
                         </span>
                         <span className="self-center">
@@ -394,7 +398,7 @@ export default function ApproverDashboard() {
                       </div>
                     </div>
                     <svg
-                      className={`w-5 h-5 text-[var(--text-muted)] transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
+                      className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
                       fill="none" stroke="currentColor" viewBox="0 0 24 24"
                       aria-hidden="true"
                     >
@@ -404,21 +408,21 @@ export default function ApproverDashboard() {
 
                   {/* ===== Expanded Details ===== */}
                   {isExpanded && (
-                    <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
+                    <div className="mt-4 pt-4 border-t border-gray-100">
 
                       {/* Remarks */}
                       {invoice.remarks && (
                         <div className="mb-4">
-                          <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Remarks</p>
-                          <p className="text-sm text-[var(--text-secondary)]">{invoice.remarks}</p>
+                          <p className="text-xs font-medium text-gray-500 mb-1">Remarks</p>
+                          <p className="text-sm text-gray-700">{invoice.remarks}</p>
                         </div>
                       )}
 
                       {/* ── Invoice Document ── */}
                       {invoice.invoiceFileUrl && (
-                        <div className="mb-4 rounded-lg p-4" style={{ background: 'var(--primary-light)', border: '1px solid var(--border)' }}>
-                          <p className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
-                            <svg className="w-4 h-4" style={{ color: 'var(--primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="mb-4 rounded-lg p-4 bg-blue-50 border border-blue-100">
+                          <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                             </svg>
                             Invoice Document — {invoice.invoiceFileName || 'Uploaded file'}
@@ -427,22 +431,22 @@ export default function ApproverDashboard() {
                             <img
                               src={invoice.invoiceFileUrl}
                               alt={`Invoice ${invoice.invoiceNumber}`}
-                              className="w-full max-h-[500px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-                              style={{ background: 'white', border: '1px solid var(--border)' }}
+                              className="w-full max-h-[500px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity bg-white border border-gray-200"
                               onClick={() => setLightboxUrl(invoice.invoiceFileUrl)}
                             />
                           )}
                           {invoicePreview && (
                             <iframe
                               src={invoicePreview}
-                              className="w-full rounded-lg"
-                              style={{ height: '500px', border: '1px solid var(--border)' }}
+                              className="w-full rounded-lg border border-gray-200"
+                              style={{ height: '500px' }}
                               title={`Invoice ${invoice.invoiceNumber} preview`}
                               allow="autoplay"
                             />
                           )}
                           {!invoiceIsImage && !invoicePreview && (
-                            <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer" className="btn-primary inline-flex text-sm">
+                            <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                               </svg>
@@ -451,7 +455,7 @@ export default function ApproverDashboard() {
                           )}
                           {(invoiceIsImage || invoicePreview) && (
                             <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs mt-2 hover:underline" style={{ color: 'var(--primary)' }}>
+                              className="inline-flex items-center gap-1 text-xs mt-2 text-blue-600 hover:underline">
                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                               </svg>
@@ -464,7 +468,7 @@ export default function ApproverDashboard() {
                       {/* ── Work Photos ── */}
                       {photoUrls.length > 0 && (
                         <div className="mb-4">
-                          <p className="text-xs font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
+                          <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                             </svg>
@@ -473,8 +477,7 @@ export default function ApproverDashboard() {
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {photoUrls.map((url, i) => (
                               <img key={i} src={url} alt={`Work photo ${i + 1}`}
-                                className="w-full h-32 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
-                                style={{ border: '1px solid var(--border)' }}
+                                className="w-full h-32 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity border border-gray-200"
                                 onClick={() => setLightboxUrl(url)} />
                             ))}
                           </div>
@@ -484,7 +487,7 @@ export default function ApproverDashboard() {
                       {/* ── Measurement Sheet ── */}
                       {invoice.measurementSheetUrl && (
                         <div className="mb-4">
-                          <p className="text-xs font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
+                          <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
@@ -492,18 +495,17 @@ export default function ApproverDashboard() {
                           </p>
                           {measurementIsImage && (
                             <img src={invoice.measurementSheetUrl} alt="Measurement sheet"
-                              className="w-full max-h-[400px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-                              style={{ background: 'white', border: '1px solid var(--border)' }}
+                              className="w-full max-h-[400px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity bg-white border border-gray-200"
                               onClick={() => setLightboxUrl(invoice.measurementSheetUrl)} />
                           )}
                           {measurementPreview && (
-                            <iframe src={measurementPreview} className="w-full rounded-lg"
-                              style={{ height: '400px', border: '1px solid var(--border)' }}
+                            <iframe src={measurementPreview} className="w-full rounded-lg border border-gray-200"
+                              style={{ height: '400px' }}
                               title="Measurement sheet preview" allow="autoplay" />
                           )}
                           {!measurementIsImage && !measurementPreview && (
                             <a href={invoice.measurementSheetUrl} target="_blank" rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-sm hover:underline" style={{ color: 'var(--primary)' }}>
+                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                               </svg>
@@ -512,7 +514,7 @@ export default function ApproverDashboard() {
                           )}
                           {(measurementIsImage || measurementPreview) && (
                             <a href={invoice.measurementSheetUrl} target="_blank" rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs mt-2 hover:underline" style={{ color: 'var(--primary)' }}>
+                              className="inline-flex items-center gap-1 text-xs mt-2 text-blue-600 hover:underline">
                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                               </svg>
@@ -524,12 +526,12 @@ export default function ApproverDashboard() {
 
                       {/* ── Previous approval info ── */}
                       {invoice.approvedBy && (
-                        <div className="mb-4 rounded-lg p-3" style={{ background: 'var(--surface-muted)' }}>
-                          <p className="text-xs text-[var(--text-muted)]">
-                            {invoice.status === 'rejected' ? 'Rejected' : 'Approved'} by <strong>{invoice.approvedBy}</strong>
+                        <div className="mb-4 rounded-lg p-3 bg-gray-50 border border-gray-100">
+                          <p className="text-xs text-gray-500">
+                            {invoice.status === 'rejected' ? 'Rejected' : 'Approved'} by <strong className="text-gray-700">{invoice.approvedBy}</strong>
                           </p>
                           {invoice.approvalComments && (
-                            <p className="text-sm text-[var(--text-secondary)] mt-1">&ldquo;{invoice.approvalComments}&rdquo;</p>
+                            <p className="text-sm text-gray-600 mt-1 italic">&ldquo;{invoice.approvalComments}&rdquo;</p>
                           )}
                         </div>
                       )}
@@ -539,15 +541,15 @@ export default function ApproverDashboard() {
                         <div className="space-y-3">
                           {/* Rejection Reason Dropdown */}
                           <div>
-                            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">
                               Rejection Reason
-                              <span className="text-[var(--danger)] ml-0.5">*</span>
-                              <span className="font-normal text-[var(--text-muted)]"> (required to reject)</span>
+                              <span className="text-red-500 ml-0.5">*</span>
+                              <span className="font-normal text-gray-400"> (required to reject)</span>
                             </label>
                             <select
                               value={getReason(invoice.id)}
                               onChange={(e) => { setReason(invoice.id, e.target.value); clearError(invoice.id); }}
-                              className="input-field text-sm"
+                              className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
                               aria-label="Select rejection reason"
                             >
                               <option value="">— Select reason —</option>
@@ -557,17 +559,17 @@ export default function ApproverDashboard() {
                             </select>
                           </div>
 
-                          {/* Approval/Additional Comments — REQUIRED for approval */}
+                          {/* Approval/Additional Comments */}
                           <div>
-                            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">
                               Remarks / Comments
-                              <span className="text-[var(--danger)] ml-0.5">*</span>
-                              <span className="font-normal text-[var(--text-muted)]"> (required to approve or reject)</span>
+                              <span className="text-red-500 ml-0.5">*</span>
+                              <span className="font-normal text-gray-400"> (required to approve or reject)</span>
                             </label>
                             <textarea
                               value={getComment(invoice.id)}
                               onChange={(e) => { setComment(invoice.id, e.target.value); clearError(invoice.id); }}
-                              className="input-field text-sm"
+                              className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                               rows={2}
                               placeholder="e.g., Verified work completion on site, amounts match..."
                             />
@@ -575,7 +577,7 @@ export default function ApproverDashboard() {
 
                           {/* Per-invoice error */}
                           {getError(invoice.id) && (
-                            <div className="alert alert-error text-sm">
+                            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-100 text-red-700 text-sm">
                               <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                               </svg>
@@ -587,7 +589,7 @@ export default function ApproverDashboard() {
                             <button
                               onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'approved')}
                               disabled={actionLoading === invoice.id}
-                              className="btn-success flex-1"
+                              className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                               title={!getComment(invoice.id).trim() ? 'Add remarks first' : 'Approve this invoice'}
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -598,7 +600,7 @@ export default function ApproverDashboard() {
                             <button
                               onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'rejected')}
                               disabled={actionLoading === invoice.id}
-                              className="btn-danger flex-1"
+                              className="flex-1 inline-flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                               title={!getReason(invoice.id) && !getComment(invoice.id).trim() ? 'Select a rejection reason first' : 'Reject this invoice'}
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -609,7 +611,7 @@ export default function ApproverDashboard() {
                             <button
                               onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'under_review')}
                               disabled={actionLoading === invoice.id}
-                              className="btn-warning px-4"
+                              className="inline-flex items-center justify-center gap-2 bg-amber-500 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                             >
                               Review
                             </button>
@@ -629,48 +631,50 @@ export default function ApproverDashboard() {
       {confirmDialog && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.7)' }}
+          style={{ background: 'rgba(0,0,0,0.5)' }}
           onClick={() => setConfirmDialog(null)}
           role="dialog"
           aria-modal="true"
           aria-label="Confirm action"
         >
           <div
-            className="card max-w-sm w-full text-center"
+            className="bg-white rounded-xl border border-gray-200 shadow-xl max-w-sm w-full text-center p-6"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full mb-3"
-              style={{
-                background: confirmDialog.action === 'approved' ? 'var(--success-light)'
-                  : confirmDialog.action === 'rejected' ? 'var(--danger-light)'
-                  : 'var(--warning-light)',
-              }}>
+            <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 ${
+              confirmDialog.action === 'approved' ? 'bg-emerald-50'
+              : confirmDialog.action === 'rejected' ? 'bg-red-50'
+              : 'bg-amber-50'
+            }`}>
               {confirmDialog.action === 'approved' && (
-                <svg className="w-6 h-6" style={{ color: 'var(--success)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               )}
               {confirmDialog.action === 'rejected' && (
-                <svg className="w-6 h-6" style={{ color: 'var(--danger)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               )}
               {confirmDialog.action === 'under_review' && (
-                <svg className="w-6 h-6" style={{ color: 'var(--warning)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               )}
             </div>
-            <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2">Confirm Action</h3>
-            <p className="text-sm text-[var(--text-secondary)] mb-5">{confirmDialog.message}</p>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Action</h3>
+            <p className="text-sm text-gray-600 mb-5">{confirmDialog.message}</p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmDialog(null)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={() => setConfirmDialog(null)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors min-h-[44px]">
+                Cancel
+              </button>
               <button
                 onClick={executeAction}
-                className={`flex-1 ${
-                  confirmDialog.action === 'approved' ? 'btn-success'
-                  : confirmDialog.action === 'rejected' ? 'btn-danger'
-                  : 'btn-warning'
+                className={`flex-1 px-4 py-2.5 rounded-lg text-white font-semibold text-sm min-h-[44px] transition-colors ${
+                  confirmDialog.action === 'approved' ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : confirmDialog.action === 'rejected' ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-amber-500 hover:bg-amber-600'
                 }`}
               >
                 Yes, {confirmDialog.action === 'approved' ? 'Approve' : confirmDialog.action === 'rejected' ? 'Reject' : 'Mark Review'}
