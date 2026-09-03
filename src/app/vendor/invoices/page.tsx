@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import StatusBadge from '@/components/ui/StatusBadge';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
+import { useVendorAuth } from '@/hooks/useVendorAuth';
 import type { InvoiceStatus } from '@/lib/constants';
 
 interface Invoice {
@@ -27,22 +27,39 @@ interface Invoice {
 }
 
 export default function VendorInvoices() {
-  const router = useRouter();
+  const { vendorName: loggedInName, isReady, logout } = useVendorAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [vendorName, setVendorName] = useState('');
+  const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
+  const [selectedVendor, setSelectedVendor] = useState('');
 
   useEffect(() => {
-    const name = localStorage.getItem('vendorName');
-    if (!name) {
-      router.push('/vendor/submit');
+    if (!isReady) return;
+
+    // Load vendor list for filter
+    const fetchVendors = async () => {
+      try {
+        const res = await fetch('/api/vendors?names=true');
+        const data = await res.json();
+        setVendors(data.vendors || []);
+      } catch {
+        console.error('Failed to load vendors');
+      }
+    };
+    fetchVendors();
+  }, [isReady]);
+
+  // Fetch invoices when vendor selection changes
+  useEffect(() => {
+    if (!isReady || !selectedVendor) {
+      if (isReady && !selectedVendor) setLoading(false);
       return;
     }
-    setVendorName(name);
 
+    setLoading(true);
     const fetchInvoices = async () => {
       try {
-        const res = await fetch(`/api/invoices?vendorName=${encodeURIComponent(name)}`);
+        const res = await fetch(`/api/invoices?vendorName=${encodeURIComponent(selectedVendor)}`);
         const data = await res.json();
         if (res.ok) {
           setInvoices(data.invoices || []);
@@ -53,41 +70,71 @@ export default function VendorInvoices() {
       setLoading(false);
     };
     fetchInvoices();
-  }, [router]);
+  }, [isReady, selectedVendor]);
+
+  if (!isReady) return null;
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       <header className="app-header">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-[var(--text-primary)]">My Invoices</h1>
-            <p className="text-xs text-[var(--text-muted)]">{vendorName}</p>
+            <h1 className="text-lg font-bold text-[var(--text-primary)]">Invoices</h1>
+            <p className="text-xs text-[var(--text-muted)]">Welcome, {loggedInName}</p>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/vendor/submit" className="text-sm text-[var(--primary)] hover:underline font-medium min-h-[44px] flex items-center">
               Submit New
             </Link>
-            <Link href="/" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] min-h-[44px] flex items-center">
-              Home
-            </Link>
+            <button onClick={logout} className="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] min-h-[44px] flex items-center">
+              Logout
+            </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto p-4 mt-4 fade-in">
-        {loading ? (
+        {/* Vendor filter */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+            Select Vendor to View Invoices
+          </label>
+          <select
+            value={selectedVendor}
+            onChange={(e) => setSelectedVendor(e.target.value)}
+            className="input-field"
+            style={{ maxWidth: '320px' }}
+            aria-label="Select vendor to view invoices"
+          >
+            <option value="">-- Select vendor --</option>
+            {vendors.map((v) => (
+              <option key={v.id} value={v.name}>{v.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {!selectedVendor ? (
+          <div className="card text-center py-12">
+            <svg className="w-12 h-12 mx-auto mb-4 text-[var(--text-muted)]" style={{ opacity: 0.4 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2">Select a vendor</h3>
+            <p className="text-[var(--text-muted)]">Choose a vendor from the dropdown to view their invoices</p>
+          </div>
+        ) : loading ? (
           <LoadingSkeleton variant="card" count={3} />
         ) : invoices.length === 0 ? (
           <div className="card text-center py-12">
             <svg className="w-12 h-12 mx-auto mb-4 text-[var(--text-muted)]" style={{ opacity: 0.4 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2">No invoices yet</h3>
-            <p className="text-[var(--text-muted)] mb-4">Submit your first invoice to get started</p>
+            <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2">No invoices for {selectedVendor}</h3>
+            <p className="text-[var(--text-muted)] mb-4">No invoices have been submitted for this vendor yet</p>
             <Link href="/vendor/submit" className="btn-primary inline-flex">Submit Invoice</Link>
           </div>
         ) : (
           <div className="space-y-3">
+            <p className="text-sm text-[var(--text-muted)] mb-2">{invoices.length} invoice(s) for <strong className="text-[var(--text-primary)]">{selectedVendor}</strong></p>
             {invoices.map((invoice) => {
               const photoCount = invoice.workPhotos ? invoice.workPhotos.split(',').filter(Boolean).length : 0;
 

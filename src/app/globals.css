@@ -127,50 +127,190 @@ body {
 
 /* ========================================
    LOGIN / AUTH PAGE BACKGROUND
+   Glassmorphism with vibrant gradient orbs
    ======================================== */
 
 .auth-background {
   min-height: 100vh;
-  background: var(--background);
+  background: #0c0f1a;
   position: relative;
   overflow: hidden;
 }
 
-.auth-background::before {
-  content: '';
+/* Vibrant gradient orbs — positioned via divs in page.tsx */
+.auth-orb {
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 600px 400px at 20% 30%, rgba(59, 130, 246, 0.08), transparent 70%),
-    radial-gradient(ellipse 500px 350px at 80% 70%, rgba(6, 182, 212, 0.06), transparent 70%),
-    radial-gradient(ellipse 400px 300px at 50% 50%, rgba(99, 102, 241, 0.04), transparent 60%);
+  border-radius: 50%;
+  filter: blur(80px);
   pointer-events: none;
+  z-index: 0;
 }
 
-/* Construction-inspired grid pattern overlay */
-.auth-background::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-  background-size: 60px 60px;
-  pointer-events: none;
-  mask-image: radial-gradient(ellipse 80% 80% at center, black 20%, transparent 80%);
-  -webkit-mask-image: radial-gradient(ellipse 80% 80% at center, black 20%, transparent 80%);
+.auth-orb-1 {
+  width: 420px;
+  height: 420px;
+  background: radial-gradient(circle, rgba(236, 72, 153, 0.55), rgba(219, 39, 119, 0.25), transparent 70%);
+  top: -8%;
+  right: -5%;
+  animation: orbFloat1 8s ease-in-out infinite;
+}
+
+.auth-orb-2 {
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.5), rgba(34, 211, 238, 0.2), transparent 70%);
+  bottom: -10%;
+  left: -8%;
+  animation: orbFloat2 10s ease-in-out infinite;
+}
+
+.auth-orb-3 {
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.45), rgba(99, 102, 241, 0.15), transparent 70%);
+  top: 40%;
+  left: 50%;
+  transform: translateX(-50%);
+  animation: orbFloat3 12s ease-in-out infinite;
+}
+
+.auth-orb-4 {
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.3), transparent 70%);
+  bottom: 15%;
+  right: 10%;
+  animation: orbFloat1 9s ease-in-out infinite reverse;
+}
+
+@keyframes orbFloat1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-20px, 15px) scale(1.05); }
+  66% { transform: translate(10px, -20px) scale(0.95); }
+}
+
+@keyframes orbFloat2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(25px, -10px) scale(1.08); }
+  66% { transform: translate(-15px, 20px) scale(0.92); }
+}
+
+@keyframes orbFloat3 {
+  0%, 100% { transform: translateX(-50%) translate(0, 0) scale(1); }
+  50% { transform: translateX(-50%) translate(20px, -25px) scale(1.1); }
 }
 
 /* Glass card for login */
 .glass-card {
-  background: var(--surface-glass);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(40px) saturate(1.4);
+  -webkit-backdrop-filter: blur(40px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-2xl);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 0 80px rgba(139, 92, 246, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Glass input — used only on the login page */
+.glass-input {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  min-height: 48px;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
+}
+
+.glass-input::placeholder {
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.glass-input:hover:not(:focus):not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: rgba(139, 92, 246, 0.5);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15), 0 0 20px rgba(139, 92, 246, 0.08);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.glass-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Glass select dropdown */
+select.glass-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2394a3b8'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1.25rem;
+  padding-right: 2.5rem;
+}
+
+/* Gradient sign-in button */
+.btn-gradient {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: linear-gradient(135deg, #ec4899, #8b5cf6);
+  color: #ffffff;
+  padding: 0.85rem 1.5rem;
+  border-radius: var(--radius-lg);
+  font-weight: 600;
+  font-size: 1rem;
+  line-height: 1;
+  min-height: 48px;
+  border: none;
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--ease-out);
+  white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+  letter-spacing: 0.01em;
+}
+
+.btn-gradient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.btn-gradient:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 25px rgba(236, 72, 153, 0.3), 0 4px 12px rgba(139, 92, 246, 0.2);
+}
+
+.btn-gradient:hover::before {
+  opacity: 1;
+}
+
+.btn-gradient:active {
+  transform: translateY(0);
+}
+
+.btn-gradient:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 /* ========================================
@@ -569,7 +709,8 @@ select.input-field {
 
 .role-tabs {
   display: flex;
-  background: var(--background-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-lg);
   padding: 4px;
   gap: 4px;
@@ -586,7 +727,7 @@ select.input-field {
   transition: all var(--duration-fast) var(--ease-out);
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: rgba(148, 163, 184, 0.7);
   min-height: 44px;
   display: flex;
   align-items: center;
@@ -597,13 +738,13 @@ select.input-field {
 
 .role-tab:hover {
   color: var(--text-secondary);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .role-tab.active {
-  background: var(--primary);
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.8), rgba(139, 92, 246, 0.8));
   color: var(--text-on-primary);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 2px 12px rgba(236, 72, 153, 0.25);
 }
 
 /* ========================================

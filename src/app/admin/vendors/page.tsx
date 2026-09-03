@@ -27,6 +27,7 @@ export default function AdminVendors() {
 
   const [form, setForm] = useState({
     name: '',
+    pin: '',
     phone: '',
     email: '',
   });
@@ -59,6 +60,10 @@ export default function AdminVendors() {
     const trimmedName = form.name.trim();
     if (!trimmedName || trimmedName.length < 2) {
       setError('Vendor name must be at least 2 characters');
+      return;
+    }
+    if (!form.pin || !/^\d{4,10}$/.test(form.pin)) {
+      setError('PIN must be 4 to 10 digits (numbers only)');
       return;
     }
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
@@ -115,7 +120,7 @@ export default function AdminVendors() {
       }
 
       // Reset and refresh
-      setForm({ name: '', phone: '', email: '' });
+      setForm({ name: '', pin: '', phone: '', email: '' });
       setShowForm(false);
       setEditingVendor(null);
       await fetchVendors();
@@ -130,6 +135,7 @@ export default function AdminVendors() {
     setEditingVendor(vendor);
     setForm({
       name: vendor.name,
+      pin: vendor.pin,
       phone: vendor.phone,
       email: vendor.email,
     });
@@ -163,7 +169,7 @@ export default function AdminVendors() {
   const cancelForm = () => {
     setShowForm(false);
     setEditingVendor(null);
-    setForm({ name: '', phone: '', email: '' });
+    setForm({ name: '', pin: '', phone: '', email: '' });
     setError('');
   };
 
@@ -208,7 +214,7 @@ export default function AdminVendors() {
               {editingVendor ? 'Edit Vendor' : 'Add New Vendor'}
             </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
                     Vendor Name *
@@ -220,6 +226,25 @@ export default function AdminVendors() {
                     className="input-field"
                     placeholder="Enter vendor name"
                     required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                    PIN * (4-10 digits)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="\d{4,10}"
+                    value={form.pin}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setForm({ ...form, pin: val });
+                    }}
+                    className="input-field"
+                    placeholder="Enter 4-10 digit PIN"
+                    required
+                    maxLength={10}
                   />
                 </div>
                 <div>
@@ -302,6 +327,7 @@ export default function AdminVendors() {
                           {vendor.email}
                         </span>
                       )}
+                      <span>PIN: {vendor.pin || '—'}</span>
                       <span>Added: {new Date(vendor.createdAt).toLocaleDateString('en-IN')}</span>
                     </div>
                   </div>

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
+import { useVendorAuth } from '@/hooks/useVendorAuth';
 
 export default function SubmitInvoicePage() {
   return (
@@ -22,9 +23,11 @@ export default function SubmitInvoicePage() {
 function SubmitInvoice() {
   const searchParams = useSearchParams();
   const resubmitId = searchParams.get('resubmit');
+  const { vendorName: loggedInName, isReady: authReady, logout } = useVendorAuth();
 
+  // Vendors list for selection (billing engineer can submit for any vendor)
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
-  const [vendorName, setVendorName] = useState('');
+  const [selectedVendor, setSelectedVendor] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -56,6 +59,8 @@ function SubmitInvoice() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (!authReady) return;
+
     // Load vendor list for dropdown
     const fetchVendors = async () => {
       try {
@@ -68,15 +73,11 @@ function SubmitInvoice() {
     };
     fetchVendors();
 
-    // Restore previously selected vendor
-    const savedName = localStorage.getItem('vendorName');
-    if (savedName) setVendorName(savedName);
-
     // If resubmitting, load existing invoice data
-    if (resubmitId && savedName) {
-      loadInvoiceForResubmit(resubmitId, savedName);
+    if (resubmitId && selectedVendor) {
+      loadInvoiceForResubmit(resubmitId, selectedVendor);
     }
-  }, [resubmitId]);
+  }, [authReady, resubmitId, selectedVendor]);
 
   const loadInvoiceForResubmit = async (invoiceId: string, vName: string) => {
     try {
@@ -109,14 +110,6 @@ function SubmitInvoice() {
       }
     } catch {
       console.error('Failed to load invoice for resubmit');
-    }
-  };
-
-  // Save selected vendor to localStorage
-  const handleVendorChange = (name: string) => {
-    setVendorName(name);
-    if (name) {
-      localStorage.setItem('vendorName', name);
     }
   };
 
@@ -156,8 +149,8 @@ function SubmitInvoice() {
     setError('');
 
     // ── Validate all fields ──
-    if (!vendorName) {
-      setError('Please select your vendor name');
+    if (!selectedVendor) {
+      setError('Please select a vendor name');
       return;
     }
 
@@ -255,7 +248,7 @@ function SubmitInvoice() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             id: resubmitId,
-            vendorName,
+            vendorName: selectedVendor,
             ...form,
             invoiceFileUrl,
             invoiceFileName,
@@ -279,7 +272,7 @@ function SubmitInvoice() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            vendorName,
+            vendorName: selectedVendor,
             ...form,
             invoiceFileUrl,
             invoiceFileName,
@@ -331,6 +324,8 @@ function SubmitInvoice() {
     ? existingFiles.workPhotos.split(',').filter(Boolean).length
     : 0;
 
+  if (!authReady) return null;
+
   return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       {/* Header */}
@@ -338,15 +333,15 @@ function SubmitInvoice() {
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-[var(--text-primary)]">Billing Engineer Portal</h1>
-            {vendorName && <p className="text-xs text-[var(--text-muted)]">Welcome, {vendorName}</p>}
+            {loggedInName && <p className="text-xs text-[var(--text-muted)]">Welcome, {loggedInName}</p>}
           </div>
           <div className="flex items-center gap-3">
             <Link href="/vendor/invoices" className="text-sm text-[var(--primary)] hover:underline font-medium min-h-[44px] flex items-center">
               My Invoices
             </Link>
-            <Link href="/" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] min-h-[44px] flex items-center">
-              Home
-            </Link>
+            <button onClick={logout} className="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] min-h-[44px] flex items-center">
+              Logout
+            </button>
           </div>
         </div>
       </header>
@@ -421,27 +416,27 @@ function SubmitInvoice() {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
                     </svg>
-                    Select Your Name *
+                    Select Vendor *
                   </span>
                 </label>
                 <select
-                  value={vendorName}
-                  onChange={(e) => handleVendorChange(e.target.value)}
+                  value={selectedVendor}
+                  onChange={(e) => setSelectedVendor(e.target.value)}
                   className="input-field text-base"
                   required
                   disabled={isResubmit}
-                  aria-label="Select your vendor name"
+                  aria-label="Select vendor name"
                 >
-                  <option value="">-- Select your name --</option>
+                  <option value="">-- Select vendor --</option>
                   {vendors.map((v) => (
                     <option key={v.id} value={v.name}>{v.name}</option>
                   ))}
                 </select>
                 {isResubmit && (
-                  <p className="text-xs mt-1" style={{ color: 'var(--info)' }}>Vendor name cannot be changed during resubmission</p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--info)' }}>Vendor cannot be changed during resubmission</p>
                 )}
                 {!isResubmit && vendors.length === 0 && (
-                  <p className="text-xs mt-1" style={{ color: 'var(--info)' }}>No vendors registered yet. Ask admin to add you.</p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--info)' }}>No vendors registered yet. Ask admin to add vendors.</p>
                 )}
               </div>
 
@@ -704,7 +699,7 @@ function SubmitInvoice() {
                 </div>
               )}
 
-              <button type="submit" className="btn-primary w-full" disabled={loading || !vendorName}>
+              <button type="submit" className="btn-primary w-full" disabled={loading || !selectedVendor}>
                 {loading
                   ? (isResubmit ? 'Resubmitting...' : 'Submitting...')
                   : (isResubmit ? 'Resubmit Invoice' : 'Submit Invoice')}

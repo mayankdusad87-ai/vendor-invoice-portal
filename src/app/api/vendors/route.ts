@@ -86,6 +86,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate PIN — required, 4-10 digits
+    const pin = sanitizeString(body.pin, 20);
+    if (!pin || !/^\d{4,10}$/.test(pin)) {
+      return NextResponse.json(
+        { error: 'PIN is required and must be 4 to 10 digits' },
+        { status: 400 }
+      );
+    }
+
     // Check for duplicate vendor name
     const existingVendors = await getVendors();
     if (existingVendors.some((v) => v.name.toLowerCase() === name.toLowerCase() && v.status === 'active')) {
@@ -97,7 +106,7 @@ export async function POST(request: NextRequest) {
 
     const vendor = await addVendor({
       name,
-      pin: '', // PIN no longer required — site engineers select name directly
+      pin,
       phone,
       email,
       status: 'active',
@@ -142,6 +151,13 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Vendor name cannot be empty' }, { status: 400 });
       }
       sanitizedUpdates.name = name;
+    }
+    if (body.pin !== undefined) {
+      const pin = sanitizeString(body.pin, 20);
+      if (pin && !/^\d{4,10}$/.test(pin)) {
+        return NextResponse.json({ error: 'PIN must be 4 to 10 digits' }, { status: 400 });
+      }
+      sanitizedUpdates.pin = pin;
     }
     if (body.phone !== undefined) {
       sanitizedUpdates.phone = sanitizeString(body.phone, 20);

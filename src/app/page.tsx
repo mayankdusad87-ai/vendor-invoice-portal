@@ -15,6 +15,7 @@ export default function LoginPage() {
   // Billing Engineer state
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
   const [selectedVendor, setSelectedVendor] = useState('');
+  const [vendorPin, setVendorPin] = useState('');
 
   // Approver state
   const [approvers, setApprovers] = useState<{ id: string; name: string }[]>([]);
@@ -56,19 +57,38 @@ export default function LoginPage() {
       } catch { /* silent */ }
     };
     loadData();
-
-    // Restore saved vendor name
-    const savedVendor = localStorage.getItem('vendorName');
-    if (savedVendor) setSelectedVendor(savedVendor);
   }, []);
 
-  const handleBillingEnter = () => {
+  const handleBillingLogin = async () => {
     if (!selectedVendor) {
       setError('Please select your name');
       return;
     }
-    localStorage.setItem('vendorName', selectedVendor);
-    router.push('/vendor/submit');
+    if (!vendorPin) {
+      setError('Please enter your PIN');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/vendor-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vendorName: selectedVendor, pin: vendorPin }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Invalid credentials');
+        setLoading(false);
+        return;
+      }
+      localStorage.setItem('vendorToken', data.token);
+      localStorage.setItem('vendorName', data.vendor.name);
+      router.push('/vendor/submit');
+    } catch {
+      setError('Login failed. Please try again.');
+    }
+    setLoading(false);
   };
 
   const handleApproverLogin = async () => {
@@ -128,28 +148,43 @@ export default function LoginPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (activeRole === 'billing') handleBillingEnter();
+    if (activeRole === 'billing') handleBillingLogin();
     else if (activeRole === 'approver') handleApproverLogin();
     else handleAdminLogin();
   };
 
   return (
     <div className="auth-background flex items-center justify-center p-4">
+      {/* Floating gradient orbs */}
+      <div className="auth-orb auth-orb-1" />
+      <div className="auth-orb auth-orb-2" />
+      <div className="auth-orb auth-orb-3" />
+      <div className="auth-orb auth-orb-4" />
+
       <div className="w-full max-w-md relative z-10 fade-in">
         {/* Brand Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4 border border-[var(--border-glass)]"
-            style={{ background: 'rgba(59, 130, 246, 0.1)' }}>
-            <svg className="w-7 h-7 text-[var(--primary)]" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+          <div
+            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4"
+            style={{
+              background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(139, 92, 246, 0.2))',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+          >
+            <svg className="w-8 h-8" style={{ color: '#ec4899' }} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">Raghav Group</h1>
-          <p className="text-sm text-[var(--text-muted)] mt-1">Vendor Invoice Portal</p>
+          <h1 className="text-3xl font-bold text-white tracking-tight">
+            Welcome
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'rgba(148, 163, 184, 0.8)' }}>
+            Raghav Group &bull; Vendor Invoice Portal
+          </p>
         </div>
 
         {/* Glass Login Card */}
-        <div className="glass-card p-6">
+        <div className="glass-card p-7">
           {/* Role Tabs */}
           <div className="role-tabs mb-6">
             <button
@@ -160,7 +195,7 @@ export default function LoginPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
               </svg>
-              <span className="hidden sm:inline">Billing</span> Engineer
+              Engineer
             </button>
             <button
               type="button"
@@ -190,13 +225,13 @@ export default function LoginPage() {
             {activeRole === 'billing' && (
               <div className="space-y-4 fade-in">
                 <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(148, 163, 184, 0.7)' }}>
                     Select Your Name
                   </label>
                   <select
                     value={selectedVendor}
                     onChange={(e) => setSelectedVendor(e.target.value)}
-                    className="input-field"
+                    className="glass-input"
                     aria-label="Select your vendor name"
                   >
                     <option value="">-- Select your name --</option>
@@ -205,15 +240,32 @@ export default function LoginPage() {
                     ))}
                   </select>
                   {vendors.length === 0 && initialized && (
-                    <p className="text-xs text-[var(--text-muted)] mt-1">No vendors registered. Contact admin.</p>
+                    <p className="text-xs mt-1.5" style={{ color: 'rgba(148, 163, 184, 0.5)' }}>No vendors registered. Contact admin.</p>
                   )}
                 </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(148, 163, 184, 0.7)' }}>
+                    PIN
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    value={vendorPin}
+                    onChange={(e) => setVendorPin(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    className="glass-input"
+                    placeholder="Enter your PIN"
+                    autoComplete="current-password"
+                    maxLength={10}
+                  />
+                </div>
 
-                <button type="submit" className="btn-primary w-full" disabled={loading}>
-                  Enter Portal
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                  </svg>
+                <button type="submit" className="btn-gradient w-full" disabled={loading}>
+                  {loading ? 'Signing in...' : 'Sign In'}
+                  {!loading && (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                    </svg>
+                  )}
                 </button>
               </div>
             )}
@@ -222,13 +274,13 @@ export default function LoginPage() {
             {activeRole === 'approver' && (
               <div className="space-y-4 fade-in">
                 <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(148, 163, 184, 0.7)' }}>
                     Select Your Name
                   </label>
                   <select
                     value={selectedApprover}
                     onChange={(e) => setSelectedApprover(e.target.value)}
-                    className="input-field"
+                    className="glass-input"
                     aria-label="Select your approver name"
                   >
                     <option value="">-- Select your name --</option>
@@ -238,7 +290,7 @@ export default function LoginPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(148, 163, 184, 0.7)' }}>
                     PIN
                   </label>
                   <input
@@ -246,14 +298,14 @@ export default function LoginPage() {
                     inputMode="numeric"
                     value={approverPin}
                     onChange={(e) => setApproverPin(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    className="input-field"
+                    className="glass-input"
                     placeholder="Enter your PIN"
                     autoComplete="current-password"
                     maxLength={10}
                   />
                 </div>
 
-                <button type="submit" className="btn-primary w-full" disabled={loading}>
+                <button type="submit" className="btn-gradient w-full" disabled={loading}>
                   {loading ? 'Signing in...' : 'Sign In'}
                 </button>
               </div>
@@ -263,33 +315,33 @@ export default function LoginPage() {
             {activeRole === 'admin' && (
               <div className="space-y-4 fade-in">
                 <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(148, 163, 184, 0.7)' }}>
                     Username
                   </label>
                   <input
                     type="text"
                     value={adminUsername}
                     onChange={(e) => setAdminUsername(e.target.value)}
-                    className="input-field"
+                    className="glass-input"
                     placeholder="Enter username"
                     autoComplete="username"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(148, 163, 184, 0.7)' }}>
                     Password
                   </label>
                   <input
                     type="password"
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
-                    className="input-field"
+                    className="glass-input"
                     placeholder="Enter password"
                     autoComplete="current-password"
                   />
                 </div>
 
-                <button type="submit" className="btn-primary w-full" disabled={loading}>
+                <button type="submit" className="btn-gradient w-full" disabled={loading}>
                   {loading ? 'Signing in...' : 'Sign In'}
                 </button>
               </div>
@@ -297,8 +349,12 @@ export default function LoginPage() {
 
             {/* Error Message */}
             {error && (
-              <div className="alert alert-error mt-4">
-                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="mt-4 rounded-lg p-3 text-sm flex items-center gap-2" style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                color: '#f87171',
+              }}>
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                 </svg>
                 {error}
@@ -308,7 +364,7 @@ export default function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-[var(--text-muted)] mt-6 opacity-60">
+        <p className="text-center text-xs mt-6" style={{ color: 'rgba(148, 163, 184, 0.35)' }}>
           Raghav Group &bull; Vendor Invoice Management System
         </p>
       </div>
