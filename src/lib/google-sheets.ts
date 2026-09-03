@@ -118,7 +118,43 @@ export interface Engineer {
   createdAt: string;
 }
 
+/**
+ * Ensure the Engineers sheet exists with proper headers.
+ * Called automatically before any engineer read/write.
+ */
+async function ensureEngineersSheet(): Promise<void> {
+  const sheets = getSheets();
+  try {
+    // Try to read headers — if the sheet doesn't exist this throws
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'Engineers!A1:A1',
+    });
+  } catch {
+    // Sheet doesn't exist — create it and set headers
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: 'Engineers' } } }],
+        },
+      });
+    } catch {
+      // Sheet might already exist from a race condition — ignore
+    }
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'Engineers!A1:F1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Name', 'Email', 'Password', 'Status', 'Created At']],
+      },
+    });
+  }
+}
+
 export async function getEngineers(): Promise<Engineer[]> {
+  await ensureEngineersSheet();
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
