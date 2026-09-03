@@ -9,7 +9,8 @@ interface StatusBadgeProps {
 export default function StatusBadge({ status }: StatusBadgeProps) {
   const statusInfo = INVOICE_STATUSES[status] || INVOICE_STATUSES.submitted;
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
+    <span className={statusInfo.badgeClass} role="status">
+      <span aria-hidden="true">{statusInfo.icon}</span>
       {statusInfo.label}
     </span>
   );

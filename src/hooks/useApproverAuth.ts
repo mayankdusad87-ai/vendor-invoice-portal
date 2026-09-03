@@ -13,7 +13,7 @@ export function useApproverAuth() {
     const t = localStorage.getItem('approverToken');
     const name = localStorage.getItem('approverName');
     if (!t || !name) {
-      router.push('/approver/login');
+      router.push('/');
       return;
     }
     setToken(t);

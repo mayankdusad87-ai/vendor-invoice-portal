@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Vendor Invoice Portal",
-  description: "Submit and manage vendor invoices",
+  title: "Raghav Group — Vendor Invoice Portal",
+  description: "Submit, review & manage vendor invoices",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -22,6 +22,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      data-theme="dark"
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

@@ -11,7 +11,7 @@ export function useAdminAuth() {
   useEffect(() => {
     const t = localStorage.getItem('adminToken');
     if (!t) {
-      router.push('/admin/login');
+      router.push('/');
       return;
     }
     setToken(t);

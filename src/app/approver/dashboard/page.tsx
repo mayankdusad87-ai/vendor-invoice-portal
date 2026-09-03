@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import StatusBadge from '@/components/ui/StatusBadge';
+import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useApproverAuth } from '@/hooks/useApproverAuth';
-import { INVOICE_STATUSES } from '@/lib/constants';
 import type { InvoiceStatus } from '@/lib/constants';
 
 interface Invoice {
@@ -25,19 +25,52 @@ interface Invoice {
   submittedAt: string;
 }
 
+interface RejectionReason {
+  id: string;
+  reason: string;
+}
+
+function isImageUrl(url: string): boolean {
+  if (!url) return false;
+  if (url.includes('lh3.googleusercontent.com/d/')) return true;
+  if (url.includes('drive.google.com/uc')) return true;
+  if (/\.(jpg|jpeg|png|webp|gif|heic)(\?|$)/i.test(url)) return true;
+  return false;
+}
+
+function getDrivePreviewUrl(url: string): string | null {
+  const match = url.match(/drive\.google\.com\/file\/d\/([^/]+)\//);
+  if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
+  return null;
+}
+
 export default function ApproverDashboard() {
   const { token, approverName, isReady, logout } = useApproverAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('pending');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [comment, setComment] = useState('');
+
+  // Per-invoice action state — keyed by invoice ID so it never bleeds
+  const [comments, setComments] = useState<Record<string, string>>({});
+  const [selectedReasons, setSelectedReasons] = useState<Record<string, string>>({});
+  const [rejectionReasons, setRejectionReasons] = useState<RejectionReason[]>([]);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<Record<string, string>>({});
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  // Confirmation dialog
+  const [confirmDialog, setConfirmDialog] = useState<{
+    invoiceId: string;
+    invoiceNumber: string;
+    action: InvoiceStatus;
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!token) return;
     fetchInvoices();
+    fetchRejectionReasons();
   }, [token]);
 
   const fetchInvoices = async () => {
@@ -46,17 +79,81 @@ export default function ApproverDashboard() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) {
-        setInvoices(data.invoices || []);
-      }
+      if (res.ok) setInvoices(data.invoices || []);
     } catch {
       console.error('Failed to fetch invoices');
     }
     setLoading(false);
   };
 
-  const handleAction = async (invoiceId: string, status: InvoiceStatus) => {
+  const fetchRejectionReasons = async () => {
+    try {
+      const res = await fetch('/api/rejection-reasons?active=true');
+      const data = await res.json();
+      if (res.ok) setRejectionReasons(data.reasons || []);
+    } catch {
+      console.error('Failed to fetch rejection reasons');
+    }
+  };
+
+  const getComment = (id: string) => comments[id] || '';
+  const getReason = (id: string) => selectedReasons[id] || '';
+  const getError = (id: string) => actionError[id] || '';
+
+  const setComment = (id: string, value: string) =>
+    setComments((prev) => ({ ...prev, [id]: value }));
+  const setReason = (id: string, value: string) =>
+    setSelectedReasons((prev) => ({ ...prev, [id]: value }));
+  const setError = (id: string, value: string) =>
+    setActionError((prev) => ({ ...prev, [id]: value }));
+  const clearError = (id: string) =>
+    setActionError((prev) => { const next = { ...prev }; delete next[id]; return next; });
+
+  // Validate before showing confirmation
+  const requestAction = (invoiceId: string, invoiceNumber: string, status: InvoiceStatus) => {
+    clearError(invoiceId);
+    const comment = getComment(invoiceId).trim();
+    const reason = getReason(invoiceId);
+
+    if (status === 'approved' && !comment) {
+      setError(invoiceId, 'Please add approval remarks before approving');
+      return;
+    }
+
+    if (status === 'rejected' && !reason && !comment) {
+      setError(invoiceId, 'Please select a rejection reason or add comments');
+      return;
+    }
+
+    // Show confirmation dialog
+    const actionLabels: Record<string, string> = {
+      approved: 'APPROVE',
+      rejected: 'REJECT',
+      under_review: 'mark as Under Review',
+    };
+
+    setConfirmDialog({
+      invoiceId,
+      invoiceNumber,
+      action: status,
+      message: `Are you sure you want to ${actionLabels[status] || status} invoice ${invoiceNumber}?`,
+    });
+  };
+
+  const executeAction = useCallback(async () => {
+    if (!confirmDialog) return;
+    const { invoiceId, action } = confirmDialog;
+    setConfirmDialog(null);
+
+    const comment = getComment(invoiceId).trim();
+    const reason = getReason(invoiceId);
+
+    const approvalComments = action === 'rejected'
+      ? (reason ? `${reason}${comment ? ` — ${comment}` : ''}` : comment)
+      : comment;
+
     setActionLoading(invoiceId);
+    clearError(invoiceId);
     try {
       const res = await fetch('/api/invoices', {
         method: 'PUT',
@@ -64,29 +161,30 @@ export default function ApproverDashboard() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          id: invoiceId,
-          status,
-          approvalComments: comment,
-        }),
+        body: JSON.stringify({ id: invoiceId, status: action, approvalComments }),
       });
 
+      const data = await res.json();
       if (res.ok) {
         setInvoices((prev) =>
           prev.map((inv) =>
             inv.id === invoiceId
-              ? { ...inv, status, approvalComments: comment, approvedBy: approverName }
+              ? { ...inv, status: action, approvalComments, approvedBy: approverName }
               : inv
           )
         );
-        setComment('');
+        // Clear form state for this invoice
+        setComment(invoiceId, '');
+        setReason(invoiceId, '');
         setExpandedId(null);
+      } else {
+        setError(invoiceId, data.error || 'Action failed');
       }
     } catch {
-      console.error('Failed to update status');
+      setError(invoiceId, 'Network error. Please try again.');
     }
     setActionLoading(null);
-  };
+  }, [confirmDialog, comments, selectedReasons, token, approverName]);
 
   const filteredInvoices = invoices.filter((inv) => {
     if (filter === 'pending') return inv.status === 'submitted' || inv.status === 'under_review';
@@ -100,23 +198,30 @@ export default function ApproverDashboard() {
   if (!isReady) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="page-container">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+      <header className="app-header">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white">Approver Dashboard</h1>
-            <p className="text-xs text-gray-500">Welcome, {approverName} • {pendingCount} pending</p>
+            <h1 className="text-lg font-bold text-[var(--text-primary)]">Approver Dashboard</h1>
+            <p className="text-xs text-[var(--text-muted)]">Welcome, {approverName} &bull; {pendingCount} pending</p>
           </div>
-          <button onClick={logout} className="text-sm text-gray-500 hover:text-red-600 font-medium">
+          <button
+            onClick={logout}
+            className="text-sm font-medium min-h-[44px] px-2 transition-colors"
+            style={{ color: 'var(--text-muted)' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+            aria-label="Log out"
+          >
             Logout
           </button>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-4 mt-4">
+      <main className="max-w-4xl mx-auto p-4 mt-4 fade-in">
         {/* Filter Tabs */}
-        <div className="flex gap-2 mb-4 overflow-x-auto">
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1" role="tablist" aria-label="Filter invoices">
           {[
             { key: 'pending', label: `Pending (${pendingCount})` },
             { key: 'approved', label: 'Approved' },
@@ -126,11 +231,18 @@ export default function ApproverDashboard() {
             <button
               key={tab.key}
               onClick={() => setFilter(tab.key)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+              role="tab"
+              aria-selected={filter === tab.key}
+              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors min-h-[44px] ${
                 filter === tab.key
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
+                  ? 'text-[var(--text-on-primary)]'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
+              style={
+                filter === tab.key
+                  ? { background: 'var(--primary)' }
+                  : { background: 'var(--surface)', border: '1px solid var(--border)' }
+              }
             >
               {tab.label}
             </button>
@@ -139,159 +251,290 @@ export default function ApproverDashboard() {
 
         {/* Invoice List */}
         {loading ? (
-          <div className="text-center py-12 text-gray-500">Loading invoices...</div>
+          <LoadingSkeleton variant="card" count={3} />
         ) : filteredInvoices.length === 0 ? (
           <div className="card text-center py-12">
-            <p className="text-gray-500">
-              {filter === 'pending' ? 'No pending invoices to review 🎉' : 'No invoices found'}
+            <p className="text-[var(--text-muted)]">
+              {filter === 'pending' ? 'No pending invoices to review' : 'No invoices found'}
             </p>
+            {filter === 'pending' && (
+              <svg className="w-10 h-10 mx-auto mt-3" style={{ color: 'var(--success)', opacity: 0.5 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
             {filteredInvoices.map((invoice) => {
               const isExpanded = expandedId === invoice.id;
               const photoUrls = invoice.workPhotos ? invoice.workPhotos.split(',').filter(Boolean) : [];
+              const invoiceIsImage = isImageUrl(invoice.invoiceFileUrl);
+              const invoiceDrivePreview = !invoiceIsImage ? getDrivePreviewUrl(invoice.invoiceFileUrl) : null;
+              const measurementIsImage = isImageUrl(invoice.measurementSheetUrl);
+              const measurementDrivePreview = !measurementIsImage ? getDrivePreviewUrl(invoice.measurementSheetUrl) : null;
+              const isPending = invoice.status === 'submitted' || invoice.status === 'under_review';
 
               return (
                 <div key={invoice.id} className="card">
-                  {/* Invoice Header */}
+                  {/* Invoice Header — click to expand */}
                   <div
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 cursor-pointer"
                     onClick={() => setExpandedId(isExpanded ? null : invoice.id)}
+                    role="button"
+                    aria-expanded={isExpanded}
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedId(isExpanded ? null : invoice.id); } }}
                   >
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold text-gray-900 dark:text-white">{invoice.invoiceNumber}</span>
-                        <span className="text-sm text-gray-400">•</span>
-                        <span className="text-sm text-gray-600 dark:text-gray-400">{invoice.vendorName}</span>
+                        <span className="font-bold text-[var(--text-primary)]">{invoice.invoiceNumber}</span>
+                        <span className="text-sm text-[var(--text-muted)]">&bull;</span>
+                        <span className="text-sm text-[var(--text-secondary)]">{invoice.vendorName}</span>
                         <StatusBadge status={invoice.status} />
                       </div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{invoice.purpose}</p>
-                      <div className="flex gap-3 mt-1 text-xs text-gray-500">
-                        <span className="font-semibold text-base text-gray-900 dark:text-white">
+                      <p className="text-sm text-[var(--text-secondary)] mt-1">{invoice.purpose}</p>
+                      <div className="flex gap-3 mt-1 text-xs text-[var(--text-muted)]">
+                        <span className="font-semibold text-base text-[var(--text-primary)]">
                           ₹{Number(invoice.amount).toLocaleString('en-IN')}
                         </span>
                         <span className="self-center">
                           {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}
                         </span>
                         {photoUrls.length > 0 && (
-                          <span className="self-center">📷 {photoUrls.length} photo(s)</span>
+                          <span className="self-center inline-flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                            </svg>
+                            {photoUrls.length} photo(s)
+                          </span>
+                        )}
+                        {invoice.invoiceFileUrl && (
+                          <span className="self-center inline-flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                            </svg>
+                            Invoice
+                          </span>
                         )}
                       </div>
                     </div>
                     <svg
-                      className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                      className={`w-5 h-5 text-[var(--text-muted)] transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
                       fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                      aria-hidden="true"
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </div>
 
-                  {/* Expanded Details */}
+                  {/* ===== Expanded Details ===== */}
                   {isExpanded && (
-                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
+
                       {/* Remarks */}
                       {invoice.remarks && (
-                        <div className="mb-3">
-                          <p className="text-xs font-medium text-gray-500 mb-1">Remarks</p>
-                          <p className="text-sm text-gray-700 dark:text-gray-300">{invoice.remarks}</p>
+                        <div className="mb-4">
+                          <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Remarks</p>
+                          <p className="text-sm text-[var(--text-secondary)]">{invoice.remarks}</p>
                         </div>
                       )}
 
-                      {/* Work Photos Gallery */}
+                      {/* ── Invoice Document ── */}
+                      {invoice.invoiceFileUrl && (
+                        <div className="mb-4 rounded-lg p-4" style={{ background: 'var(--primary-light)', border: '1px solid var(--border)' }}>
+                          <p className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
+                            <svg className="w-4 h-4" style={{ color: 'var(--primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                            </svg>
+                            Invoice Document — {invoice.invoiceFileName || 'Uploaded file'}
+                          </p>
+                          {invoiceIsImage && (
+                            <img
+                              src={invoice.invoiceFileUrl}
+                              alt={`Invoice ${invoice.invoiceNumber}`}
+                              className="w-full max-h-[500px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                              style={{ background: 'white', border: '1px solid var(--border)' }}
+                              onClick={() => setLightboxUrl(invoice.invoiceFileUrl)}
+                            />
+                          )}
+                          {invoiceDrivePreview && (
+                            <iframe
+                              src={invoiceDrivePreview}
+                              className="w-full rounded-lg"
+                              style={{ height: '500px', border: '1px solid var(--border)' }}
+                              title={`Invoice ${invoice.invoiceNumber} preview`}
+                              allow="autoplay"
+                            />
+                          )}
+                          {!invoiceIsImage && !invoiceDrivePreview && (
+                            <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer" className="btn-primary inline-flex text-sm">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                              </svg>
+                              Open Invoice in New Tab
+                            </a>
+                          )}
+                          {(invoiceIsImage || invoiceDrivePreview) && (
+                            <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs mt-2 hover:underline" style={{ color: 'var(--primary)' }}>
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                              </svg>
+                              Open in new tab
+                            </a>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── Work Photos ── */}
                       {photoUrls.length > 0 && (
                         <div className="mb-4">
-                          <p className="text-xs font-medium text-gray-500 mb-2">📷 Work Photos / Evidence</p>
+                          <p className="text-xs font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                            </svg>
+                            Work Photos / Evidence ({photoUrls.length})
+                          </p>
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {photoUrls.map((url, i) => (
-                              <img
-                                key={i}
-                                src={url}
-                                alt={`Work photo ${i + 1}`}
-                                className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
-                                onClick={() => setLightboxUrl(url)}
-                              />
+                              <img key={i} src={url} alt={`Work photo ${i + 1}`}
+                                className="w-full h-32 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                                style={{ border: '1px solid var(--border)' }}
+                                onClick={() => setLightboxUrl(url)} />
                             ))}
                           </div>
                         </div>
                       )}
 
-                      {/* Measurement Sheet */}
+                      {/* ── Measurement Sheet ── */}
                       {invoice.measurementSheetUrl && (
                         <div className="mb-4">
-                          <p className="text-xs font-medium text-gray-500 mb-1">📐 Measurement Sheet</p>
-                          <a
-                            href={invoice.measurementSheetUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
-                          >
-                            📎 {invoice.measurementSheetName || 'View Measurement Sheet'}
-                          </a>
-                        </div>
-                      )}
-
-                      {/* Invoice File */}
-                      {invoice.invoiceFileUrl && (
-                        <div className="mb-4">
-                          <p className="text-xs font-medium text-gray-500 mb-1">📄 Invoice Document</p>
-                          <a
-                            href={invoice.invoiceFileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
-                          >
-                            📎 {invoice.invoiceFileName || 'View Invoice'}
-                          </a>
-                        </div>
-                      )}
-
-                      {/* Previous approval info */}
-                      {invoice.approvedBy && (
-                        <div className="mb-4 bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-                          <p className="text-xs text-gray-500">
-                            {invoice.status === 'rejected' ? 'Rejected' : 'Approved'} by <strong>{invoice.approvedBy}</strong>
+                          <p className="text-xs font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Measurement Sheet — {invoice.measurementSheetName || 'Uploaded file'}
                           </p>
-                          {invoice.approvalComments && (
-                            <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">"{invoice.approvalComments}"</p>
+                          {measurementIsImage && (
+                            <img src={invoice.measurementSheetUrl} alt="Measurement sheet"
+                              className="w-full max-h-[400px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                              style={{ background: 'white', border: '1px solid var(--border)' }}
+                              onClick={() => setLightboxUrl(invoice.measurementSheetUrl)} />
+                          )}
+                          {measurementDrivePreview && (
+                            <iframe src={measurementDrivePreview} className="w-full rounded-lg"
+                              style={{ height: '400px', border: '1px solid var(--border)' }}
+                              title="Measurement sheet preview" allow="autoplay" />
+                          )}
+                          {!measurementIsImage && !measurementDrivePreview && (
+                            <a href={invoice.measurementSheetUrl} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm hover:underline" style={{ color: 'var(--primary)' }}>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                              </svg>
+                              {invoice.measurementSheetName || 'View Measurement Sheet'}
+                            </a>
+                          )}
+                          {(measurementIsImage || measurementDrivePreview) && (
+                            <a href={invoice.measurementSheetUrl} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs mt-2 hover:underline" style={{ color: 'var(--primary)' }}>
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                              </svg>
+                              Open in new tab
+                            </a>
                           )}
                         </div>
                       )}
 
-                      {/* Action Buttons */}
-                      {(invoice.status === 'submitted' || invoice.status === 'under_review') && (
+                      {/* ── Previous approval info ── */}
+                      {invoice.approvedBy && (
+                        <div className="mb-4 rounded-lg p-3" style={{ background: 'var(--surface-muted)' }}>
+                          <p className="text-xs text-[var(--text-muted)]">
+                            {invoice.status === 'rejected' ? 'Rejected' : 'Approved'} by <strong>{invoice.approvedBy}</strong>
+                          </p>
+                          {invoice.approvalComments && (
+                            <p className="text-sm text-[var(--text-secondary)] mt-1">&ldquo;{invoice.approvalComments}&rdquo;</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── Action Buttons (for pending invoices) ── */}
+                      {isPending && (
                         <div className="space-y-3">
+                          {/* Rejection Reason Dropdown */}
                           <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">
-                              Comments (optional)
+                            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                              Rejection Reason
+                              <span className="text-[var(--danger)] ml-0.5">*</span>
+                              <span className="font-normal text-[var(--text-muted)]"> (required to reject)</span>
+                            </label>
+                            <select
+                              value={getReason(invoice.id)}
+                              onChange={(e) => { setReason(invoice.id, e.target.value); clearError(invoice.id); }}
+                              className="input-field text-sm"
+                              aria-label="Select rejection reason"
+                            >
+                              <option value="">— Select reason —</option>
+                              {rejectionReasons.map((r) => (
+                                <option key={r.id} value={r.reason}>{r.reason}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Approval/Additional Comments — REQUIRED for approval */}
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                              Remarks / Comments
+                              <span className="text-[var(--danger)] ml-0.5">*</span>
+                              <span className="font-normal text-[var(--text-muted)]"> (required to approve or reject)</span>
                             </label>
                             <textarea
-                              value={expandedId === invoice.id ? comment : ''}
-                              onChange={(e) => setComment(e.target.value)}
+                              value={getComment(invoice.id)}
+                              onChange={(e) => { setComment(invoice.id, e.target.value); clearError(invoice.id); }}
                               className="input-field text-sm"
                               rows={2}
-                              placeholder="Add approval/rejection reason..."
+                              placeholder="e.g., Verified work completion on site, amounts match..."
                             />
                           </div>
+
+                          {/* Per-invoice error */}
+                          {getError(invoice.id) && (
+                            <div className="alert alert-error text-sm">
+                              <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                              </svg>
+                              {getError(invoice.id)}
+                            </div>
+                          )}
+
                           <div className="flex gap-2">
                             <button
-                              onClick={() => handleAction(invoice.id, 'approved')}
+                              onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'approved')}
                               disabled={actionLoading === invoice.id}
-                              className="flex-1 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
+                              className="btn-success flex-1"
+                              title={!getComment(invoice.id).trim() ? 'Add remarks first' : 'Approve this invoice'}
                             >
-                              ✓ Approve
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                              </svg>
+                              Approve
                             </button>
                             <button
-                              onClick={() => handleAction(invoice.id, 'rejected')}
+                              onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'rejected')}
                               disabled={actionLoading === invoice.id}
-                              className="flex-1 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
+                              className="btn-danger flex-1"
+                              title={!getReason(invoice.id) && !getComment(invoice.id).trim() ? 'Select a rejection reason first' : 'Reject this invoice'}
                             >
-                              ✕ Reject
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                              Reject
                             </button>
                             <button
-                              onClick={() => handleAction(invoice.id, 'under_review')}
+                              onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'under_review')}
                               disabled={actionLoading === invoice.id}
-                              className="py-2.5 px-4 bg-yellow-500 text-white rounded-lg text-sm font-medium hover:bg-yellow-600 transition-colors disabled:opacity-50"
+                              className="btn-warning px-4"
                             >
                               Review
                             </button>
@@ -307,17 +550,78 @@ export default function ApproverDashboard() {
         )}
       </main>
 
+      {/* Confirmation Dialog */}
+      {confirmDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.7)' }}
+          onClick={() => setConfirmDialog(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm action"
+        >
+          <div
+            className="card max-w-sm w-full text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full mb-3"
+              style={{
+                background: confirmDialog.action === 'approved' ? 'var(--success-light)'
+                  : confirmDialog.action === 'rejected' ? 'var(--danger-light)'
+                  : 'var(--warning-light)',
+              }}>
+              {confirmDialog.action === 'approved' && (
+                <svg className="w-6 h-6" style={{ color: 'var(--success)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+              {confirmDialog.action === 'rejected' && (
+                <svg className="w-6 h-6" style={{ color: 'var(--danger)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              )}
+              {confirmDialog.action === 'under_review' && (
+                <svg className="w-6 h-6" style={{ color: 'var(--warning)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
+            </div>
+            <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2">Confirm Action</h3>
+            <p className="text-sm text-[var(--text-secondary)] mb-5">{confirmDialog.message}</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDialog(null)} className="btn-secondary flex-1">Cancel</button>
+              <button
+                onClick={executeAction}
+                className={`flex-1 ${
+                  confirmDialog.action === 'approved' ? 'btn-success'
+                  : confirmDialog.action === 'rejected' ? 'btn-danger'
+                  : 'btn-warning'
+                }`}
+              >
+                Yes, {confirmDialog.action === 'approved' ? 'Approve' : confirmDialog.action === 'rejected' ? 'Reject' : 'Mark Review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Lightbox */}
       {lightboxUrl && (
         <div
-          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.85)' }}
           onClick={() => setLightboxUrl(null)}
+          role="dialog"
+          aria-label="Full size photo"
         >
           <button
             onClick={() => setLightboxUrl(null)}
-            className="absolute top-4 right-4 text-white text-2xl font-bold hover:text-gray-300"
+            className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+            aria-label="Close lightbox"
           >
-            ✕
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
           <img
             src={lightboxUrl}

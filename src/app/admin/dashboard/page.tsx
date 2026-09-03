@@ -5,6 +5,7 @@ import Link from 'next/link';
 import AdminHeader from '@/components/layout/AdminHeader';
 import StatCard from '@/components/ui/StatCard';
 import StatusBadge from '@/components/ui/StatusBadge';
+import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import type { InvoiceStatus } from '@/lib/constants';
 
@@ -16,7 +17,10 @@ interface Invoice {
   purpose: string;
   amount: string;
   status: InvoiceStatus;
+  approvedBy: string;
   submittedAt: string;
+  updatedAt: string;
+  approvedDate: string;
 }
 
 export default function AdminDashboard() {
@@ -52,12 +56,27 @@ export default function AdminDashboard() {
   const recentInvoices = invoices.slice(0, 5);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       <AdminHeader />
 
-      <main className="max-w-6xl mx-auto p-4 mt-4">
+      <main className="max-w-6xl mx-auto p-4 mt-4 fade-in">
         {loading ? (
-          <div className="text-center py-12 text-gray-500">Loading dashboard...</div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="card" aria-busy="true">
+                  <div className="flex items-center gap-3">
+                    <div className="skeleton w-10 h-10 rounded-lg" />
+                    <div>
+                      <div className="skeleton h-3 w-16 rounded mb-2" />
+                      <div className="skeleton h-6 w-12 rounded" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <LoadingSkeleton variant="list" count={5} />
+          </div>
         ) : (
           <>
             {/* Stats Grid */}
@@ -111,46 +130,64 @@ export default function AdminDashboard() {
             {/* Recent Invoices */}
             <div className="card">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Recent Invoices</h2>
-                <Link href="/admin/invoices" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-                  View All →
+                <h2 className="text-lg font-bold text-[var(--text-primary)]">Recent Invoices</h2>
+                <Link href="/admin/invoices" className="text-sm font-medium hover:underline min-h-[44px] flex items-center" style={{ color: 'var(--primary)' }}>
+                  View All
+                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 </Link>
               </div>
 
               {recentInvoices.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No invoices submitted yet</p>
+                <p className="text-[var(--text-muted)] text-center py-8">No invoices submitted yet</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-gray-200 dark:border-gray-700">
-                        <th className="text-left py-2 px-2 text-gray-500 font-medium">Invoice #</th>
-                        <th className="text-left py-2 px-2 text-gray-500 font-medium">Vendor</th>
-                        <th className="text-left py-2 px-2 text-gray-500 font-medium hidden sm:table-cell">Purpose</th>
-                        <th className="text-right py-2 px-2 text-gray-500 font-medium">Amount</th>
-                        <th className="text-center py-2 px-2 text-gray-500 font-medium">Status</th>
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <th className="text-left py-2 px-2 text-[var(--text-muted)] font-medium">Invoice #</th>
+                        <th className="text-left py-2 px-2 text-[var(--text-muted)] font-medium">Vendor</th>
+                        <th className="text-left py-2 px-2 text-[var(--text-muted)] font-medium hidden sm:table-cell">Purpose</th>
+                        <th className="text-right py-2 px-2 text-[var(--text-muted)] font-medium">Amount</th>
+                        <th className="text-center py-2 px-2 text-[var(--text-muted)] font-medium hidden md:table-cell">Submitted</th>
+                        <th className="text-center py-2 px-2 text-[var(--text-muted)] font-medium hidden md:table-cell">Approved</th>
+                        <th className="text-center py-2 px-2 text-[var(--text-muted)] font-medium">Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {recentInvoices.map((invoice) => (
-                        <tr key={invoice.id} className="border-b border-gray-100 dark:border-gray-700/50">
-                          <td className="py-2.5 px-2 font-medium text-gray-900 dark:text-white">
-                            {invoice.invoiceNumber}
-                          </td>
-                          <td className="py-2.5 px-2 text-gray-600 dark:text-gray-300">
-                            {invoice.vendorName}
-                          </td>
-                          <td className="py-2.5 px-2 text-gray-600 dark:text-gray-300 hidden sm:table-cell max-w-[200px] truncate">
-                            {invoice.purpose}
-                          </td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-gray-900 dark:text-white">
-                            ₹{Number(invoice.amount).toLocaleString('en-IN')}
-                          </td>
-                          <td className="py-2.5 px-2 text-center">
-                            <StatusBadge status={invoice.status} />
-                          </td>
-                        </tr>
-                      ))}
+                      {recentInvoices.map((invoice) => {
+                        const isApprovedOrPaid = invoice.status === 'approved' || invoice.status === 'paid';
+                        return (
+                          <tr key={invoice.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
+                            <td className="py-2.5 px-2 font-medium text-[var(--text-primary)]">
+                              {invoice.invoiceNumber}
+                            </td>
+                            <td className="py-2.5 px-2 text-[var(--text-secondary)]">
+                              {invoice.vendorName}
+                            </td>
+                            <td className="py-2.5 px-2 text-[var(--text-secondary)] hidden sm:table-cell max-w-[200px] truncate">
+                              {invoice.purpose}
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-semibold text-[var(--text-primary)]">
+                              ₹{Number(invoice.amount).toLocaleString('en-IN')}
+                            </td>
+                            <td className="py-2.5 px-2 text-center text-[var(--text-muted)] hidden md:table-cell whitespace-nowrap">
+                              {invoice.submittedAt
+                                ? new Date(invoice.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                : '—'}
+                            </td>
+                            <td className="py-2.5 px-2 text-center text-[var(--text-muted)] hidden md:table-cell whitespace-nowrap">
+                              {isApprovedOrPaid && invoice.approvedDate
+                                ? new Date(invoice.approvedDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                : '—'}
+                            </td>
+                            <td className="py-2.5 px-2 text-center">
+                              <StatusBadge status={invoice.status} />
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

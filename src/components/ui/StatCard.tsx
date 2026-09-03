@@ -4,20 +4,32 @@ interface StatCardProps {
   title: string;
   value: string | number;
   icon: React.ReactNode;
-  bgColor: string;
-  textColor: string;
+  bgColor?: string;
+  textColor?: string;
 }
 
-export default function StatCard({ title, value, icon, bgColor, textColor }: StatCardProps) {
+const colorMap: Record<string, { bg: string; text: string }> = {
+  'bg-blue-100': { bg: 'rgba(59, 130, 246, 0.12)', text: '#60a5fa' },
+  'bg-yellow-100': { bg: 'rgba(245, 158, 11, 0.12)', text: '#fbbf24' },
+  'bg-green-100': { bg: 'rgba(34, 197, 94, 0.12)', text: '#4ade80' },
+  'bg-purple-100': { bg: 'rgba(168, 85, 247, 0.12)', text: '#c084fc' },
+};
+
+export default function StatCard({ title, value, icon, bgColor = 'bg-blue-100', textColor = 'text-blue-600' }: StatCardProps) {
+  const mapped = colorMap[bgColor] || colorMap['bg-blue-100'];
+
   return (
-    <div className="card">
+    <div className="stat-card">
       <div className="flex items-center gap-3">
-        <div className={`flex-shrink-0 w-10 h-10 ${bgColor} rounded-lg flex items-center justify-center`}>
-          <div className={textColor}>{icon}</div>
+        <div
+          className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+          style={{ background: mapped.bg }}
+        >
+          <div style={{ color: mapped.text }}>{icon}</div>
         </div>
-        <div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{title}</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-white">{value}</p>
+        <div className="min-w-0">
+          <p className="text-xs text-[var(--text-muted)]">{title}</p>
+          <p className="text-xl font-bold text-[var(--text-primary)] truncate">{value}</p>
         </div>
       </div>
     </div>

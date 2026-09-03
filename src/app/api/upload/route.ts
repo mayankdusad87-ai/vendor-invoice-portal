@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { put } from '@vercel/blob';
+import { uploadFileToDrive } from '@/lib/google-drive';
+import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 export async function POST(request: NextRequest) {
+  // Rate limit: 10 uploads per minute per IP
+  const key = getRateLimitKey(request, 'file-upload');
+  const check = rateLimit(key, { maxRequests: 10, windowMs: 60_000 });
+  if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);
+
   try {
     const formData = await request.formData();
     const files = formData.getAll('files') as File[];
@@ -17,50 +23,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Cap max files per request to prevent abuse
+    if (filesToUpload.length > 10) {
+      return NextResponse.json(
+        { error: 'Maximum 10 files per upload' },
+        { status: 400 }
+      );
+    }
+
     // Validate all files
     const allowedTypes = [
       'application/pdf',
       'image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif',
     ];
 
+    let totalSize = 0;
     for (const file of filesToUpload) {
       if (!allowedTypes.includes(file.type)) {
         return NextResponse.json(
-          { error: `File "${file.name}" is not allowed. Only PDF, JPEG, PNG, WebP, and HEIC are supported.` },
+          { error: `File type not allowed. Only PDF, JPEG, PNG, WebP, and HEIC are supported.` },
           { status: 400 }
         );
       }
       if (file.size > 10 * 1024 * 1024) {
         return NextResponse.json(
-          { error: `File "${file.name}" exceeds 10MB limit.` },
+          { error: `Each file must be under 10MB.` },
           { status: 400 }
         );
       }
+      totalSize += file.size;
     }
 
-    // Check if Vercel Blob is configured
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      // Return placeholders in development
-      const results = filesToUpload.map((file) => ({
-        url: '',
-        fileName: file.name,
-      }));
-      return NextResponse.json({
-        success: true,
-        files: results,
-        message: 'File upload will work after Vercel Blob is configured',
-      });
+    // Total upload size limit: 50MB
+    if (totalSize > 50 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: 'Total upload size must be under 50MB.' },
+        { status: 400 }
+      );
     }
 
-    // Upload all files to Vercel Blob
+    // Upload all files to Google Drive
     const uploadResults = await Promise.all(
       filesToUpload.map(async (file) => {
-        const blob = await put(`invoices/${Date.now()}-${file.name}`, file, {
-          access: 'public',
-        });
+        const result = await uploadFileToDrive(file);
         return {
-          url: blob.url,
-          fileName: file.name,
+          url: result.url,
+          fileName: result.fileName,
         };
       })
     );
@@ -72,7 +80,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Upload error:', error);
     return NextResponse.json(
-      { error: 'Failed to upload files' },
+      { error: 'Failed to upload files. Please try again.' },
       { status: 500 }
     );
   }

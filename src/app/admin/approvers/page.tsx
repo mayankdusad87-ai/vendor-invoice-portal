@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import AdminHeader from '@/components/layout/AdminHeader';
+import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 interface Approver {
@@ -48,13 +49,31 @@ export default function AdminApprovers() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Frontend validation
+    const trimmedName = form.name.trim();
+    if (!trimmedName || trimmedName.length < 2) {
+      setError('Approver name must be at least 2 characters');
+      return;
+    }
+    if (!form.pin || !/^\d{4,10}$/.test(form.pin)) {
+      setError('PIN must be 4 to 10 digits (numbers only)');
+      return;
+    }
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+
+    const submittingForm = { ...form, name: trimmedName };
+
     setSaving(true);
 
     try {
       const method = editingApprover ? 'PUT' : 'POST';
       const body = editingApprover
-        ? JSON.stringify({ id: editingApprover.id, ...form })
-        : JSON.stringify(form);
+        ? JSON.stringify({ id: editingApprover.id, ...submittingForm })
+        : JSON.stringify(submittingForm);
 
       const res = await fetch('/api/approvers', {
         method,
@@ -93,6 +112,12 @@ export default function AdminApprovers() {
 
   const handleToggleStatus = async (approver: Approver) => {
     const newStatus = approver.status === 'active' ? 'inactive' : 'active';
+    if (newStatus === 'inactive') {
+      const confirmed = window.confirm(
+        `Are you sure you want to deactivate "${approver.name}"?\n\nThis approver will no longer be able to log in or approve invoices.`
+      );
+      if (!confirmed) return;
+    }
     try {
       await fetch('/api/approvers', {
         method: 'PUT',
@@ -121,14 +146,14 @@ export default function AdminApprovers() {
   const inactiveApprovers = approvers.filter((a) => a.status === 'inactive');
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       <AdminHeader />
 
-      <main className="max-w-4xl mx-auto p-4 mt-4">
+      <main className="max-w-4xl mx-auto p-4 mt-4 fade-in">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Approver Management</h2>
-            <p className="text-sm text-gray-500">{activeApprovers.length} active approvers</p>
+            <h2 className="text-xl font-bold text-[var(--text-primary)]">Approver Management</h2>
+            <p className="text-sm text-[var(--text-muted)]">{activeApprovers.length} active approvers</p>
           </div>
           {!showForm && (
             <button
@@ -144,18 +169,18 @@ export default function AdminApprovers() {
         </div>
 
         {successMsg && (
-          <div className="bg-green-50 text-green-700 text-sm p-3 rounded-lg mb-4">{successMsg}</div>
+          <div className="alert alert-success mb-4">{successMsg}</div>
         )}
 
         {showForm && (
           <div className="card mb-4">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+            <h3 className="text-lg font-bold text-[var(--text-primary)] mb-4">
               {editingApprover ? 'Edit Approver' : 'Add New Approver'}
             </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
+                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Name *</label>
                   <input
                     type="text"
                     value={form.name}
@@ -166,18 +191,24 @@ export default function AdminApprovers() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PIN *</label>
+                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">PIN * (4-10 digits)</label>
                   <input
                     type="text"
+                    inputMode="numeric"
+                    pattern="\d{4,10}"
                     value={form.pin}
-                    onChange={(e) => setForm({ ...form, pin: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setForm({ ...form, pin: val });
+                    }}
                     className="input-field"
-                    placeholder="Login PIN"
+                    placeholder="Enter 4-10 digit PIN"
                     required
+                    maxLength={10}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Email</label>
                   <input
                     type="email"
                     value={form.email}
@@ -187,12 +218,12 @@ export default function AdminApprovers() {
                   />
                 </div>
               </div>
-              {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg">{error}</div>}
+              {error && <div className="alert alert-error">{error}</div>}
               <div className="flex gap-2">
                 <button type="submit" className="btn-primary" disabled={saving}>
                   {saving ? 'Saving...' : editingApprover ? 'Update' : 'Add Approver'}
                 </button>
-                <button type="button" onClick={cancelForm} className="btn-primary" style={{ background: '#6b7280' }}>
+                <button type="button" onClick={cancelForm} className="btn-secondary">
                   Cancel
                 </button>
               </div>
@@ -201,10 +232,10 @@ export default function AdminApprovers() {
         )}
 
         {loading ? (
-          <div className="text-center py-12 text-gray-500">Loading...</div>
+          <LoadingSkeleton variant="list" count={3} />
         ) : approvers.length === 0 ? (
           <div className="card text-center py-12">
-            <p className="text-gray-500 mb-4">No approvers registered yet</p>
+            <p className="text-[var(--text-muted)] mb-4">No approvers registered yet</p>
             <button onClick={() => setShowForm(true)} className="btn-primary">Add First Approver</button>
           </div>
         ) : (
@@ -214,18 +245,29 @@ export default function AdminApprovers() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-gray-900 dark:text-white">{approver.name}</span>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
+                      <span className="font-bold text-[var(--text-primary)]">{approver.name}</span>
+                      <span className="badge badge-active">Active</span>
                     </div>
-                    <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
-                      {approver.email && <span>✉️ {approver.email}</span>}
+                    <div className="flex flex-wrap gap-3 mt-1 text-xs text-[var(--text-muted)]">
+                      {approver.email && (
+                        <span className="inline-flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                          </svg>
+                          {approver.email}
+                        </span>
+                      )}
                       <span>PIN: {approver.pin}</span>
                       <span>Added: {new Date(approver.createdAt).toLocaleDateString('en-IN')}</span>
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => handleEdit(approver)} className="text-sm text-blue-600 hover:text-blue-800 font-medium">Edit</button>
-                    <button onClick={() => handleToggleStatus(approver)} className="text-sm text-red-500 hover:text-red-700 font-medium">Deactivate</button>
+                    <button onClick={() => handleEdit(approver)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--primary)' }}>
+                      Edit
+                    </button>
+                    <button onClick={() => handleToggleStatus(approver)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--danger)' }}>
+                      Deactivate
+                    </button>
                   </div>
                 </div>
               </div>
@@ -233,12 +275,17 @@ export default function AdminApprovers() {
 
             {inactiveApprovers.length > 0 && (
               <>
-                <h3 className="text-sm font-medium text-gray-400 mt-6 mb-2">Inactive Approvers</h3>
+                <h3 className="text-sm font-medium text-[var(--text-muted)] mt-6 mb-2">Inactive Approvers</h3>
                 {inactiveApprovers.map((approver) => (
-                  <div key={approver.id} className="card opacity-60">
+                  <div key={approver.id} className="card" style={{ opacity: 0.6 }}>
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-gray-900 dark:text-white">{approver.name}</span>
-                      <button onClick={() => handleToggleStatus(approver)} className="text-sm text-green-600 font-medium">Reactivate</button>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-[var(--text-primary)]">{approver.name}</span>
+                        <span className="badge badge-inactive">Inactive</span>
+                      </div>
+                      <button onClick={() => handleToggleStatus(approver)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--success)' }}>
+                        Reactivate
+                      </button>
                     </div>
                   </div>
                 ))}
