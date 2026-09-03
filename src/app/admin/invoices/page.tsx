@@ -26,7 +26,7 @@ interface Invoice {
 }
 
 export default function AdminInvoices() {
-  const { token, isReady } = useAdminAuth();
+  const { isReady } = useAdminAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
@@ -51,15 +51,14 @@ export default function AdminInvoices() {
   } | null>(null);
 
   useEffect(() => {
-    if (!token) return;
+    if (!isReady) return;
     fetchInvoices();
-  }, [token]);
+  }, [isReady]);
 
   const fetchInvoices = async () => {
     try {
-      const res = await fetch('/api/invoices', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Cookie is sent automatically — no Authorization header needed
+      const res = await fetch('/api/invoices');
       const data = await res.json();
       if (res.ok) {
         setInvoices(data.invoices || []);
@@ -100,12 +99,10 @@ export default function AdminInvoices() {
     setStatusMessage(null);
 
     try {
+      // Cookie is sent automatically — no Authorization header needed
       const res = await fetch('/api/invoices', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: invoiceId,
           status: newStatus,

@@ -24,18 +24,17 @@ interface Invoice {
 }
 
 export default function AdminDashboard() {
-  const { token, isReady } = useAdminAuth();
+  const { isReady } = useAdminAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!token) return;
+    if (!isReady) return;
 
     const fetchData = async () => {
       try {
-        const res = await fetch('/api/invoices', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // Cookie is sent automatically — no Authorization header needed
+        const res = await fetch('/api/invoices');
         const data = await res.json();
         if (res.ok) {
           setInvoices(data.invoices || []);
@@ -46,7 +45,7 @@ export default function AdminDashboard() {
       setLoading(false);
     };
     fetchData();
-  }, [token]);
+  }, [isReady]);
 
   if (!isReady) return null;
 

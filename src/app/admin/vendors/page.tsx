@@ -16,7 +16,7 @@ interface Vendor {
 }
 
 export default function AdminVendors() {
-  const { token, isReady } = useAdminAuth();
+  const { isReady } = useAdminAuth();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -33,15 +33,14 @@ export default function AdminVendors() {
   });
 
   useEffect(() => {
-    if (!token) return;
+    if (!isReady) return;
     fetchVendors();
-  }, [token]);
+  }, [isReady]);
 
   const fetchVendors = async () => {
     try {
-      const res = await fetch('/api/vendors', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Cookie is sent automatically — no Authorization header needed
+      const res = await fetch('/api/vendors');
       const data = await res.json();
       if (res.ok) {
         setVendors(data.vendors || []);
@@ -85,10 +84,7 @@ export default function AdminVendors() {
         // Update vendor
         const res = await fetch('/api/vendors', {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: editingVendor.id, ...submittingForm }),
         });
 
@@ -103,10 +99,7 @@ export default function AdminVendors() {
         // Add new vendor
         const res = await fetch('/api/vendors', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(submittingForm),
         });
 
@@ -154,10 +147,7 @@ export default function AdminVendors() {
     try {
       await fetch('/api/vendors', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: vendor.id, status: newStatus }),
       });
       await fetchVendors();

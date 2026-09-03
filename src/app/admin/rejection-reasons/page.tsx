@@ -13,7 +13,7 @@ interface RejectionReason {
 }
 
 export default function RejectionReasonsPage() {
-  const { token, isReady } = useAdminAuth();
+  const { isReady } = useAdminAuth();
   const [reasons, setReasons] = useState<RejectionReason[]>([]);
   const [loading, setLoading] = useState(true);
   const [newReason, setNewReason] = useState('');
@@ -21,15 +21,14 @@ export default function RejectionReasonsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    if (!token) return;
+    if (!isReady) return;
     fetchReasons();
-  }, [token]);
+  }, [isReady]);
 
   const fetchReasons = async () => {
     try {
-      const res = await fetch('/api/rejection-reasons', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Cookie is sent automatically — no Authorization header needed
+      const res = await fetch('/api/rejection-reasons');
       const data = await res.json();
       if (res.ok) setReasons(data.reasons || []);
     } catch {
@@ -45,7 +44,7 @@ export default function RejectionReasonsPage() {
     try {
       const res = await fetch('/api/rejection-reasons', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: newReason.trim() }),
       });
       const data = await res.json();
@@ -67,7 +66,7 @@ export default function RejectionReasonsPage() {
     try {
       const res = await fetch('/api/rejection-reasons', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status: newStatus }),
       });
       if (res.ok) {

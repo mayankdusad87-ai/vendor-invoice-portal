@@ -45,7 +45,7 @@ function getDrivePreviewUrl(url: string): string | null {
 }
 
 export default function ApproverDashboard() {
-  const { token, approverName, isReady, logout } = useApproverAuth();
+  const { approverName, isReady, logout } = useApproverAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('pending');
@@ -68,16 +68,15 @@ export default function ApproverDashboard() {
   } | null>(null);
 
   useEffect(() => {
-    if (!token) return;
+    if (!isReady) return;
     fetchInvoices();
     fetchRejectionReasons();
-  }, [token]);
+  }, [isReady]);
 
   const fetchInvoices = async () => {
     try {
-      const res = await fetch('/api/invoices', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Cookie is sent automatically — no Authorization header needed
+      const res = await fetch('/api/invoices');
       const data = await res.json();
       if (res.ok) setInvoices(data.invoices || []);
     } catch {
@@ -155,12 +154,10 @@ export default function ApproverDashboard() {
     setActionLoading(invoiceId);
     clearError(invoiceId);
     try {
+      // Cookie is sent automatically — no Authorization header needed
       const res = await fetch('/api/invoices', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: invoiceId, status: action, approvalComments }),
       });
 
@@ -184,7 +181,7 @@ export default function ApproverDashboard() {
       setError(invoiceId, 'Network error. Please try again.');
     }
     setActionLoading(null);
-  }, [confirmDialog, comments, selectedReasons, token, approverName]);
+  }, [confirmDialog, comments, selectedReasons, approverName]);
 
   const filteredInvoices = invoices.filter((inv) => {
     if (filter === 'pending') return inv.status === 'submitted' || inv.status === 'under_review';

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getApprovers, getActiveApprovers, addApprover, updateApprover } from '@/lib/google-sheets';
-import { verifyAdminToken } from '@/lib/auth';
+import { requireAdmin, isAuthError } from '@/lib/auth';
 import {
   rateLimit, getRateLimitKey, rateLimitResponse, sanitizeString,
 } from '@/lib/security';
@@ -13,11 +13,10 @@ export async function GET(request: NextRequest) {
   if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);
 
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
     const onlyNames = request.nextUrl.searchParams.get('names') === 'true';
 
-    // For approver login dropdown, return only active approver names (no auth needed)
+    // For login dropdown: return only active approver names (id + name only)
+    // This must stay public so the login page can populate the dropdown.
     if (onlyNames) {
       const approvers = await getActiveApprovers();
       return NextResponse.json({
@@ -26,9 +25,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Full approver list requires admin auth
-    if (!token || !verifyAdminToken(token)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const session = requireAdmin(request);
+    if (isAuthError(session)) return session;
 
     const approvers = await getApprovers();
     return NextResponse.json({ approvers });
@@ -48,14 +46,11 @@ export async function POST(request: NextRequest) {
   const check = rateLimit(key, { maxRequests: 10, windowMs: 60_000 });
   if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);
 
+  // Admin only
+  const session = requireAdmin(request);
+  if (isAuthError(session)) return session;
+
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
-    if (!token || !verifyAdminToken(token)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const body = await request.json();
 
     // Sanitize inputs
@@ -114,14 +109,11 @@ export async function POST(request: NextRequest) {
 
 // PUT /api/approvers - update approver (admin only)
 export async function PUT(request: NextRequest) {
+  // Admin only
+  const session = requireAdmin(request);
+  if (isAuthError(session)) return session;
+
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
-    if (!token || !verifyAdminToken(token)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const body = await request.json();
     const id = sanitizeString(body.id, 50);
 

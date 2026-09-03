@@ -9,7 +9,7 @@ import { useVendorAuth } from '@/hooks/useVendorAuth';
 export default function SubmitInvoicePage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen" style={{ background: 'var(--background)' }}>
+      <div className="min-h-screen bg-gray-50">
         <div className="max-w-2xl mx-auto p-4 mt-8">
           <LoadingSkeleton variant="form" count={1} />
         </div>
@@ -119,6 +119,7 @@ function SubmitInvoice() {
     const formData = new FormData();
     files.forEach((file) => formData.append('files', file));
 
+    // Cookie is sent automatically — no Authorization header needed
     const res = await fetch('/api/upload', {
       method: 'POST',
       body: formData,
@@ -222,7 +223,6 @@ function SubmitInvoice() {
         setUploadProgress(`Uploading ${workPhotos.length} work photo(s)...`);
         const results = await uploadFiles(workPhotos);
         const newUrls = results.map((r) => r.url).filter(Boolean).join(',');
-        // Append new photos to existing ones
         workPhotosUrls = workPhotosUrls
           ? `${workPhotosUrls},${newUrls}`
           : newUrls;
@@ -327,19 +327,19 @@ function SubmitInvoice() {
   if (!authReady) return null;
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
-      {/* Header */}
-      <header className="app-header">
+    <div className="min-h-screen bg-gray-50">
+      {/* Header — white theme */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-[var(--text-primary)]">Billing Engineer Portal</h1>
-            {loggedInName && <p className="text-xs text-[var(--text-muted)]">Welcome, {loggedInName}</p>}
+            <h1 className="text-lg font-bold text-gray-900">Billing Engineer Portal</h1>
+            {loggedInName && <p className="text-xs text-gray-500">Welcome, {loggedInName}</p>}
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/vendor/invoices" className="text-sm text-[var(--primary)] hover:underline font-medium min-h-[44px] flex items-center">
-              My Invoices
+            <Link href="/vendor/invoices" className="text-sm text-blue-600 hover:underline font-medium min-h-[44px] flex items-center">
+              View Invoices
             </Link>
-            <button onClick={logout} className="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] min-h-[44px] flex items-center">
+            <button onClick={logout} className="text-sm text-gray-500 hover:text-gray-700 min-h-[44px] flex items-center">
               Logout
             </button>
           </div>
@@ -348,52 +348,52 @@ function SubmitInvoice() {
 
       <main className="max-w-2xl mx-auto p-4 mt-4 fade-in">
         {success ? (
-          <div className="card text-center py-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4" style={{ background: 'var(--success-light)' }}>
-              <svg className="w-8 h-8" style={{ color: 'var(--success)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm text-center py-8 px-6">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-50 mb-4">
+              <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">
+            <h2 className="text-xl font-bold text-gray-900 mb-2">
               {isResubmit ? 'Invoice Resubmitted!' : 'Invoice Submitted!'}
             </h2>
-            <p className="text-[var(--text-muted)] mb-6">
+            <p className="text-gray-500 mb-6">
               {isResubmit
                 ? 'Your corrected invoice has been resubmitted for approval.'
                 : 'Your invoice with evidence has been submitted for approval.'}
             </p>
             <div className="flex gap-3 justify-center flex-wrap">
-              <Link href="/vendor/submit" className="btn-primary">
+              <Link href="/vendor/submit" className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors min-h-[44px]">
                 Submit Another
               </Link>
-              <Link href="/vendor/invoices" className="btn-secondary">
-                View My Invoices
+              <Link href="/vendor/invoices" className="inline-flex items-center justify-center gap-2 bg-white text-gray-700 px-5 py-2.5 rounded-lg font-semibold text-sm border border-gray-300 hover:bg-gray-50 transition-colors min-h-[44px]">
+                View Invoices
               </Link>
             </div>
           </div>
         ) : (
-          <div className="card">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <div className="flex items-center gap-3 mb-1">
               {isResubmit && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--warning-light)' }}>
-                  <svg className="w-4 h-4" style={{ color: 'var(--warning)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center bg-amber-50">
+                  <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                 </div>
               )}
-              <h2 className="text-xl font-bold text-[var(--text-primary)]">
+              <h2 className="text-xl font-bold text-gray-900">
                 {isResubmit ? 'Resubmit Invoice' : 'Submit Invoice'}
               </h2>
             </div>
-            <p className="text-sm text-[var(--text-muted)] mb-4">
+            <p className="text-sm text-gray-500 mb-4">
               {isResubmit
                 ? 'Update the details and resubmit for approval'
-                : 'Select your name, fill in details, and upload evidence'}
+                : 'Select vendor, fill in details, and upload evidence'}
             </p>
 
             {/* Rejection reason banner */}
             {isResubmit && rejectionInfo && (
-              <div className="alert alert-error mb-5">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-5 flex items-start gap-2 text-red-700 text-sm">
                 <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
@@ -410,8 +410,8 @@ function SubmitInvoice() {
 
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Vendor Selection */}
-              <div className="rounded-lg p-4" style={{ background: 'var(--info-light)', border: '1px solid var(--info-border)' }}>
-                <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--info)' }}>
+              <div className="rounded-lg p-4 bg-blue-50 border border-blue-200">
+                <label className="block text-sm font-semibold mb-2 text-blue-700">
                   <span className="flex items-center gap-2">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
@@ -422,7 +422,7 @@ function SubmitInvoice() {
                 <select
                   value={selectedVendor}
                   onChange={(e) => setSelectedVendor(e.target.value)}
-                  className="input-field text-base"
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
                   required
                   disabled={isResubmit}
                   aria-label="Select vendor name"
@@ -433,36 +433,36 @@ function SubmitInvoice() {
                   ))}
                 </select>
                 {isResubmit && (
-                  <p className="text-xs mt-1" style={{ color: 'var(--info)' }}>Vendor cannot be changed during resubmission</p>
+                  <p className="text-xs mt-1 text-blue-600">Vendor cannot be changed during resubmission</p>
                 )}
                 {!isResubmit && vendors.length === 0 && (
-                  <p className="text-xs mt-1" style={{ color: 'var(--info)' }}>No vendors registered yet. Ask admin to add vendors.</p>
+                  <p className="text-xs mt-1 text-blue-600">No vendors registered yet. Ask admin to add vendors.</p>
                 )}
               </div>
 
               {/* Basic Info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Invoice Date *
                   </label>
                   <input
                     type="date"
                     value={form.invoiceDate}
                     onChange={(e) => setForm({ ...form, invoiceDate: e.target.value })}
-                    className="input-field"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Invoice Number *
                   </label>
                   <input
                     type="text"
                     value={form.invoiceNumber}
                     onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })}
-                    className="input-field"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
                     placeholder="e.g., INV-001"
                     required
                   />
@@ -470,13 +470,13 @@ function SubmitInvoice() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Purpose / Work Description *
                 </label>
                 <textarea
                   value={form.purpose}
                   onChange={(e) => setForm({ ...form, purpose: e.target.value })}
-                  className="input-field"
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   rows={3}
                   placeholder="Describe the work done on site"
                   required
@@ -484,14 +484,14 @@ function SubmitInvoice() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Amount (₹) *
                 </label>
                 <input
                   type="number"
                   value={form.amount}
                   onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                  className="input-field"
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
                   placeholder="0.00"
                   min="1"
                   step="0.01"
@@ -500,22 +500,22 @@ function SubmitInvoice() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Remarks
                 </label>
                 <textarea
                   value={form.remarks}
                   onChange={(e) => setForm({ ...form, remarks: e.target.value })}
-                  className="input-field"
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   rows={2}
                   placeholder="Any additional notes (optional)"
                 />
               </div>
 
               {/* Divider */}
-              <div className="divider" />
-              <h3 className="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2">
-                <svg className="w-5 h-5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="h-px bg-gray-200" />
+              <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
                 </svg>
                 Attachments &amp; Evidence
@@ -523,13 +523,13 @@ function SubmitInvoice() {
 
               {/* Work Photos - Camera + Upload */}
               <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Work Photos / Evidence *
                 </label>
 
                 {/* Show existing photos count during resubmit */}
                 {isResubmit && existingPhotoCount > 0 && (
-                  <div className="alert alert-success mb-2 text-xs">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 mb-2 flex items-center gap-2 text-green-700 text-xs">
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
@@ -541,7 +541,7 @@ function SubmitInvoice() {
                   <button
                     type="button"
                     onClick={handleCameraCapture}
-                    className="btn-primary text-sm"
+                    className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-blue-700 transition-colors min-h-[44px]"
                     aria-label="Take a photo with camera"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -550,7 +550,7 @@ function SubmitInvoice() {
                     </svg>
                     Take Photo
                   </button>
-                  <label className="btn-secondary text-sm cursor-pointer" aria-label="Upload photos from device">
+                  <label className="inline-flex items-center gap-2 bg-white text-gray-700 px-4 py-2 rounded-lg font-medium text-sm border border-gray-300 hover:bg-gray-50 transition-colors cursor-pointer min-h-[44px]" aria-label="Upload photos from device">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
@@ -587,44 +587,42 @@ function SubmitInvoice() {
                         <img
                           src={URL.createObjectURL(photo)}
                           alt={`Work photo ${index + 1}`}
-                          className="w-full h-20 object-cover rounded-lg"
-                          style={{ border: '1px solid var(--border)' }}
+                          className="w-full h-20 object-cover rounded-lg border border-gray-200"
                         />
                         <button
                           type="button"
                           onClick={() => removeWorkPhoto(index)}
-                          className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          style={{ background: 'var(--danger)', color: 'white' }}
+                          className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full text-xs flex items-center justify-center bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-opacity"
                           aria-label={`Remove photo ${index + 1}`}
                         >
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
                           </svg>
                         </button>
-                        <p className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">{photo.name}</p>
+                        <p className="text-[10px] text-gray-400 truncate mt-0.5">{photo.name}</p>
                       </div>
                     ))}
                   </div>
                 )}
                 {workPhotos.length === 0 && !isResubmit && (
-                  <p className="text-xs text-[var(--text-muted)]">Take or upload photos of the completed work</p>
+                  <p className="text-xs text-gray-400">Take or upload photos of the completed work</p>
                 )}
               </div>
 
               {/* Measurement Sheet */}
               <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Measurement Sheet
                 </label>
                 {isResubmit && existingFiles.measurementSheetName && !measurementSheet && (
-                  <div className="alert alert-success text-xs mb-1">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-2 mb-1 flex items-center gap-2 text-green-700 text-xs">
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Existing: {existingFiles.measurementSheetName} (upload new to replace)
                   </div>
                 )}
-                <div className="rounded-lg p-3 text-center" style={{ border: '2px dashed var(--border)' }}>
+                <div className="rounded-lg p-3 text-center border-2 border-dashed border-gray-300 bg-white">
                   <input
                     type="file"
                     accept=".pdf,image/*"
@@ -633,15 +631,15 @@ function SubmitInvoice() {
                     id="measurement-upload"
                   />
                   <label htmlFor="measurement-upload" className="cursor-pointer">
-                    <svg className="w-6 h-6 mx-auto mb-1 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6 mx-auto mb-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    <p className="text-sm text-[var(--text-muted)]">
+                    <p className="text-sm text-gray-500">
                       {measurementSheet ? measurementSheet.name : 'Upload measurement sheet (PDF or image)'}
                     </p>
                   </label>
                   {measurementSheet && (
-                    <button type="button" onClick={() => setMeasurementSheet(null)} className="text-xs mt-1 hover:underline" style={{ color: 'var(--danger)' }}>
+                    <button type="button" onClick={() => setMeasurementSheet(null)} className="text-xs mt-1 text-red-500 hover:underline">
                       Remove
                     </button>
                   )}
@@ -650,18 +648,18 @@ function SubmitInvoice() {
 
               {/* Invoice File */}
               <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Invoice Document
                 </label>
                 {isResubmit && existingFiles.invoiceFileName && !invoiceFile && (
-                  <div className="alert alert-success text-xs mb-1">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-2 mb-1 flex items-center gap-2 text-green-700 text-xs">
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Existing: {existingFiles.invoiceFileName} (upload new to replace)
                   </div>
                 )}
-                <div className="rounded-lg p-3 text-center" style={{ border: '2px dashed var(--border)' }}>
+                <div className="rounded-lg p-3 text-center border-2 border-dashed border-gray-300 bg-white">
                   <input
                     type="file"
                     accept=".pdf,image/*"
@@ -670,15 +668,15 @@ function SubmitInvoice() {
                     id="invoice-upload"
                   />
                   <label htmlFor="invoice-upload" className="cursor-pointer">
-                    <svg className="w-6 h-6 mx-auto mb-1 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6 mx-auto mb-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                     </svg>
-                    <p className="text-sm text-[var(--text-muted)]">
+                    <p className="text-sm text-gray-500">
                       {invoiceFile ? invoiceFile.name : 'Upload invoice PDF or image'}
                     </p>
                   </label>
                   {invoiceFile && (
-                    <button type="button" onClick={() => setInvoiceFile(null)} className="text-xs mt-1 hover:underline" style={{ color: 'var(--danger)' }}>
+                    <button type="button" onClick={() => setInvoiceFile(null)} className="text-xs mt-1 text-red-500 hover:underline">
                       Remove
                     </button>
                   )}
@@ -687,10 +685,15 @@ function SubmitInvoice() {
 
               {/* Error & Progress */}
               {error && (
-                <div className="alert alert-error">{error}</div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2 text-red-700 text-sm">
+                  <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9 .75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                  </svg>
+                  {error}
+                </div>
               )}
               {uploadProgress && (
-                <div className="alert alert-info">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2 text-blue-700 text-sm">
                   <svg className="w-4 h-4 flex-shrink-0 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -699,7 +702,11 @@ function SubmitInvoice() {
                 </div>
               )}
 
-              <button type="submit" className="btn-primary w-full" disabled={loading || !selectedVendor}>
+              <button
+                type="submit"
+                className="w-full inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-lg font-semibold text-base hover:bg-blue-700 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading || !selectedVendor}
+              >
                 {loading
                   ? (isResubmit ? 'Resubmitting...' : 'Submitting...')
                   : (isResubmit ? 'Resubmit Invoice' : 'Submit Invoice')}

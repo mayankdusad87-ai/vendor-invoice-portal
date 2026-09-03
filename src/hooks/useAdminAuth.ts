@@ -3,25 +3,40 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+/**
+ * Hook for admin authentication.
+ * Checks the server-side HttpOnly cookie session via /api/auth/me.
+ * Never reads tokens from localStorage.
+ */
 export function useAdminAuth() {
   const router = useRouter();
-  const [token, setToken] = useState<string | null>(null);
+  const [username, setUsername] = useState<string>('');
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    const t = localStorage.getItem('adminToken');
-    if (!t) {
-      router.push('/');
-      return;
-    }
-    setToken(t);
-    setIsReady(true);
+    const checkSession = async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (!res.ok || !data.authenticated || data.role !== 'admin') {
+          router.push('/');
+          return;
+        }
+        setUsername(data.username);
+        setIsReady(true);
+      } catch {
+        router.push('/');
+      }
+    };
+    checkSession();
   }, [router]);
 
-  const logout = () => {
-    localStorage.removeItem('adminToken');
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch { /* ignore */ }
     router.push('/');
   };
 
-  return { token, isReady, logout };
+  return { username, isReady, logout };
 }

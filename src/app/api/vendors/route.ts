@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVendors, getActiveVendors, addVendor, updateVendor } from '@/lib/google-sheets';
-import { verifyAdminToken } from '@/lib/auth';
+import { requireAdmin, requireAuth, isAuthError } from '@/lib/auth';
 import {
   rateLimit, getRateLimitKey, rateLimitResponse, sanitizeString,
 } from '@/lib/security';
@@ -13,11 +13,10 @@ export async function GET(request: NextRequest) {
   if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);
 
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
     const onlyNames = request.nextUrl.searchParams.get('names') === 'true';
 
-    // For vendor dropdown, return only active vendor names (no auth needed)
+    // For login dropdown: return only active vendor names (id + name only, no PINs)
+    // This must stay public so the login page can populate the dropdown.
     if (onlyNames) {
       const vendors = await getActiveVendors();
       return NextResponse.json({
@@ -25,10 +24,9 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Full vendor list requires admin auth
-    if (!token || !verifyAdminToken(token)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Full vendor list (with PINs, emails, etc.) requires admin auth
+    const session = requireAdmin(request);
+    if (isAuthError(session)) return session;
 
     const vendors = await getVendors();
     return NextResponse.json({ vendors });
@@ -48,14 +46,11 @@ export async function POST(request: NextRequest) {
   const check = rateLimit(key, { maxRequests: 10, windowMs: 60_000 });
   if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);
 
+  // Admin only
+  const session = requireAdmin(request);
+  if (isAuthError(session)) return session;
+
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
-    if (!token || !verifyAdminToken(token)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const body = await request.json();
 
     // Sanitize inputs
@@ -124,14 +119,11 @@ export async function POST(request: NextRequest) {
 
 // PUT /api/vendors - update vendor (admin only)
 export async function PUT(request: NextRequest) {
+  // Admin only
+  const session = requireAdmin(request);
+  if (isAuthError(session)) return session;
+
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
-    if (!token || !verifyAdminToken(token)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const body = await request.json();
     const id = sanitizeString(body.id, 50);
 

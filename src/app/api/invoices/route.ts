@@ -3,71 +3,76 @@ import {
   getInvoices, getVendorInvoices, getInvoiceById, getActiveVendors,
   addInvoice, updateInvoiceStatus, resubmitInvoice,
 } from '@/lib/google-sheets';
-import { verifyToken, verifyAdminToken, verifyApproverToken } from '@/lib/auth';
+import {
+  requireAuth, requireVendor, requireAdminOrApprover,
+  isAuthError,
+} from '@/lib/auth';
+import type { VendorToken, AdminToken, ApproverToken } from '@/lib/auth';
 import {
   rateLimit, getRateLimitKey, rateLimitResponse,
   sanitizeString, sanitizeAmount, sanitizeDate,
 } from '@/lib/security';
 
-// GET /api/invoices — get invoices
+// GET /api/invoices — get invoices (authenticated)
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-    const vendorNameParam = request.nextUrl.searchParams.get('vendorName');
+    const session = requireAuth(request);
+    if (isAuthError(session)) return session;
 
-    // Site engineer: filter by vendor name (no auth, but verify vendor exists)
-    if (vendorNameParam) {
+    // Vendor/billing engineer: can view invoices for a selected vendor name
+    // but must be authenticated first
+    if (session.type === 'vendor') {
+      const vendorNameParam = request.nextUrl.searchParams.get('vendorName');
+
       // Rate limit vendor queries: 30 per minute per IP
       const key = getRateLimitKey(request, 'vendor-invoices');
       const check = rateLimit(key, { maxRequests: 30, windowMs: 60_000 });
       if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);
+
+      if (!vendorNameParam) {
+        return NextResponse.json({ invoices: [] });
+      }
 
       const sanitizedName = sanitizeString(vendorNameParam, 100);
       if (!sanitizedName) {
         return NextResponse.json({ error: 'Invalid vendor name' }, { status: 400 });
       }
 
-      // Verify this vendor actually exists (prevents enumeration of arbitrary names)
+      // Verify this vendor actually exists
       const activeVendors = await getActiveVendors();
-      const vendorExists = activeVendors.some(
+      const matchedVendor = activeVendors.find(
         (v) => v.name.toLowerCase() === sanitizedName.toLowerCase()
       );
-      if (!vendorExists) {
+      if (!matchedVendor) {
         return NextResponse.json({ invoices: [] }); // Return empty, don't reveal if vendor exists
       }
 
-      // Use the exact case from the database
-      const exactName = activeVendors.find(
-        (v) => v.name.toLowerCase() === sanitizedName.toLowerCase()
-      )!.name;
-
-      const invoices = await getVendorInvoices(exactName);
+      const invoices = await getVendorInvoices(matchedVendor.name);
       invoices.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
       return NextResponse.json({ invoices });
     }
 
-    // Admin/Approver: requires auth token
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Admin/Approver: can view all invoices
+    if (session.type === 'admin' || session.type === 'approver') {
+      const invoices = await getInvoices();
+      invoices.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      return NextResponse.json({ invoices });
     }
 
-    const payload = verifyToken(token);
-    if (!payload || (payload.type !== 'admin' && payload.type !== 'approver')) {
-      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
-    }
-
-    const invoices = await getInvoices();
-    invoices.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
-    return NextResponse.json({ invoices });
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   } catch (error) {
     console.error('Get invoices error:', error);
     return NextResponse.json({ error: 'Failed to fetch invoices' }, { status: 500 });
   }
 }
 
-// POST /api/invoices — submit new invoice (site engineer)
+// POST /api/invoices — submit new invoice (vendor/billing engineer only)
 export async function POST(request: NextRequest) {
+  // Authenticate: must be a vendor/billing engineer
+  const session = requireVendor(request);
+  if (isAuthError(session)) return session;
+  const vendorSession = session as VendorToken;
+
   // Rate limit submissions: 10 per minute per IP
   const key = getRateLimitKey(request, 'submit-invoice');
   const check = rateLimit(key, { maxRequests: 10, windowMs: 60_000 });
@@ -76,7 +81,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Sanitize all inputs
+    // The billing engineer selects which vendor to submit for from a dropdown,
+    // but they must be authenticated first. The vendorName comes from the body
+    // (selected vendor), NOT from the session (the billing engineer's own identity).
     const vendorName = sanitizeString(body.vendorName, 100);
     const invoiceDate = sanitizeDate(body.invoiceDate);
     const invoiceNumber = sanitizeString(body.invoiceNumber, 50);
@@ -85,7 +92,7 @@ export async function POST(request: NextRequest) {
     const remarks = sanitizeString(body.remarks, 500);
     const invoiceFileUrl = sanitizeString(body.invoiceFileUrl, 2000);
     const invoiceFileName = sanitizeString(body.invoiceFileName, 200);
-    const workPhotos = sanitizeString(body.workPhotos, 5000); // comma-separated URLs
+    const workPhotos = sanitizeString(body.workPhotos, 5000);
     const measurementSheetUrl = sanitizeString(body.measurementSheetUrl, 2000);
     const measurementSheetName = sanitizeString(body.measurementSheetName, 200);
 
@@ -133,21 +140,15 @@ export async function POST(request: NextRequest) {
 
 // PUT /api/invoices — update invoice status (admin or approver only)
 export async function PUT(request: NextRequest) {
+  // Authenticate: must be admin or approver
+  const session = requireAdminOrApprover(request);
+  if (isAuthError(session)) return session;
+
+  const isAdmin = session.type === 'admin';
+  const approverPayload = session.type === 'approver' ? session as ApproverToken : null;
+  const adminPayload = session.type === 'admin' ? session as AdminToken : null;
+
   try {
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const adminPayload = verifyAdminToken(token);
-    const approverPayload = verifyApproverToken(token);
-
-    if (!adminPayload && !approverPayload) {
-      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
-    }
-
     const body = await request.json();
     const id = sanitizeString(body.id, 50);
     const status = sanitizeString(body.status, 20);
@@ -163,7 +164,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Only admins can set status to 'paid'
-    if (status === 'paid' && !adminPayload) {
+    if (status === 'paid' && !isAdmin) {
       return NextResponse.json({ error: 'Only admins can mark invoices as paid' }, { status: 403 });
     }
 
@@ -188,6 +189,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: `Invoice is already ${status}` }, { status: 400 });
     }
 
+    // Identity from session — never from client
     const approvedBy = approverPayload?.approverName || adminPayload?.username || '';
 
     const success = await updateInvoiceStatus(id, status as typeof invoice.status, approvalComments, approvedBy);
@@ -202,8 +204,12 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// PATCH /api/invoices — resubmit a rejected invoice (site engineer)
+// PATCH /api/invoices — resubmit a rejected invoice (vendor/billing engineer only)
 export async function PATCH(request: NextRequest) {
+  // Authenticate: must be a vendor/billing engineer
+  const session = requireVendor(request);
+  if (isAuthError(session)) return session;
+
   // Rate limit resubmissions: 5 per minute per IP
   const key = getRateLimitKey(request, 'resubmit-invoice');
   const check = rateLimit(key, { maxRequests: 5, windowMs: 60_000 });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { signToken } from '@/lib/auth';
+import { signToken, setAuthCookie } from '@/lib/auth';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 export async function POST(request: NextRequest) {
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Constant-time-ish comparison (not truly constant-time in JS, but prevents obvious short-circuit)
+    // Constant-time-ish comparison
     const usernameMatch = username === adminUsername;
     const passwordMatch = password === adminPassword;
 
@@ -56,7 +56,10 @@ export async function POST(request: NextRequest) {
       username: adminUsername,
     });
 
-    return NextResponse.json({ success: true, token });
+    // Set HttpOnly cookie — the client never sees the JWT
+    const response = NextResponse.json({ success: true });
+    setAuthCookie(response, token);
+    return response;
   } catch {
     return NextResponse.json(
       { error: 'Login failed. Please try again.' },

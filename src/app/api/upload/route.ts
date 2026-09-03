@@ -1,9 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadFileToDrive } from '@/lib/google-drive';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
+import { requireAuth, isAuthError } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
-  // Rate limit: 10 uploads per minute per IP
+  // ── 1. Authenticate user ──
+  const session = requireAuth(request);
+  if (isAuthError(session)) return session;
+
+  // Only vendors (billing engineers) and admins can upload files
+  if (session.type !== 'vendor' && session.type !== 'admin') {
+    return NextResponse.json({ error: 'Forbidden: upload not allowed for this role' }, { status: 403 });
+  }
+
+  // ── 2. Rate limit: 10 uploads per minute per IP ──
   const key = getRateLimitKey(request, 'file-upload');
   const check = rateLimit(key, { maxRequests: 10, windowMs: 60_000 });
   if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);

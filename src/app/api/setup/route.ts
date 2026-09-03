@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeSheetHeaders, getActiveRejectionReasons, addRejectionReason } from '@/lib/google-sheets';
 import { getOrCreateFolder } from '@/lib/google-drive';
-import { verifyAdminToken } from '@/lib/auth';
+import { requireAdmin, isAuthError } from '@/lib/auth';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 export async function POST(request: NextRequest) {
@@ -10,15 +10,11 @@ export async function POST(request: NextRequest) {
   const check = rateLimit(key, { maxRequests: 3, windowMs: 60_000 });
   if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);
 
+  // Admin only
+  const session = requireAdmin(request);
+  if (isAuthError(session)) return session;
+
   try {
-    // Require admin auth to run setup
-    const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
-    if (!token || !verifyAdminToken(token)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     await initializeSheetHeaders();
 
     // Also ensure Google Drive folder exists and is shared with the owner

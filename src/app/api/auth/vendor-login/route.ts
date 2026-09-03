@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getActiveVendors } from '@/lib/google-sheets';
-import { signToken } from '@/lib/auth';
-import { rateLimit, getRateLimitKey, rateLimitResponse, sanitizeString } from '@/lib/security';
+import { signToken, setAuthCookie } from '@/lib/auth';
+import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 export async function POST(request: NextRequest) {
   // Rate limit: 5 login attempts per minute per IP
@@ -49,11 +49,13 @@ export async function POST(request: NextRequest) {
       vendorId: vendor.id,
     });
 
-    return NextResponse.json({
+    // Set HttpOnly cookie — the client never sees the JWT
+    const response = NextResponse.json({
       success: true,
-      token,
       vendor: { id: vendor.id, name: vendor.name },
     });
+    setAuthCookie(response, token);
+    return response;
   } catch {
     return NextResponse.json(
       { error: 'Login failed. Please try again.' },

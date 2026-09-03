@@ -3,29 +3,42 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+/**
+ * Hook for vendor/billing-engineer authentication.
+ * Checks the server-side HttpOnly cookie session via /api/auth/me.
+ * Never reads tokens from localStorage.
+ */
 export function useVendorAuth() {
   const router = useRouter();
-  const [token, setToken] = useState<string | null>(null);
   const [vendorName, setVendorName] = useState<string>('');
+  const [vendorId, setVendorId] = useState<string>('');
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    const t = localStorage.getItem('vendorToken');
-    const name = localStorage.getItem('vendorName');
-    if (!t || !name) {
-      router.push('/');
-      return;
-    }
-    setToken(t);
-    setVendorName(name);
-    setIsReady(true);
+    const checkSession = async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (!res.ok || !data.authenticated || data.role !== 'vendor') {
+          router.push('/');
+          return;
+        }
+        setVendorName(data.vendorName);
+        setVendorId(data.vendorId);
+        setIsReady(true);
+      } catch {
+        router.push('/');
+      }
+    };
+    checkSession();
   }, [router]);
 
-  const logout = () => {
-    localStorage.removeItem('vendorToken');
-    localStorage.removeItem('vendorName');
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch { /* ignore */ }
     router.push('/');
   };
 
-  return { token, vendorName, isReady, logout };
+  return { vendorName, vendorId, isReady, logout };
 }

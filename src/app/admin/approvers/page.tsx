@@ -15,7 +15,7 @@ interface Approver {
 }
 
 export default function AdminApprovers() {
-  const { token, isReady } = useAdminAuth();
+  const { isReady } = useAdminAuth();
   const [approvers, setApprovers] = useState<Approver[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -27,15 +27,14 @@ export default function AdminApprovers() {
   const [form, setForm] = useState({ name: '', pin: '', email: '' });
 
   useEffect(() => {
-    if (!token) return;
+    if (!isReady) return;
     fetchApprovers();
-  }, [token]);
+  }, [isReady]);
 
   const fetchApprovers = async () => {
     try {
-      const res = await fetch('/api/approvers', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Cookie is sent automatically — no Authorization header needed
+      const res = await fetch('/api/approvers');
       const data = await res.json();
       if (res.ok) {
         setApprovers(data.approvers || []);
@@ -77,10 +76,7 @@ export default function AdminApprovers() {
 
       const res = await fetch('/api/approvers', {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body,
       });
 
@@ -121,10 +117,7 @@ export default function AdminApprovers() {
     try {
       await fetch('/api/approvers', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: approver.id, status: newStatus }),
       });
       await fetchApprovers();

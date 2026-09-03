@@ -3,29 +3,42 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+/**
+ * Hook for approver authentication.
+ * Checks the server-side HttpOnly cookie session via /api/auth/me.
+ * Never reads tokens from localStorage.
+ */
 export function useApproverAuth() {
   const router = useRouter();
-  const [token, setToken] = useState<string | null>(null);
   const [approverName, setApproverName] = useState<string>('');
+  const [approverId, setApproverId] = useState<string>('');
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    const t = localStorage.getItem('approverToken');
-    const name = localStorage.getItem('approverName');
-    if (!t || !name) {
-      router.push('/');
-      return;
-    }
-    setToken(t);
-    setApproverName(name);
-    setIsReady(true);
+    const checkSession = async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (!res.ok || !data.authenticated || data.role !== 'approver') {
+          router.push('/');
+          return;
+        }
+        setApproverName(data.approverName);
+        setApproverId(data.approverId);
+        setIsReady(true);
+      } catch {
+        router.push('/');
+      }
+    };
+    checkSession();
   }, [router]);
 
-  const logout = () => {
-    localStorage.removeItem('approverToken');
-    localStorage.removeItem('approverName');
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch { /* ignore */ }
     router.push('/');
   };
 
-  return { token, approverName, isReady, logout };
+  return { approverName, approverId, isReady, logout };
 }

@@ -27,23 +27,23 @@ export default function LoginPage() {
   const [adminPassword, setAdminPassword] = useState('');
 
   useEffect(() => {
-    // Initialize sheets on first load
-    const init = async () => {
+    // Check if already logged in via cookie session
+    const checkSession = async () => {
       try {
-        const token = localStorage.getItem('adminToken');
-        if (token) {
-          await fetch('/api/setup', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: '{}',
-          });
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (res.ok && data.authenticated) {
+          // Already logged in — redirect to appropriate dashboard
+          if (data.role === 'vendor') { router.push('/vendor/submit'); return; }
+          if (data.role === 'approver') { router.push('/approver/dashboard'); return; }
+          if (data.role === 'admin') { router.push('/admin/dashboard'); return; }
         }
-      } catch { /* continue */ }
+      } catch { /* not logged in, continue to show login */ }
       setInitialized(true);
     };
-    init();
+    checkSession();
 
-    // Load vendor & approver lists
+    // Load vendor & approver lists for login dropdowns
     const loadData = async () => {
       try {
         const [vendorRes, approverRes] = await Promise.all([
@@ -57,7 +57,7 @@ export default function LoginPage() {
       } catch { /* silent */ }
     };
     loadData();
-  }, []);
+  }, [router]);
 
   const handleBillingLogin = async () => {
     if (!selectedVendor) {
@@ -82,8 +82,7 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      localStorage.setItem('vendorToken', data.token);
-      localStorage.setItem('vendorName', data.vendor.name);
+      // Cookie is set by the server (HttpOnly) — no localStorage needed
       router.push('/vendor/submit');
     } catch {
       setError('Login failed. Please try again.');
@@ -110,8 +109,7 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      localStorage.setItem('approverToken', data.token);
-      localStorage.setItem('approverName', data.approver.name);
+      // Cookie is set by the server (HttpOnly) — no localStorage needed
       router.push('/approver/dashboard');
     } catch {
       setError('Login failed. Please try again.');
@@ -138,7 +136,7 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      localStorage.setItem('adminToken', data.token);
+      // Cookie is set by the server (HttpOnly) — no localStorage needed
       router.push('/admin/dashboard');
     } catch {
       setError('Login failed. Please try again.');
@@ -152,6 +150,8 @@ export default function LoginPage() {
     else if (activeRole === 'approver') handleApproverLogin();
     else handleAdminLogin();
   };
+
+  if (!initialized) return null;
 
   return (
     <div className="auth-background flex items-center justify-center p-4">
@@ -239,7 +239,7 @@ export default function LoginPage() {
                       <option key={v.id} value={v.name}>{v.name}</option>
                     ))}
                   </select>
-                  {vendors.length === 0 && initialized && (
+                  {vendors.length === 0 && (
                     <p className="text-xs mt-1.5" style={{ color: 'rgba(148, 163, 184, 0.5)' }}>No vendors registered. Contact admin.</p>
                   )}
                 </div>
