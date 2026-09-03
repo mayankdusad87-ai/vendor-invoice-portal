@@ -297,8 +297,9 @@ function SubmitInvoice() {
       setWorkPhotos([]);
       setMeasurementSheet(null);
       setExistingFiles({ invoiceFileUrl: '', invoiceFileName: '', workPhotos: '', measurementSheetUrl: '', measurementSheetName: '' });
-    } catch {
-      setError('Something went wrong. Please try again.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Something went wrong';
+      setError(message + '. Please try again.');
     }
     setLoading(false);
     setUploadProgress('');

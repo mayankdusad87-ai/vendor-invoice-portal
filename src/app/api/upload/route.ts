@@ -87,10 +87,12 @@ export async function POST(request: NextRequest) {
       success: true,
       files: uploadResults,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Upload error:', error);
+    // Surface the actual error so it's diagnosable
+    const msg = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to upload files. Please try again.' },
+      { error: `Upload failed: ${msg}` },
       { status: 500 }
     );
   }
