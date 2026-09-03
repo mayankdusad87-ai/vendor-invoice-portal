@@ -51,7 +51,7 @@ export default function AdminDashboard() {
 
   const totalAmount = invoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
   const pendingCount = invoices.filter((i) => i.status === 'submitted' || i.status === 'under_review').length;
-  const approvedCount = invoices.filter((i) => i.status === 'approved' || i.status === 'paid').length;
+  const approvedCount = invoices.filter((i) => i.status === 'approved').length;
   const recentInvoices = invoices.slice(0, 5);
 
   return (
@@ -156,7 +156,7 @@ export default function AdminDashboard() {
                     </thead>
                     <tbody>
                       {recentInvoices.map((invoice) => {
-                        const isApprovedOrPaid = invoice.status === 'approved' || invoice.status === 'paid';
+                        const isApprovedOrPaid = invoice.status === 'approved';
                         return (
                           <tr key={invoice.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
                             <td className="py-2.5 px-2 font-medium text-[var(--text-primary)]">

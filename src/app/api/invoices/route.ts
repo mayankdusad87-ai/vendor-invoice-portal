@@ -7,7 +7,7 @@ import {
   requireAuth, requireEngineerOrVendor, requireAdminOrApprover,
   isAuthError,
 } from '@/lib/auth';
-import type { AdminToken, ApproverToken } from '@/lib/auth';
+import type { ApproverToken } from '@/lib/auth';
 import {
   rateLimit, getRateLimitKey, rateLimitResponse,
   sanitizeString, sanitizeAmount, sanitizeDate,
@@ -94,6 +94,14 @@ export async function POST(request: NextRequest) {
     const workPhotos = sanitizeString(body.workPhotos, 5000);
     const measurementSheetUrl = sanitizeString(body.measurementSheetUrl, 2000);
     const measurementSheetName = sanitizeString(body.measurementSheetName, 200);
+    const invoiceType = sanitizeString(body.invoiceType, 20);
+
+    // Derive submittedBy from authenticated session — never from client
+    const submittedBy = session.type === 'engineer'
+      ? (session as import('@/lib/auth').EngineerToken).engineerName
+      : session.type === 'vendor'
+        ? (session as import('@/lib/auth').VendorToken).vendorName
+        : '';
 
     // Validate required fields
     if (!vendorName) {
@@ -102,6 +110,15 @@ export async function POST(request: NextRequest) {
     if (!invoiceDate || !invoiceNumber || !purpose || amount === '0.00') {
       return NextResponse.json(
         { error: 'Invoice date, number, purpose, and a valid amount are required' },
+        { status: 400 }
+      );
+    }
+
+    // Validate invoice type
+    const validTypes = ['advance', 'ra', 'final'];
+    if (!invoiceType || !validTypes.includes(invoiceType)) {
+      return NextResponse.json(
+        { error: 'Invoice type is required (Advance, RA, or Final)' },
         { status: 400 }
       );
     }
@@ -128,6 +145,8 @@ export async function POST(request: NextRequest) {
       measurementSheetUrl,
       measurementSheetName,
       status: 'submitted',
+      invoiceType,
+      submittedBy,
     });
 
     return NextResponse.json({ success: true, invoice });
@@ -143,9 +162,7 @@ export async function PUT(request: NextRequest) {
   const session = requireAdminOrApprover(request);
   if (isAuthError(session)) return session;
 
-  const isAdmin = session.type === 'admin';
   const approverPayload = session.type === 'approver' ? session as ApproverToken : null;
-  const adminPayload = session.type === 'admin' ? session as AdminToken : null;
 
   try {
     const body = await request.json();
@@ -157,14 +174,9 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Invoice ID and status are required' }, { status: 400 });
     }
 
-    const validStatuses = ['submitted', 'under_review', 'approved', 'paid', 'rejected'];
+    const validStatuses = ['submitted', 'under_review', 'approved', 'rejected'];
     if (!validStatuses.includes(status)) {
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
-    }
-
-    // Only admins can set status to 'paid'
-    if (status === 'paid' && !isAdmin) {
-      return NextResponse.json({ error: 'Only admins can mark invoices as paid' }, { status: 403 });
     }
 
     // Require comments/reason for approve and reject
@@ -184,12 +196,12 @@ export async function PUT(request: NextRequest) {
     }
 
     // Prevent re-approving or re-rejecting an invoice already in that status
-    if (invoice.status === status && (status === 'approved' || status === 'rejected' || status === 'paid')) {
+    if (invoice.status === status && (status === 'approved' || status === 'rejected')) {
       return NextResponse.json({ error: `Invoice is already ${status}` }, { status: 400 });
     }
 
     // Identity from session — never from client
-    const approvedBy = approverPayload?.approverName || adminPayload?.username || '';
+    const approvedBy = approverPayload?.approverName || (session.type === 'admin' ? 'Admin' : '');
 
     const success = await updateInvoiceStatus(id, status as typeof invoice.status, approvalComments, approvedBy);
     if (!success) {

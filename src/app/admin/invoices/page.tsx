@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import AdminHeader from '@/components/layout/AdminHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
+import TypeBadge from '@/components/ui/TypeBadge';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { INVOICE_STATUSES } from '@/lib/constants';
@@ -23,6 +24,8 @@ interface Invoice {
   submittedAt: string;
   updatedAt: string;
   approvedDate: string;
+  invoiceType: string;
+  submittedBy: string;
 }
 
 export default function AdminInvoices() {
@@ -204,6 +207,7 @@ export default function AdminInvoices() {
                       <span className="text-sm text-[var(--text-muted)]">
                         {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}
                       </span>
+                      {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
                       <StatusBadge status={invoice.status} />
                     </div>
                     <p className="text-sm text-[var(--text-secondary)] mb-1">{invoice.purpose}</p>
@@ -237,7 +241,7 @@ export default function AdminInvoices() {
                           Submitted: {new Date(invoice.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </span>
                       )}
-                      {(invoice.status === 'approved' || invoice.status === 'paid') && invoice.approvedDate && (
+                      {invoice.status === 'approved' && invoice.approvedDate && (
                         <span className="inline-flex items-center gap-1" style={{ color: 'var(--success)' }}>
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />

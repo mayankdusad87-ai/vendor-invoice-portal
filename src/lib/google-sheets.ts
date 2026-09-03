@@ -391,19 +391,21 @@ export interface Invoice {
   workPhotos: string; // comma-separated URLs
   measurementSheetUrl: string;
   measurementSheetName: string;
-  status: 'submitted' | 'under_review' | 'approved' | 'paid' | 'rejected';
+  status: 'submitted' | 'under_review' | 'approved' | 'rejected';
   approvalComments: string;
   approvedBy: string;
   submittedAt: string;
   updatedAt: string;
-  approvedDate: string; // Column R — set only when approved/paid
+  approvedDate: string; // Column R — set only when approved
+  invoiceType: string;  // Column S — Advance, RA, Final
+  submittedBy: string;  // Column T — engineer/vendor name who submitted
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:R',
+    range: 'Invoices!A2:T',
   });
 
   const rows = response.data.values || [];
@@ -426,6 +428,8 @@ export async function getInvoices(): Promise<Invoice[]> {
     submittedAt: row[15] || '',
     updatedAt: row[16] || '',
     approvedDate: row[17] || '',
+    invoiceType: row[18] || '',
+    submittedBy: row[19] || '',
   }));
 }
 
@@ -448,7 +452,7 @@ export async function addInvoice(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:R',
+    range: 'Invoices!A:T',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -470,6 +474,8 @@ export async function addInvoice(
         now, // submittedAt
         now, // updatedAt
         '', // approvedDate — empty until approved
+        invoice.invoiceType || '', // invoiceType
+        invoice.submittedBy || '', // submittedBy
       ]],
     },
   });
@@ -496,8 +502,8 @@ export async function updateInvoiceStatus(
   const now = new Date().toISOString();
   const currentRow = rows[rowIndex];
 
-  // Set approvedDate only when transitioning to approved or paid
-  const isApprovalAction = status === 'approved' || status === 'paid';
+  // Set approvedDate only when transitioning to approved
+  const isApprovalAction = status === 'approved';
   const approvedDate = isApprovalAction ? now : (currentRow[17] ?? '');
 
   // Update columns M–R: status, approval comments, approved by, submitted at, updated at, approved date
@@ -568,11 +574,13 @@ export async function resubmitInvoice(
     currentRow[15], // keep original submitted at
     now, // update updated at
     '', // clear approved date on resubmit
+    currentRow[18] ?? '', // keep invoiceType
+    currentRow[19] ?? '', // keep submittedBy
   ];
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `Invoices!A${rowIndex + 2}:R${rowIndex + 2}`,
+    range: `Invoices!A${rowIndex + 2}:T${rowIndex + 2}`,
     valueInputOption: 'RAW',
     requestBody: { values: [updatedRow] },
   });
@@ -638,12 +646,13 @@ export async function initializeSheetHeaders(): Promise<void> {
     'ID', 'Vendor Name', 'Invoice Date', 'Invoice Number', 'Purpose', 'Amount',
     'Remarks', 'Invoice File URL', 'Invoice File Name', 'Work Photos',
     'Measurement Sheet URL', 'Measurement Sheet Name', 'Status',
-    'Approval Comments', 'Approved By', 'Submitted At', 'Updated At', 'Approved Date'
+    'Approval Comments', 'Approved By', 'Submitted At', 'Updated At', 'Approved Date',
+    'Invoice Type', 'Submitted By'
   ];
 
   const invoiceHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A1:R1',
+    range: 'Invoices!A1:T1',
   });
 
   const currentHeaders = invoiceHeaders.data.values?.[0] || [];
@@ -651,7 +660,7 @@ export async function initializeSheetHeaders(): Promise<void> {
       currentHeaders.some((h, i) => h !== expectedInvoiceHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Invoices!A1:R1',
+      range: 'Invoices!A1:T1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedInvoiceHeaders],

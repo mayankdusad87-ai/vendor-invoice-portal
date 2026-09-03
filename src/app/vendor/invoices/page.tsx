@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import StatusBadge from '@/components/ui/StatusBadge';
+import TypeBadge from '@/components/ui/TypeBadge';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useEngineerAuth } from '@/hooks/useEngineerAuth';
 import type { InvoiceStatus } from '@/lib/constants';
@@ -24,6 +25,8 @@ interface Invoice {
   approvalComments: string;
   approvedBy: string;
   submittedAt: string;
+  invoiceType: string;
+  submittedBy: string;
 }
 
 export default function VendorInvoices() {
@@ -149,7 +152,10 @@ export default function VendorInvoices() {
                         {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}
                       </span>
                     </div>
-                    <StatusBadge status={invoice.status} />
+                    <div className="flex items-center gap-2">
+                      {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
+                      <StatusBadge status={invoice.status} />
+                    </div>
                   </div>
                   <p className="text-sm text-gray-600 mb-2">{invoice.purpose}</p>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">

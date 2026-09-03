@@ -38,6 +38,7 @@ function SubmitInvoice() {
   const [form, setForm] = useState({
     invoiceDate: '',
     invoiceNumber: '',
+    invoiceType: '',
     purpose: '',
     amount: '',
     remarks: '',
@@ -90,6 +91,7 @@ function SubmitInvoice() {
         setForm({
           invoiceDate: invoice.invoiceDate,
           invoiceNumber: invoice.invoiceNumber,
+          invoiceType: invoice.invoiceType || '',
           purpose: invoice.purpose,
           amount: invoice.amount,
           remarks: invoice.remarks,
@@ -164,6 +166,10 @@ function SubmitInvoice() {
     }
     if (!trimmedNumber || trimmedNumber.length < 2) {
       setError('Invoice number must be at least 2 characters');
+      return;
+    }
+    if (!form.invoiceType) {
+      setError('Please select an invoice type');
       return;
     }
     if (!trimmedPurpose || trimmedPurpose.length < 5) {
@@ -292,7 +298,7 @@ function SubmitInvoice() {
       }
 
       setSuccess(true);
-      setForm({ invoiceDate: '', invoiceNumber: '', purpose: '', amount: '', remarks: '' });
+      setForm({ invoiceDate: '', invoiceNumber: '', invoiceType: '', purpose: '', amount: '', remarks: '' });
       setInvoiceFile(null);
       setWorkPhotos([]);
       setMeasurementSheet(null);
@@ -442,7 +448,7 @@ function SubmitInvoice() {
               </div>
 
               {/* Basic Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Invoice Date *
@@ -467,6 +473,22 @@ function SubmitInvoice() {
                     placeholder="e.g., INV-001"
                     required
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Invoice Type *
+                  </label>
+                  <select
+                    value={form.invoiceType}
+                    onChange={(e) => setForm({ ...form, invoiceType: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                    required
+                  >
+                    <option value="">Select type</option>
+                    <option value="advance">Advance</option>
+                    <option value="ra">RA (Running Account)</option>
+                    <option value="final">Final</option>
+                  </select>
                 </div>
               </div>
 

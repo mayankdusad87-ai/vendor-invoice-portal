@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import StatusBadge from '@/components/ui/StatusBadge';
+import TypeBadge from '@/components/ui/TypeBadge';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useApproverAuth } from '@/hooks/useApproverAuth';
 import type { InvoiceStatus } from '@/lib/constants';
@@ -23,6 +24,8 @@ interface Invoice {
   approvalComments: string;
   approvedBy: string;
   submittedAt: string;
+  invoiceType: string;
+  submittedBy: string;
 }
 
 interface RejectionReason {
@@ -197,12 +200,30 @@ export default function ApproverDashboard() {
 
   const filteredInvoices = invoices.filter((inv) => {
     if (filter === 'pending') return inv.status === 'submitted' || inv.status === 'under_review';
-    if (filter === 'approved') return inv.status === 'approved' || inv.status === 'paid';
+    if (filter === 'approved') return inv.status === 'approved';
     if (filter === 'rejected') return inv.status === 'rejected';
     return true;
   });
 
-  const pendingCount = invoices.filter((i) => i.status === 'submitted' || i.status === 'under_review').length;
+  // Summary stats
+  const stats = useMemo(() => {
+    const pending = invoices.filter((i) => i.status === 'submitted' || i.status === 'under_review');
+    const approved = invoices.filter((i) => i.status === 'approved');
+    const rejected = invoices.filter((i) => i.status === 'rejected');
+    const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+    return {
+      total: invoices.length,
+      totalAmount: sumAmount(invoices),
+      pendingCount: pending.length,
+      pendingAmount: sumAmount(pending),
+      approvedCount: approved.length,
+      approvedAmount: sumAmount(approved),
+      rejectedCount: rejected.length,
+      rejectedAmount: sumAmount(rejected),
+    };
+  }, [invoices]);
+
+  const pendingCount = stats.pendingCount;
 
   if (!isReady) return null;
 
@@ -228,7 +249,43 @@ export default function ApproverDashboard() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-4 mt-4 fade-in">
+      <main className="max-w-5xl mx-auto p-4 mt-4 fade-in">
+        {/* Summary Stat Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          <button
+            onClick={() => setFilter('all')}
+            className={`stat-card text-left transition-all ${filter === 'all' ? 'ring-2 ring-[var(--primary)]' : ''}`}
+          >
+            <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Total Invoices</p>
+            <p className="text-2xl font-bold text-[var(--text-primary)]">{stats.total}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">₹{stats.totalAmount.toLocaleString('en-IN')}</p>
+          </button>
+          <button
+            onClick={() => setFilter('pending')}
+            className={`stat-card text-left transition-all ${filter === 'pending' ? 'ring-2 ring-[var(--warning)]' : ''}`}
+          >
+            <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Pending Review</p>
+            <p className="text-2xl font-bold" style={{ color: 'var(--warning)' }}>{stats.pendingCount}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">₹{stats.pendingAmount.toLocaleString('en-IN')}</p>
+          </button>
+          <button
+            onClick={() => setFilter('approved')}
+            className={`stat-card text-left transition-all ${filter === 'approved' ? 'ring-2 ring-[var(--success)]' : ''}`}
+          >
+            <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Approved</p>
+            <p className="text-2xl font-bold" style={{ color: 'var(--success)' }}>{stats.approvedCount}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">₹{stats.approvedAmount.toLocaleString('en-IN')}</p>
+          </button>
+          <button
+            onClick={() => setFilter('rejected')}
+            className={`stat-card text-left transition-all ${filter === 'rejected' ? 'ring-2 ring-[var(--danger)]' : ''}`}
+          >
+            <p className="text-xs font-medium text-[var(--text-muted)] mb-1">Rejected</p>
+            <p className="text-2xl font-bold" style={{ color: 'var(--danger)' }}>{stats.rejectedCount}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">₹{stats.rejectedAmount.toLocaleString('en-IN')}</p>
+          </button>
+        </div>
+
         {/* Filter Tabs */}
         <div className="flex gap-2 mb-4 overflow-x-auto pb-1" role="tablist" aria-label="Filter invoices">
           {[
@@ -299,16 +356,25 @@ export default function ApproverDashboard() {
                         <span className="font-bold text-[var(--text-primary)]">{invoice.invoiceNumber}</span>
                         <span className="text-sm text-[var(--text-muted)]">&bull;</span>
                         <span className="text-sm text-[var(--text-secondary)]">{invoice.vendorName}</span>
+                        {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
                         <StatusBadge status={invoice.status} />
                       </div>
                       <p className="text-sm text-[var(--text-secondary)] mt-1">{invoice.purpose}</p>
-                      <div className="flex gap-3 mt-1 text-xs text-[var(--text-muted)]">
+                      <div className="flex flex-wrap gap-3 mt-1 text-xs text-[var(--text-muted)]">
                         <span className="font-semibold text-base text-[var(--text-primary)]">
                           ₹{Number(invoice.amount).toLocaleString('en-IN')}
                         </span>
                         <span className="self-center">
                           {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}
                         </span>
+                        {invoice.submittedBy && (
+                          <span className="self-center inline-flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                            </svg>
+                            {invoice.submittedBy}
+                          </span>
+                        )}
                         {photoUrls.length > 0 && (
                           <span className="self-center inline-flex items-center gap-1">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
