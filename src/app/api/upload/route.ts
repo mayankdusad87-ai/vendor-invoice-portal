@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadFileToDrive } from '@/lib/google-drive';
+import { uploadFileToSharePoint } from '@/lib/microsoft-drive';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 import { requireAuth, isAuthError } from '@/lib/auth';
 
@@ -72,10 +72,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Upload all files to Google Drive
+    // Upload all files to SharePoint
     const uploadResults = await Promise.all(
       filesToUpload.map(async (file) => {
-        const result = await uploadFileToDrive(file);
+        const result = await uploadFileToSharePoint(file);
         return {
           url: result.url,
           fileName: result.fileName,

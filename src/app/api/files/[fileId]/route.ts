@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { downloadFileFromDrive } from '@/lib/google-drive';
+import { downloadFileFromSharePoint } from '@/lib/microsoft-drive';
 import { requireAuth, isAuthError } from '@/lib/auth';
 
 /**
- * Secure file proxy — serves Google Drive files to authenticated users.
- * Files are never made public; this endpoint downloads via the service account
+ * Secure file proxy — serves SharePoint files to authenticated users.
+ * Files are never made public; this endpoint downloads via the app registration
  * and streams the content back with proper headers.
  */
 export async function GET(
@@ -22,7 +22,7 @@ export async function GET(
   }
 
   try {
-    const { buffer, mimeType, fileName } = await downloadFileFromDrive(fileId);
+    const { buffer, mimeType, fileName } = await downloadFileFromSharePoint(fileId);
 
     // Build response with proper headers
     const headers = new Headers();
@@ -38,7 +38,7 @@ export async function GET(
   } catch (error: unknown) {
     console.error('File proxy error:', error);
 
-    // Check if it's a Google API 404
+    // Check if it's a 404
     const status = (error as { code?: number })?.code;
     if (status === 404) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
