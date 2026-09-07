@@ -216,15 +216,36 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: `Invoice is already ${status}` }, { status: 400 });
     }
 
+    // Validate approved amount when approving
+    let approvedAmount: string | undefined;
+    if (status === 'approved') {
+      const rawAmount = body.approvedAmount;
+      if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
+        return NextResponse.json({ error: 'Approved amount is required when approving' }, { status: 400 });
+      }
+      const parsedAmount = parseFloat(rawAmount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        return NextResponse.json({ error: 'Approved amount must be a positive number' }, { status: 400 });
+      }
+      const invoiceAmount = parseFloat(invoice.amount) || 0;
+      if (parsedAmount > invoiceAmount + 0.01) {
+        return NextResponse.json(
+          { error: `Approved amount (₹${parsedAmount.toLocaleString('en-IN')}) cannot exceed invoice amount (₹${invoiceAmount.toLocaleString('en-IN')})` },
+          { status: 400 }
+        );
+      }
+      approvedAmount = String(parsedAmount);
+    }
+
     // Identity from session — never from client
     const approvedBy = approverPayload?.approverName || (session.type === 'admin' ? 'Admin' : '');
 
-    const success = await updateInvoiceStatus(id, status as typeof invoice.status, approvalComments, approvedBy);
+    const success = await updateInvoiceStatus(id, status as typeof invoice.status, approvalComments, approvedBy, approvedAmount);
     if (!success) {
       return NextResponse.json({ error: 'Failed to update invoice' }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, approvedAmount });
   } catch (error) {
     console.error('Update invoice error:', error);
     return NextResponse.json({ error: 'Failed to update invoice' }, { status: 500 });

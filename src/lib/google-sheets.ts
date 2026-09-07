@@ -399,16 +399,17 @@ export interface Invoice {
   approvedDate: string; // Column R — set only when approved
   invoiceType: string;  // Column S — Advance, RA, Final
   submittedBy: string;  // Column T — engineer/vendor name who submitted
-  poNumber: string;     // Column U — PO number (optional)
-  challanUrl: string;   // Column V — Challan file URL (optional)
-  challanName: string;  // Column W — Challan file name (optional)
+  poNumber: string;       // Column U — PO number (optional)
+  challanUrl: string;     // Column V — Challan file URL (optional)
+  challanName: string;    // Column W — Challan file name (optional)
+  approvedAmount: string; // Column X — Amount approved by approver (may differ from invoice amount)
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:W',
+    range: 'Invoices!A2:X',
   });
 
   const rows = response.data.values || [];
@@ -436,6 +437,7 @@ export async function getInvoices(): Promise<Invoice[]> {
     poNumber: row[20] || '',
     challanUrl: row[21] || '',
     challanName: row[22] || '',
+    approvedAmount: row[23] || '',
   }));
 }
 
@@ -450,7 +452,7 @@ export async function getInvoiceById(id: string): Promise<Invoice | null> {
 }
 
 export async function addInvoice(
-  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy'>
+  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount'>
 ): Promise<Invoice> {
   const sheets = getSheets();
   const id = `INV${Date.now()}`;
@@ -458,7 +460,7 @@ export async function addInvoice(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:W',
+    range: 'Invoices!A:X',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -485,23 +487,25 @@ export async function addInvoice(
         invoice.poNumber || '', // PO number
         invoice.challanUrl || '', // Challan file URL
         invoice.challanName || '', // Challan file name
+        '', // approvedAmount — empty until approved
       ]],
     },
   });
 
-  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '' };
+  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '' };
 }
 
 export async function updateInvoiceStatus(
   id: string,
   status: Invoice['status'],
   approvalComments?: string,
-  approvedBy?: string
+  approvedBy?: string,
+  approvedAmount?: string
 ): Promise<boolean> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:R',
+    range: 'Invoices!A2:X',
   });
 
   const rows = response.data.values || [];
@@ -532,6 +536,18 @@ export async function updateInvoiceStatus(
     },
   });
 
+  // Update column X (approvedAmount) when approving
+  if (isApprovalAction && approvedAmount !== undefined) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `Invoices!X${rowIndex + 2}`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [[approvedAmount]],
+      },
+    });
+  }
+
   return true;
 }
 
@@ -556,7 +572,7 @@ export async function resubmitInvoice(
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:W',
+    range: 'Invoices!A2:X',
   });
 
   const rows = response.data.values || [];
@@ -1026,12 +1042,12 @@ export async function initializeSheetHeaders(): Promise<void> {
     'Remarks', 'Invoice File URL', 'Invoice File Name', 'Work Photos',
     'Measurement Sheet URL', 'Measurement Sheet Name', 'Status',
     'Approval Comments', 'Approved By', 'Submitted At', 'Updated At', 'Approved Date',
-    'Invoice Type', 'Submitted By', 'PO Number', 'Challan URL', 'Challan Name'
+    'Invoice Type', 'Submitted By', 'PO Number', 'Challan URL', 'Challan Name', 'Approved Amount'
   ];
 
   const invoiceHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A1:W1',
+    range: 'Invoices!A1:X1',
   });
 
   const currentHeaders = invoiceHeaders.data.values?.[0] || [];
@@ -1039,7 +1055,7 @@ export async function initializeSheetHeaders(): Promise<void> {
       currentHeaders.some((h, i) => h !== expectedInvoiceHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Invoices!A1:W1',
+      range: 'Invoices!A1:X1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedInvoiceHeaders],

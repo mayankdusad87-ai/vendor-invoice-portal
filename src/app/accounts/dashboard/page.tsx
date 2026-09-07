@@ -34,6 +34,7 @@ interface Invoice {
   poNumber?: string;
   challanUrl?: string;
   challanName?: string;
+  approvedAmount?: string;
 }
 
 interface Payment {
@@ -51,6 +52,7 @@ interface PaymentSummary {
   payments: Payment[];
   totalPaid: number;
   invoiceAmount: number;
+  approvedAmount: number;
   remaining: number;
   isFullyPaid: boolean;
 }
@@ -161,9 +163,21 @@ function PaymentModal({
           </div>
           <p className="text-sm font-medium text-gray-900">#{invoice.invoiceNumber} — {invoice.purpose}</p>
           <div className="flex items-center justify-between mt-2">
-            <span className="text-sm text-gray-500">Invoice Total</span>
-            <span className="font-bold text-gray-900">{formatCurrency(invoice.amount)}</span>
+            <span className="text-sm text-gray-500">Invoice Amount</span>
+            <span className="text-sm text-gray-900">{formatCurrency(invoice.amount)}</span>
           </div>
+          {paymentSummary && paymentSummary.approvedAmount !== paymentSummary.invoiceAmount && (
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-sm font-medium text-emerald-700">Approved Amount</span>
+              <span className="font-bold text-emerald-700">{formatCurrency(paymentSummary.approvedAmount)}</span>
+            </div>
+          )}
+          {!(paymentSummary && paymentSummary.approvedAmount !== paymentSummary.invoiceAmount) && (
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-sm text-gray-500">Approved Amount</span>
+              <span className="font-bold text-gray-900">{formatCurrency(invoice.approvedAmount || invoice.amount)}</span>
+            </div>
+          )}
           {paymentSummary && paymentSummary.totalPaid > 0 && (
             <>
               <div className="flex items-center justify-between mt-1">
@@ -382,11 +396,17 @@ function PaymentHistory({
           <p className="text-sm font-medium text-gray-900">
             #{invoice.invoiceNumber} — {invoice.vendorName}
           </p>
-          <div className="grid grid-cols-3 gap-2 mt-2">
+          <div className={`grid ${payments.approvedAmount !== payments.invoiceAmount ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-2 mt-2`}>
             <div>
-              <p className="text-xs text-gray-400">Invoice Total</p>
+              <p className="text-xs text-gray-400">Invoice Amount</p>
               <p className="text-sm font-bold text-gray-900">{formatCurrency(payments.invoiceAmount)}</p>
             </div>
+            {payments.approvedAmount !== payments.invoiceAmount && (
+              <div>
+                <p className="text-xs text-emerald-600">Approved Amount</p>
+                <p className="text-sm font-bold text-emerald-700">{formatCurrency(payments.approvedAmount)}</p>
+              </div>
+            )}
             <div>
               <p className="text-xs text-gray-400">Total Paid</p>
               <p className="text-sm font-bold text-emerald-600">{formatCurrency(payments.totalPaid)}</p>
@@ -402,7 +422,7 @@ function PaymentHistory({
           <div className="mt-3 h-2 rounded-full bg-gray-200 overflow-hidden">
             <div
               className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-              style={{ width: `${Math.min(100, (payments.totalPaid / payments.invoiceAmount) * 100)}%` }}
+              style={{ width: `${Math.min(100, (payments.totalPaid / (payments.approvedAmount || payments.invoiceAmount)) * 100)}%` }}
             />
           </div>
         </div>
@@ -985,10 +1005,15 @@ export default function AccountsDashboard() {
                         {inv.purpose}
                         {inv.poNumber && <span className="text-gray-400"> · PO: {inv.poNumber}</span>}
                       </p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-base font-bold text-gray-900">
                           {formatCurrency(inv.amount)}
                         </span>
+                        {inv.approvedAmount && parseFloat(inv.approvedAmount) !== parseFloat(inv.amount) && (
+                          <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            Approved: {formatCurrency(inv.approvedAmount)}
+                          </span>
+                        )}
                         <span className="text-xs text-gray-400">
                           {formatDate(inv.submittedAt || inv.invoiceDate)}
                         </span>
@@ -1046,6 +1071,17 @@ export default function AccountsDashboard() {
                             <span className="text-gray-400">Approved By</span>
                             <p className="text-gray-700 font-medium">{inv.approvedBy || '—'}</p>
                           </div>
+                          {inv.approvedAmount && (
+                            <div>
+                              <span className="text-gray-400">Approved Amount</span>
+                              <p className={`font-medium ${parseFloat(inv.approvedAmount) !== parseFloat(inv.amount) ? 'text-emerald-700' : 'text-gray-700'}`}>
+                                {formatCurrency(inv.approvedAmount)}
+                                {parseFloat(inv.approvedAmount) !== parseFloat(inv.amount) && (
+                                  <span className="text-xs text-gray-400 ml-1">(Invoice: {formatCurrency(inv.amount)})</span>
+                                )}
+                              </p>
+                            </div>
+                          )}
                           {inv.poNumber && (
                             <div>
                               <span className="text-gray-400">PO Number</span>
@@ -1081,7 +1117,7 @@ export default function AccountsDashboard() {
                             <div className="mt-2 h-1.5 rounded-full bg-gray-200 overflow-hidden">
                               <div
                                 className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all"
-                                style={{ width: `${Math.min(100, (cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}%` }}
+                                style={{ width: `${Math.min(100, (cachedPayment.totalPaid / (cachedPayment.approvedAmount || cachedPayment.invoiceAmount)) * 100)}%` }}
                               />
                             </div>
                           </div>

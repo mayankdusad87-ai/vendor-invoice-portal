@@ -106,6 +106,7 @@ export default function ApproverDashboard() {
 
   // Per-invoice action state
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [approvedAmounts, setApprovedAmounts] = useState<Record<string, string>>({});
   const [selectedReasons, setSelectedReasons] = useState<Record<string, string>>({});
   const [rejectionReasons, setRejectionReasons] = useState<RejectionReason[]>([]);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -157,17 +158,21 @@ export default function ApproverDashboard() {
   const getComment = (id: string) => comments[id] || '';
   const getReason = (id: string) => selectedReasons[id] || '';
   const getError = (id: string) => actionError[id] || '';
+  const getApprovedAmount = (id: string, invoiceAmount: string) =>
+    approvedAmounts[id] !== undefined ? approvedAmounts[id] : invoiceAmount;
 
   const setComment = (id: string, value: string) =>
     setComments((prev) => ({ ...prev, [id]: value }));
   const setReason = (id: string, value: string) =>
     setSelectedReasons((prev) => ({ ...prev, [id]: value }));
+  const setApprovedAmount = (id: string, value: string) =>
+    setApprovedAmounts((prev) => ({ ...prev, [id]: value }));
   const setError = (id: string, value: string) =>
     setActionError((prev) => ({ ...prev, [id]: value }));
   const clearError = (id: string) =>
     setActionError((prev) => { const next = { ...prev }; delete next[id]; return next; });
 
-  const requestAction = (invoiceId: string, invoiceNumber: string, status: InvoiceStatus) => {
+  const requestAction = (invoiceId: string, invoiceNumber: string, status: InvoiceStatus, invoiceAmount?: string) => {
     clearError(invoiceId);
     const comment = getComment(invoiceId).trim();
     const reason = getReason(invoiceId);
@@ -175,6 +180,19 @@ export default function ApproverDashboard() {
     if (status === 'approved' && !comment) {
       setError(invoiceId, 'Please add approval remarks before approving');
       return;
+    }
+    if (status === 'approved' && invoiceAmount) {
+      const amt = getApprovedAmount(invoiceId, invoiceAmount);
+      const parsed = parseFloat(amt);
+      const invAmt = parseFloat(invoiceAmount) || 0;
+      if (!amt || isNaN(parsed) || parsed <= 0) {
+        setError(invoiceId, 'Please enter a valid approved amount');
+        return;
+      }
+      if (parsed > invAmt + 0.01) {
+        setError(invoiceId, `Approved amount cannot exceed invoice amount (₹${invAmt.toLocaleString('en-IN')})`);
+        return;
+      }
     }
     if (status === 'rejected' && !reason && !comment) {
       setError(invoiceId, 'Please select a rejection reason or add comments');
@@ -187,11 +205,16 @@ export default function ApproverDashboard() {
       under_review: 'mark as Under Review',
     };
 
+    const approvedAmt = status === 'approved' && invoiceAmount
+      ? getApprovedAmount(invoiceId, invoiceAmount)
+      : undefined;
+    const amtDisplay = approvedAmt ? ` for ₹${parseFloat(approvedAmt).toLocaleString('en-IN')}` : '';
+
     setConfirmDialog({
       invoiceId,
       invoiceNumber,
       action: status,
-      message: `Are you sure you want to ${actionLabels[status] || status} invoice ${invoiceNumber}?`,
+      message: `Are you sure you want to ${actionLabels[status] || status} invoice ${invoiceNumber}${amtDisplay}?`,
     });
   };
 
@@ -202,10 +225,16 @@ export default function ApproverDashboard() {
 
     const comment = getComment(invoiceId).trim();
     const reason = getReason(invoiceId);
+    const inv = invoices.find((i) => i.id === invoiceId);
 
     const approvalComments = action === 'rejected'
       ? (reason ? `${reason}${comment ? ` — ${comment}` : ''}` : comment)
       : comment;
+
+    // Get approved amount for approval actions
+    const approvedAmount = action === 'approved' && inv
+      ? getApprovedAmount(invoiceId, inv.amount)
+      : undefined;
 
     setActionLoading(invoiceId);
     clearError(invoiceId);
@@ -213,13 +242,12 @@ export default function ApproverDashboard() {
       const res = await fetch('/api/invoices', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: invoiceId, status: action, approvalComments }),
+        body: JSON.stringify({ id: invoiceId, status: action, approvalComments, approvedAmount }),
       });
 
       const data = await res.json();
       if (res.ok) {
-        const inv = invoices.find((i) => i.id === invoiceId);
-        const amt = inv ? `₹${Number(inv.amount).toLocaleString('en-IN')}` : '';
+        const approvedAmt = approvedAmount ? `₹${parseFloat(approvedAmount).toLocaleString('en-IN')}` : '';
         setInvoices((prev) =>
           prev.map((i) =>
             i.id === invoiceId
@@ -229,11 +257,12 @@ export default function ApproverDashboard() {
         );
         setComment(invoiceId, '');
         setReason(invoiceId, '');
+        setApprovedAmounts((prev) => { const next = { ...prev }; delete next[invoiceId]; return next; });
         setExpandedId(null);
 
         // Toast notification
         if (action === 'approved') {
-          setToast({ message: `Invoice ${invoiceNumber} approved ${amt ? `— ${amt}` : ''}`, type: 'success' });
+          setToast({ message: `Invoice ${invoiceNumber} approved ${approvedAmt ? `— ${approvedAmt}` : ''}`, type: 'success' });
         } else if (action === 'rejected') {
           setToast({ message: `Invoice ${invoiceNumber} rejected`, type: 'error' });
         } else {
@@ -246,7 +275,7 @@ export default function ApproverDashboard() {
       setError(invoiceId, 'Network error. Please try again.');
     }
     setActionLoading(null);
-  }, [confirmDialog, comments, selectedReasons, approverName, invoices]);
+  }, [confirmDialog, comments, selectedReasons, approvedAmounts, approverName, invoices]);
 
   // Stats
   const stats = useMemo(() => {
@@ -692,6 +721,40 @@ export default function ApproverDashboard() {
                         {/* Action form for pending invoices */}
                         {isPending && (
                           <div className="space-y-3 bg-gray-50 rounded-lg p-4 border border-gray-100">
+                            {/* Approved Amount */}
+                            <div>
+                              <label className="block text-xs font-medium text-gray-500 mb-1">
+                                Approved Amount <span className="text-red-500">*</span>
+                                <span className="font-normal text-gray-400"> (required to approve)</span>
+                              </label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0.01"
+                                  max={invoice.amount}
+                                  value={getApprovedAmount(invoice.id, invoice.amount)}
+                                  onChange={(e) => { setApprovedAmount(invoice.id, e.target.value); clearError(invoice.id); }}
+                                  className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-h-[44px]"
+                                  aria-label="Approved amount"
+                                />
+                              </div>
+                              {(() => {
+                                const approvedVal = parseFloat(getApprovedAmount(invoice.id, invoice.amount)) || 0;
+                                const invoiceVal = parseFloat(invoice.amount) || 0;
+                                if (approvedVal > 0 && approvedVal < invoiceVal) {
+                                  const diff = invoiceVal - approvedVal;
+                                  return (
+                                    <p className="text-xs text-amber-600 mt-1">
+                                      ₹{diff.toLocaleString('en-IN')} less than invoice amount (₹{invoiceVal.toLocaleString('en-IN')})
+                                    </p>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </div>
+
                             <div>
                               <label className="block text-xs font-medium text-gray-500 mb-1">
                                 Rejection Reason <span className="text-red-500">*</span>
@@ -734,7 +797,7 @@ export default function ApproverDashboard() {
 
                             <div className="flex gap-2">
                               <button
-                                onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'approved')}
+                                onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'approved', invoice.amount)}
                                 disabled={actionLoading === invoice.id}
                                 className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                               >

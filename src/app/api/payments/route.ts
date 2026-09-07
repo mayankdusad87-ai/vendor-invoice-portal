@@ -20,13 +20,17 @@ export async function GET(request: NextRequest) {
     const invoice = await getInvoiceById(invoiceId);
     const totalPaid = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     const invoiceAmount = invoice ? parseFloat(invoice.amount) || 0 : 0;
+    // Use approved amount as payment cap; fall back to invoice amount if not set
+    const approvedAmount = invoice?.approvedAmount ? parseFloat(invoice.approvedAmount) || invoiceAmount : invoiceAmount;
+    const payableAmount = approvedAmount; // This is the cap for payments
 
     return NextResponse.json({
       payments,
       totalPaid,
       invoiceAmount,
-      remaining: Math.max(0, invoiceAmount - totalPaid),
-      isFullyPaid: totalPaid >= invoiceAmount,
+      approvedAmount,
+      remaining: Math.max(0, payableAmount - totalPaid),
+      isFullyPaid: totalPaid >= payableAmount,
     });
   } catch (error) {
     console.error('Failed to fetch payments:', error);
@@ -104,11 +108,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check payment doesn't exceed remaining amount
+    // Check payment doesn't exceed remaining amount (capped at approved amount)
     const existingPayments = await getPaymentsByInvoiceId(invoiceId);
     const totalPaid = existingPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     const invoiceAmount = parseFloat(invoice.amount) || 0;
-    const remaining = invoiceAmount - totalPaid;
+    const approvedAmount = invoice.approvedAmount ? parseFloat(invoice.approvedAmount) || invoiceAmount : invoiceAmount;
+    const payableAmount = approvedAmount; // Payment cap is the approved amount
+    const remaining = payableAmount - totalPaid;
 
     if (remaining <= 0) {
       return NextResponse.json({ error: 'Invoice is already fully paid' }, { status: 400 });
@@ -124,9 +130,9 @@ export async function POST(request: NextRequest) {
     // Determine who paid
     const paidBy = session.type === 'accounts' ? session.accountsName : 'Admin';
 
-    // Determine new status based on total paid
+    // Determine new status based on total paid vs approved amount
     const newTotalPaid = totalPaid + paymentAmount;
-    const newStatus = newTotalPaid >= invoiceAmount ? 'paid' : 'partially_paid';
+    const newStatus = newTotalPaid >= payableAmount ? 'paid' : 'partially_paid';
 
     // Record the payment with vendor name, invoice number, and status for easy sheet reading
     const payment = await addPayment({
@@ -149,7 +155,8 @@ export async function POST(request: NextRequest) {
       payment,
       newStatus,
       totalPaid: newTotalPaid,
-      remaining: Math.max(0, invoiceAmount - newTotalPaid),
+      remaining: Math.max(0, payableAmount - newTotalPaid),
+      approvedAmount: payableAmount,
     });
   } catch (error) {
     console.error('Failed to record payment:', error);
