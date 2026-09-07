@@ -721,11 +721,14 @@ export async function updateAccountsMember(id: string, updates: Partial<Accounts
 export interface Payment {
   id: string;
   invoiceId: string;
+  vendorName: string;
+  invoiceNumber: string;
   amount: string;
   utrReference: string;
   paymentDate: string;
   paidBy: string;
   notes: string;
+  paymentStatus: string; // 'partially_paid' or 'paid' at time of recording
   createdAt: string;
 }
 
@@ -749,10 +752,10 @@ async function ensurePaymentsSheet(): Promise<void> {
     }
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Payments!A1:H1',
+      range: 'Payments!A1:K1',
       valueInputOption: 'RAW',
       requestBody: {
-        values: [['ID', 'Invoice ID', 'Amount', 'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Created At']],
+        values: [['ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount', 'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At']],
       },
     });
   }
@@ -763,19 +766,22 @@ export async function getPayments(): Promise<Payment[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A2:H',
+    range: 'Payments!A2:K',
   });
 
   const rows = response.data.values || [];
   return rows.map((row) => ({
     id: row[0] || '',
     invoiceId: row[1] || '',
-    amount: row[2] || '',
-    utrReference: row[3] || '',
-    paymentDate: row[4] || '',
-    paidBy: row[5] || '',
-    notes: row[6] || '',
-    createdAt: row[7] || '',
+    vendorName: row[2] || '',
+    invoiceNumber: row[3] || '',
+    amount: row[4] || '',
+    utrReference: row[5] || '',
+    paymentDate: row[6] || '',
+    paidBy: row[7] || '',
+    notes: row[8] || '',
+    paymentStatus: row[9] || '',
+    createdAt: row[10] || '',
   }));
 }
 
@@ -792,17 +798,20 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A:H',
+    range: 'Payments!A:K',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
         id,
         payment.invoiceId,
+        payment.vendorName,
+        payment.invoiceNumber,
         payment.amount,
         payment.utrReference,
         payment.paymentDate,
         payment.paidBy,
         payment.notes,
+        payment.paymentStatus,
         createdAt,
       ]],
     },
@@ -968,16 +977,16 @@ export async function initializeSheetHeaders(): Promise<void> {
   // Set headers for Payments tab
   const paymentHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A1:H1',
+    range: 'Payments!A1:K1',
   });
 
   if (!paymentHeaders.data.values || paymentHeaders.data.values.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Payments!A1:H1',
+      range: 'Payments!A1:K1',
       valueInputOption: 'RAW',
       requestBody: {
-        values: [['ID', 'Invoice ID', 'Amount', 'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Created At']],
+        values: [['ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount', 'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At']],
       },
     });
   }

@@ -93,19 +93,24 @@ export async function POST(request: NextRequest) {
     // Determine who paid
     const paidBy = session.type === 'accounts' ? session.accountsName : 'Admin';
 
-    // Record the payment
+    // Determine new status based on total paid
+    const newTotalPaid = totalPaid + paymentAmount;
+    const newStatus = newTotalPaid >= invoiceAmount ? 'paid' : 'partially_paid';
+
+    // Record the payment with vendor name, invoice number, and status for easy sheet reading
     const payment = await addPayment({
       invoiceId,
+      vendorName: invoice.vendorName,
+      invoiceNumber: invoice.invoiceNumber,
       amount: String(paymentAmount),
       utrReference: String(utrReference).trim(),
       paymentDate: String(paymentDate),
       paidBy,
       notes: notes ? String(notes).trim() : '',
+      paymentStatus: newStatus,
     });
 
-    // Update invoice status based on total paid
-    const newTotalPaid = totalPaid + paymentAmount;
-    const newStatus = newTotalPaid >= invoiceAmount ? 'paid' : 'partially_paid';
+    // Update invoice status on the Invoices sheet
     await updateInvoiceStatus(invoiceId, newStatus, undefined, undefined);
 
     return NextResponse.json({
