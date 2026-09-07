@@ -66,6 +66,8 @@ function statusBorderColor(status: InvoiceStatus): string {
     case 'submitted': return 'border-l-amber-400';
     case 'under_review': return 'border-l-amber-500';
     case 'approved': return 'border-l-emerald-500';
+    case 'partially_paid': return 'border-l-violet-500';
+    case 'paid': return 'border-l-emerald-400';
     case 'rejected': return 'border-l-red-500';
     default: return 'border-l-gray-300';
   }
@@ -77,6 +79,8 @@ function statusAriaLabel(status: InvoiceStatus): string {
     case 'submitted': return 'Pending invoice';
     case 'under_review': return 'Under review invoice';
     case 'approved': return 'Approved invoice';
+    case 'partially_paid': return 'Partially paid invoice';
+    case 'paid': return 'Fully paid invoice';
     case 'rejected': return 'Rejected invoice';
     default: return 'Invoice';
   }

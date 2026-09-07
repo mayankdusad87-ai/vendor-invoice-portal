@@ -59,6 +59,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ invoices });
     }
 
+    // Accounts team: can view approved, partially_paid, paid, and rejected invoices
+    if (session.type === 'accounts') {
+      const invoices = await getInvoices();
+      const accountsVisible = invoices.filter(
+        (inv) => ['approved', 'partially_paid', 'paid', 'rejected'].includes(inv.status)
+      );
+      accountsVisible.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+      return NextResponse.json({ invoices: accountsVisible });
+    }
+
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   } catch (error) {
     console.error('Get invoices error:', error);
@@ -95,6 +105,9 @@ export async function POST(request: NextRequest) {
     const measurementSheetUrl = sanitizeString(body.measurementSheetUrl, 2000);
     const measurementSheetName = sanitizeString(body.measurementSheetName, 200);
     const invoiceType = sanitizeString(body.invoiceType, 20);
+    const poNumber = sanitizeString(body.poNumber, 50);
+    const challanUrl = sanitizeString(body.challanUrl, 2000);
+    const challanName = sanitizeString(body.challanName, 200);
 
     // Derive submittedBy from authenticated session — never from client
     const submittedBy = session.type === 'engineer'
@@ -147,6 +160,9 @@ export async function POST(request: NextRequest) {
       status: 'submitted',
       invoiceType,
       submittedBy,
+      poNumber,
+      challanUrl,
+      challanName,
     });
 
     return NextResponse.json({ success: true, invoice });

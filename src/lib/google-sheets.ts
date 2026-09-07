@@ -391,7 +391,7 @@ export interface Invoice {
   workPhotos: string; // comma-separated URLs
   measurementSheetUrl: string;
   measurementSheetName: string;
-  status: 'submitted' | 'under_review' | 'approved' | 'rejected';
+  status: 'submitted' | 'under_review' | 'approved' | 'partially_paid' | 'paid' | 'rejected';
   approvalComments: string;
   approvedBy: string;
   submittedAt: string;
@@ -399,13 +399,16 @@ export interface Invoice {
   approvedDate: string; // Column R — set only when approved
   invoiceType: string;  // Column S — Advance, RA, Final
   submittedBy: string;  // Column T — engineer/vendor name who submitted
+  poNumber: string;     // Column U — PO number (optional)
+  challanUrl: string;   // Column V — Challan file URL (optional)
+  challanName: string;  // Column W — Challan file name (optional)
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:T',
+    range: 'Invoices!A2:W',
   });
 
   const rows = response.data.values || [];
@@ -430,6 +433,9 @@ export async function getInvoices(): Promise<Invoice[]> {
     approvedDate: row[17] || '',
     invoiceType: row[18] || '',
     submittedBy: row[19] || '',
+    poNumber: row[20] || '',
+    challanUrl: row[21] || '',
+    challanName: row[22] || '',
   }));
 }
 
@@ -452,7 +458,7 @@ export async function addInvoice(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:T',
+    range: 'Invoices!A:W',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -476,6 +482,9 @@ export async function addInvoice(
         '', // approvedDate — empty until approved
         invoice.invoiceType || '', // invoiceType
         invoice.submittedBy || '', // submittedBy
+        invoice.poNumber || '', // PO number
+        invoice.challanUrl || '', // Challan file URL
+        invoice.challanName || '', // Challan file name
       ]],
     },
   });
@@ -539,12 +548,15 @@ export async function resubmitInvoice(
     workPhotos?: string;
     measurementSheetUrl?: string;
     measurementSheetName?: string;
+    poNumber?: string;
+    challanUrl?: string;
+    challanName?: string;
   }
 ): Promise<boolean> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:R',
+    range: 'Invoices!A2:W',
   });
 
   const rows = response.data.values || [];
@@ -576,16 +588,227 @@ export async function resubmitInvoice(
     '', // clear approved date on resubmit
     currentRow[18] ?? '', // keep invoiceType
     currentRow[19] ?? '', // keep submittedBy
+    updates.poNumber ?? currentRow[20] ?? '', // PO number
+    updates.challanUrl ?? currentRow[21] ?? '', // Challan URL
+    updates.challanName ?? currentRow[22] ?? '', // Challan name
   ];
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `Invoices!A${rowIndex + 2}:T${rowIndex + 2}`,
+    range: `Invoices!A${rowIndex + 2}:W${rowIndex + 2}`,
     valueInputOption: 'RAW',
     requestBody: { values: [updatedRow] },
   });
 
   return true;
+}
+
+// ==================== ACCOUNTS TEAM ====================
+
+export interface AccountsMember {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+}
+
+async function ensureAccountsSheet(): Promise<void> {
+  const sheets = getSheets();
+  try {
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'AccountsTeam!A1:A1',
+    });
+  } catch {
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: 'AccountsTeam' } } }],
+        },
+      });
+    } catch {
+      // Sheet might already exist — ignore
+    }
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'AccountsTeam!A1:F1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Name', 'Email', 'Password', 'Status', 'Created At']],
+      },
+    });
+  }
+}
+
+export async function getAccountsMembers(): Promise<AccountsMember[]> {
+  await ensureAccountsSheet();
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'AccountsTeam!A2:F',
+  });
+
+  const rows = response.data.values || [];
+  return rows.map((row) => ({
+    id: row[0] || '',
+    name: row[1] || '',
+    email: row[2] || '',
+    password: row[3] || '',
+    status: (row[4] as 'active' | 'inactive') || 'active',
+    createdAt: row[5] || '',
+  }));
+}
+
+export async function getActiveAccountsMembers(): Promise<AccountsMember[]> {
+  const members = await getAccountsMembers();
+  return members.filter((m) => m.status === 'active');
+}
+
+export async function addAccountsMember(member: Omit<AccountsMember, 'id' | 'createdAt'>): Promise<AccountsMember> {
+  await ensureAccountsSheet();
+  const sheets = getSheets();
+  const id = `ACC${Date.now()}`;
+  const createdAt = new Date().toISOString();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: 'AccountsTeam!A:F',
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[id, member.name, member.email, member.password, member.status, createdAt]],
+    },
+  });
+
+  return { ...member, id, createdAt };
+}
+
+export async function updateAccountsMember(id: string, updates: Partial<AccountsMember>): Promise<boolean> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'AccountsTeam!A2:F',
+  });
+
+  const rows = response.data.values || [];
+  const rowIndex = rows.findIndex((row) => row[0] === id);
+  if (rowIndex === -1) return false;
+
+  const currentRow = rows[rowIndex];
+  const updatedRow = [
+    id,
+    updates.name ?? currentRow[1],
+    updates.email ?? currentRow[2],
+    updates.password ?? currentRow[3],
+    updates.status ?? currentRow[4],
+    currentRow[5],
+  ];
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `AccountsTeam!A${rowIndex + 2}:F${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [updatedRow] },
+  });
+
+  return true;
+}
+
+// ==================== PAYMENTS ====================
+
+export interface Payment {
+  id: string;
+  invoiceId: string;
+  amount: string;
+  utrReference: string;
+  paymentDate: string;
+  paidBy: string;
+  notes: string;
+  createdAt: string;
+}
+
+async function ensurePaymentsSheet(): Promise<void> {
+  const sheets = getSheets();
+  try {
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'Payments!A1:A1',
+    });
+  } catch {
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: 'Payments' } } }],
+        },
+      });
+    } catch {
+      // Sheet might already exist — ignore
+    }
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'Payments!A1:H1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Invoice ID', 'Amount', 'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Created At']],
+      },
+    });
+  }
+}
+
+export async function getPayments(): Promise<Payment[]> {
+  await ensurePaymentsSheet();
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Payments!A2:H',
+  });
+
+  const rows = response.data.values || [];
+  return rows.map((row) => ({
+    id: row[0] || '',
+    invoiceId: row[1] || '',
+    amount: row[2] || '',
+    utrReference: row[3] || '',
+    paymentDate: row[4] || '',
+    paidBy: row[5] || '',
+    notes: row[6] || '',
+    createdAt: row[7] || '',
+  }));
+}
+
+export async function getPaymentsByInvoiceId(invoiceId: string): Promise<Payment[]> {
+  const payments = await getPayments();
+  return payments.filter((p) => p.invoiceId === invoiceId);
+}
+
+export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Promise<Payment> {
+  await ensurePaymentsSheet();
+  const sheets = getSheets();
+  const id = `PAY${Date.now()}`;
+  const createdAt = new Date().toISOString();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: 'Payments!A:H',
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[
+        id,
+        payment.invoiceId,
+        payment.amount,
+        payment.utrReference,
+        payment.paymentDate,
+        payment.paidBy,
+        payment.notes,
+        createdAt,
+      ]],
+    },
+  });
+
+  return { ...payment, id, createdAt };
 }
 
 // ==================== SHEET SETUP ====================
@@ -615,6 +838,12 @@ export async function initializeSheetHeaders(): Promise<void> {
   }
   if (!existingSheets.includes('Engineers')) {
     requests.push({ addSheet: { properties: { title: 'Engineers' } } });
+  }
+  if (!existingSheets.includes('AccountsTeam')) {
+    requests.push({ addSheet: { properties: { title: 'AccountsTeam' } } });
+  }
+  if (!existingSheets.includes('Payments')) {
+    requests.push({ addSheet: { properties: { title: 'Payments' } } });
   }
 
   if (requests.length > 0) {
@@ -647,12 +876,12 @@ export async function initializeSheetHeaders(): Promise<void> {
     'Remarks', 'Invoice File URL', 'Invoice File Name', 'Work Photos',
     'Measurement Sheet URL', 'Measurement Sheet Name', 'Status',
     'Approval Comments', 'Approved By', 'Submitted At', 'Updated At', 'Approved Date',
-    'Invoice Type', 'Submitted By'
+    'Invoice Type', 'Submitted By', 'PO Number', 'Challan URL', 'Challan Name'
   ];
 
   const invoiceHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A1:T1',
+    range: 'Invoices!A1:W1',
   });
 
   const currentHeaders = invoiceHeaders.data.values?.[0] || [];
@@ -660,7 +889,7 @@ export async function initializeSheetHeaders(): Promise<void> {
       currentHeaders.some((h, i) => h !== expectedInvoiceHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Invoices!A1:T1',
+      range: 'Invoices!A1:W1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedInvoiceHeaders],
@@ -715,6 +944,40 @@ export async function initializeSheetHeaders(): Promise<void> {
       valueInputOption: 'RAW',
       requestBody: {
         values: [['ID', 'Name', 'Email', 'Password', 'Status', 'Created At']],
+      },
+    });
+  }
+
+  // Set headers for AccountsTeam tab
+  const accountsHeaders = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'AccountsTeam!A1:F1',
+  });
+
+  if (!accountsHeaders.data.values || accountsHeaders.data.values.length === 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'AccountsTeam!A1:F1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Name', 'Email', 'Password', 'Status', 'Created At']],
+      },
+    });
+  }
+
+  // Set headers for Payments tab
+  const paymentHeaders = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Payments!A1:H1',
+  });
+
+  if (!paymentHeaders.data.values || paymentHeaders.data.values.length === 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'Payments!A1:H1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Invoice ID', 'Amount', 'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Created At']],
       },
     });
   }

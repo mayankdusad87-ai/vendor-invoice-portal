@@ -32,12 +32,19 @@ export interface EngineerToken {
   engineerEmail: string;
 }
 
+export interface AccountsToken {
+  type: 'accounts';
+  accountsName: string;
+  accountsId: string;
+  accountsEmail: string;
+}
+
 export interface AdminToken {
   type: 'admin';
   username: string;
 }
 
-export type TokenPayload = VendorToken | ApproverToken | EngineerToken | AdminToken;
+export type TokenPayload = VendorToken | ApproverToken | EngineerToken | AccountsToken | AdminToken;
 
 // ==================== TOKEN SIGN / VERIFY ====================
 
@@ -203,6 +210,20 @@ export function requireApprover(request: NextRequest): ApproverToken | NextRespo
     return NextResponse.json({ error: 'Forbidden: approver role required' }, { status: 403 });
   }
   return session as ApproverToken;
+}
+
+/**
+ * Require an authenticated accounts team member. Returns AccountsToken or 401/403 response.
+ */
+export function requireAccounts(request: NextRequest): AccountsToken | NextResponse {
+  const session = getSessionFromCookie(request);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (session.type !== 'accounts') {
+    return NextResponse.json({ error: 'Forbidden: accounts role required' }, { status: 403 });
+  }
+  return session as AccountsToken;
 }
 
 /**

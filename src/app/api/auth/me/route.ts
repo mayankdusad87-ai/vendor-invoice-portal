@@ -41,6 +41,16 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  if (session.type === 'accounts') {
+    return NextResponse.json({
+      authenticated: true,
+      role: 'accounts',
+      accountsName: session.accountsName,
+      accountsId: session.accountsId,
+      accountsEmail: session.accountsEmail,
+    });
+  }
+
   if (session.type === 'admin') {
     return NextResponse.json({
       authenticated: true,
