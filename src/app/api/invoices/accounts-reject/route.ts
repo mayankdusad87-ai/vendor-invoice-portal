@@ -26,6 +26,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (reason.length < 5) {
+      return NextResponse.json(
+        { error: 'Rejection reason must be at least 5 characters' },
+        { status: 400 }
+      );
+    }
+
     // Get the invoice
     const invoice = await getInvoiceById(invoiceId);
     if (!invoice) {

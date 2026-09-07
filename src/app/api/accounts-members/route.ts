@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin, isAuthError } from '@/lib/auth';
 import { getAccountsMembers, addAccountsMember, updateAccountsMember } from '@/lib/google-sheets';
+import { sanitizeString } from '@/lib/security';
 
 /**
  * GET /api/accounts-members — list all accounts team members (admin only)
@@ -36,19 +37,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'name, email, and password are required' }, { status: 400 });
     }
 
-    if (password.length < 6) {
+    // Sanitize and validate name
+    const trimmedName = sanitizeString(String(name), 100)?.trim();
+    if (!trimmedName || trimmedName.length < 2) {
+      return NextResponse.json({ error: 'Name must be at least 2 characters' }, { status: 400 });
+    }
+
+    // Validate email format
+    const trimmedEmail = String(email).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      return NextResponse.json({ error: 'Please enter a valid email address' }, { status: 400 });
+    }
+
+    // Validate password length
+    if (String(password).length < 6) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
+    }
+    if (String(password).length > 100) {
+      return NextResponse.json({ error: 'Password is too long' }, { status: 400 });
     }
 
     // Check for duplicate email
     const existing = await getAccountsMembers();
-    if (existing.some(m => m.email.toLowerCase() === email.toLowerCase())) {
+    if (existing.some(m => m.email.toLowerCase() === trimmedEmail)) {
       return NextResponse.json({ error: 'An accounts member with this email already exists' }, { status: 409 });
     }
 
     const member = await addAccountsMember({
-      name: String(name).trim(),
-      email: String(email).trim().toLowerCase(),
+      name: trimmedName,
+      email: trimmedEmail,
       password: String(password),
       status: 'active',
     });
@@ -79,12 +96,36 @@ export async function PUT(request: NextRequest) {
     }
 
     const updates: Record<string, string> = {};
-    if (name) updates.name = String(name).trim();
-    if (email) updates.email = String(email).trim().toLowerCase();
-    if (status) updates.status = String(status);
+
+    if (name) {
+      const trimmedName = sanitizeString(String(name), 100)?.trim();
+      if (!trimmedName || trimmedName.length < 2) {
+        return NextResponse.json({ error: 'Name must be at least 2 characters' }, { status: 400 });
+      }
+      updates.name = trimmedName;
+    }
+
+    if (email) {
+      const trimmedEmail = String(email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        return NextResponse.json({ error: 'Please enter a valid email address' }, { status: 400 });
+      }
+      updates.email = trimmedEmail;
+    }
+
+    if (status) {
+      if (!['active', 'inactive'].includes(String(status))) {
+        return NextResponse.json({ error: 'Status must be active or inactive' }, { status: 400 });
+      }
+      updates.status = String(status);
+    }
+
     if (password) {
-      if (password.length < 6) {
+      if (String(password).length < 6) {
         return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
+      }
+      if (String(password).length > 100) {
+        return NextResponse.json({ error: 'Password is too long' }, { status: 400 });
       }
       updates.password = String(password);
     }
@@ -92,7 +133,8 @@ export async function PUT(request: NextRequest) {
     // Check for duplicate email (if changing email)
     if (email) {
       const existing = await getAccountsMembers();
-      if (existing.some(m => m.email.toLowerCase() === email.toLowerCase() && m.id !== id)) {
+      const trimmedEmail = String(email).trim().toLowerCase();
+      if (existing.some(m => m.email.toLowerCase() === trimmedEmail && m.id !== id)) {
         return NextResponse.json({ error: 'Another accounts member already uses this email' }, { status: 409 });
       }
     }

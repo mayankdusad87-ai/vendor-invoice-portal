@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
 import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus } from '@/lib/google-sheets';
+import { sanitizeString, sanitizeDate } from '@/lib/security';
 
 /**
  * GET /api/payments?invoiceId=XXX — get all payments for an invoice
@@ -48,19 +49,45 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { invoiceId, amount, utrReference, paymentDate, notes } = body;
 
-    // Validation
-    if (!invoiceId || !amount || !utrReference || !paymentDate) {
+    // Sanitize inputs
+    const invoiceId = sanitizeString(body.invoiceId, 50);
+    const utrReference = sanitizeString(body.utrReference, 100);
+    const paymentDate = sanitizeDate(body.paymentDate);
+    const notes = sanitizeString(body.notes, 500) || '';
+
+    // Validation — all required fields
+    if (!invoiceId || !body.amount || !utrReference || !paymentDate) {
       return NextResponse.json(
         { error: 'invoiceId, amount, utrReference, and paymentDate are required' },
         { status: 400 }
       );
     }
 
-    const paymentAmount = parseFloat(amount);
+    // Validate UTR is non-empty after trimming
+    if (!utrReference || utrReference.length < 3) {
+      return NextResponse.json({ error: 'UTR/Reference must be at least 3 characters' }, { status: 400 });
+    }
+
+    const paymentAmount = parseFloat(body.amount);
     if (isNaN(paymentAmount) || paymentAmount <= 0) {
       return NextResponse.json({ error: 'Amount must be a positive number' }, { status: 400 });
+    }
+
+    // Cap at a reasonable maximum (₹100 crore)
+    if (paymentAmount > 1_000_000_000) {
+      return NextResponse.json({ error: 'Amount exceeds maximum allowed value' }, { status: 400 });
+    }
+
+    // Validate date is a real date and not absurdly in the future
+    const parsedDate = new Date(paymentDate);
+    if (isNaN(parsedDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid payment date' }, { status: 400 });
+    }
+    const now = new Date();
+    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    if (parsedDate > thirtyDaysFromNow) {
+      return NextResponse.json({ error: 'Payment date cannot be more than 30 days in the future' }, { status: 400 });
     }
 
     // Get the invoice
@@ -83,6 +110,10 @@ export async function POST(request: NextRequest) {
     const invoiceAmount = parseFloat(invoice.amount) || 0;
     const remaining = invoiceAmount - totalPaid;
 
+    if (remaining <= 0) {
+      return NextResponse.json({ error: 'Invoice is already fully paid' }, { status: 400 });
+    }
+
     if (paymentAmount > remaining + 0.01) { // small tolerance for floating point
       return NextResponse.json(
         { error: `Payment of ₹${paymentAmount.toLocaleString('en-IN')} exceeds remaining balance of ₹${remaining.toLocaleString('en-IN')}` },
@@ -103,10 +134,10 @@ export async function POST(request: NextRequest) {
       vendorName: invoice.vendorName,
       invoiceNumber: invoice.invoiceNumber,
       amount: String(paymentAmount),
-      utrReference: String(utrReference).trim(),
-      paymentDate: String(paymentDate),
+      utrReference,
+      paymentDate,
       paidBy,
-      notes: notes ? String(notes).trim() : '',
+      notes,
       paymentStatus: newStatus,
     });
 
