@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVendors, getActiveVendors, addVendor, updateVendor } from '@/lib/google-sheets';
-import { requireAdmin, requireAuth, isAuthError } from '@/lib/auth';
+import { requireAdmin, isAuthError } from '@/lib/auth';
 import {
   rateLimit, getRateLimitKey, rateLimitResponse, sanitizeString,
 } from '@/lib/security';
@@ -15,8 +15,7 @@ export async function GET(request: NextRequest) {
   try {
     const onlyNames = request.nextUrl.searchParams.get('names') === 'true';
 
-    // For login dropdown: return only active vendor names (id + name only, no PINs)
-    // This must stay public so the login page can populate the dropdown.
+    // For dropdowns: return only active vendor names (id + name only)
     if (onlyNames) {
       const vendors = await getActiveVendors();
       return NextResponse.json({
@@ -24,7 +23,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Full vendor list (with PINs, emails, etc.) requires admin auth
+    // Full vendor list requires admin auth
     const session = requireAdmin(request);
     if (isAuthError(session)) return session;
 
@@ -81,15 +80,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate PIN — required, 4-10 digits
-    const pin = sanitizeString(body.pin, 20);
-    if (!pin || !/^\d{4,10}$/.test(pin)) {
-      return NextResponse.json(
-        { error: 'PIN is required and must be 4 to 10 digits' },
-        { status: 400 }
-      );
-    }
-
     // Check for duplicate vendor name
     const existingVendors = await getVendors();
     if (existingVendors.some((v) => v.name.toLowerCase() === name.toLowerCase() && v.status === 'active')) {
@@ -101,7 +91,6 @@ export async function POST(request: NextRequest) {
 
     const vendor = await addVendor({
       name,
-      pin,
       phone,
       email,
       status: 'active',
@@ -143,13 +132,6 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Vendor name cannot be empty' }, { status: 400 });
       }
       sanitizedUpdates.name = name;
-    }
-    if (body.pin !== undefined) {
-      const pin = sanitizeString(body.pin, 20);
-      if (pin && !/^\d{4,10}$/.test(pin)) {
-        return NextResponse.json({ error: 'PIN must be 4 to 10 digits' }, { status: 400 });
-      }
-      sanitizedUpdates.pin = pin;
     }
     if (body.phone !== undefined) {
       sanitizedUpdates.phone = sanitizeString(body.phone, 20);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeSheetHeaders, migrateOldPaymentRows, fixOrphanedPaymentStatuses, getActiveRejectionReasons, addRejectionReason } from '@/lib/google-sheets';
+import { initializeSheetHeaders, migrateVendorRows, migrateOldPaymentRows, fixOrphanedPaymentStatuses, getActiveRejectionReasons, addRejectionReason } from '@/lib/google-sheets';
 import { requireAdmin, isAuthError } from '@/lib/auth';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
@@ -15,6 +15,9 @@ export async function POST(request: NextRequest) {
 
   try {
     await initializeSheetHeaders();
+
+    // Migrate vendor rows: remove PIN column from old 7-col format
+    const migratedVendors = await migrateVendorRows();
 
     // Migrate any old 8-column payment rows to the new 11-column format
     const migratedPayments = await migrateOldPaymentRows();
@@ -45,6 +48,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Sheet initialized successfully',
+      migratedVendorRows: migratedVendors,
       migratedPaymentRows: migratedPayments,
       fixedOrphanedStatuses: fixedStatuses,
       driveFolderId: folderId,

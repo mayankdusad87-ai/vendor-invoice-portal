@@ -8,7 +8,6 @@ import { useAdminAuth } from '@/hooks/useAdminAuth';
 interface Vendor {
   id: string;
   name: string;
-  pin: string;
   phone: string;
   email: string;
   status: 'active' | 'inactive';
@@ -27,7 +26,6 @@ export default function AdminVendors() {
 
   const [form, setForm] = useState({
     name: '',
-    pin: '',
     phone: '',
     email: '',
   });
@@ -59,10 +57,6 @@ export default function AdminVendors() {
     const trimmedName = form.name.trim();
     if (!trimmedName || trimmedName.length < 2) {
       setError('Vendor name must be at least 2 characters');
-      return;
-    }
-    if (!form.pin || !/^\d{4,10}$/.test(form.pin)) {
-      setError('PIN must be 4 to 10 digits (numbers only)');
       return;
     }
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
@@ -113,7 +107,7 @@ export default function AdminVendors() {
       }
 
       // Reset and refresh
-      setForm({ name: '', pin: '', phone: '', email: '' });
+      setForm({ name: '', phone: '', email: '' });
       setShowForm(false);
       setEditingVendor(null);
       await fetchVendors();
@@ -128,7 +122,6 @@ export default function AdminVendors() {
     setEditingVendor(vendor);
     setForm({
       name: vendor.name,
-      pin: vendor.pin,
       phone: vendor.phone,
       email: vendor.email,
     });
@@ -220,25 +213,6 @@ export default function AdminVendors() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-                    PIN * (4-10 digits)
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="\d{4,10}"
-                    value={form.pin}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
-                      setForm({ ...form, pin: val });
-                    }}
-                    className="input-field"
-                    placeholder="Enter 4-10 digit PIN"
-                    required
-                    maxLength={10}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
                     Phone
                   </label>
                   <input
@@ -317,7 +291,6 @@ export default function AdminVendors() {
                           {vendor.email}
                         </span>
                       )}
-                      <span>PIN: {vendor.pin || '—'}</span>
                       <span>Added: {new Date(vendor.createdAt).toLocaleDateString('en-IN')}</span>
                     </div>
                   </div>

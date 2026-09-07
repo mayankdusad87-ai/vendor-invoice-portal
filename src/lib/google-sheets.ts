@@ -23,7 +23,6 @@ const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 export interface Vendor {
   id: string;
   name: string;
-  pin: string;
   phone: string;
   email: string;
   status: 'active' | 'inactive';
@@ -34,18 +33,17 @@ export async function getVendors(): Promise<Vendor[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Vendors!A2:G',
+    range: 'Vendors!A2:F',
   });
 
   const rows = response.data.values || [];
   return rows.map((row) => ({
     id: row[0] || '',
     name: row[1] || '',
-    pin: row[2] || '',
-    phone: row[3] || '',
-    email: row[4] || '',
-    status: (row[5] as 'active' | 'inactive') || 'active',
-    createdAt: row[6] || '',
+    phone: row[2] || '',
+    email: row[3] || '',
+    status: (row[4] as 'active' | 'inactive') || 'active',
+    createdAt: row[5] || '',
   }));
 }
 
@@ -61,10 +59,10 @@ export async function addVendor(vendor: Omit<Vendor, 'id' | 'createdAt'>): Promi
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Vendors!A:G',
+    range: 'Vendors!A:F',
     valueInputOption: 'RAW',
     requestBody: {
-      values: [[id, vendor.name, vendor.pin, vendor.phone, vendor.email, vendor.status, createdAt]],
+      values: [[id, vendor.name, vendor.phone, vendor.email, vendor.status, createdAt]],
     },
   });
 
@@ -75,7 +73,7 @@ export async function updateVendor(id: string, updates: Partial<Vendor>): Promis
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Vendors!A2:G',
+    range: 'Vendors!A2:F',
   });
 
   const rows = response.data.values || [];
@@ -86,16 +84,15 @@ export async function updateVendor(id: string, updates: Partial<Vendor>): Promis
   const updatedRow = [
     id,
     updates.name ?? currentRow[1],
-    updates.pin ?? currentRow[2],
-    updates.phone ?? currentRow[3],
-    updates.email ?? currentRow[4],
-    updates.status ?? currentRow[5],
-    currentRow[6],
+    updates.phone ?? currentRow[2],
+    updates.email ?? currentRow[3],
+    updates.status ?? currentRow[4],
+    currentRow[5],
   ];
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `Vendors!A${rowIndex + 2}:G${rowIndex + 2}`,
+    range: `Vendors!A${rowIndex + 2}:F${rowIndex + 2}`,
     valueInputOption: 'RAW',
     requestBody: { values: [updatedRow] },
   });
@@ -865,6 +862,65 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
   return { ...payment, id, createdAt };
 }
 
+// ==================== VENDOR DATA MIGRATION ====================
+
+/**
+ * Migrates vendor rows from old 7-column format (with PIN) to new 6-column format (without PIN).
+ * Old: [ID, Name, PIN, Phone, Email, Status, Created At]
+ * New: [ID, Name, Phone, Email, Status, Created At]
+ * Detection: row has 7 cells AND cell[2] looks like a PIN (numeric, 4-10 digits).
+ * Returns count of migrated rows.
+ */
+export async function migrateVendorRows(): Promise<number> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Vendors!A2:G',
+  });
+
+  const rows = response.data.values || [];
+  if (rows.length === 0) return 0;
+
+  let migratedCount = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    // Detect old 7-column format: has 7 cells and cell[2] looks like a PIN (all digits)
+    if (row.length >= 7 && row[2] && /^\d{4,10}$/.test(row[2])) {
+      // Old format: [ID, Name, PIN, Phone, Email, Status, CreatedAt]
+      const newRow = [
+        row[0],  // ID
+        row[1],  // Name
+        row[3],  // Phone (was column D, skip PIN at C)
+        row[4],  // Email
+        row[5],  // Status
+        row[6],  // Created At
+      ];
+
+      const rowNumber = i + 2;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `Vendors!A${rowNumber}:F${rowNumber}`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [newRow] },
+      });
+
+      // Clear the old column G (now empty after migration)
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `Vendors!G${rowNumber}`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [['']] },
+      });
+
+      migratedCount++;
+      console.log(`Migrated vendor row ${row[0]} (row ${rowNumber}): removed PIN column`);
+    }
+  }
+
+  return migratedCount;
+}
+
 // ==================== PAYMENT ROW MIGRATION ====================
 
 /**
@@ -1019,19 +1075,22 @@ export async function initializeSheetHeaders(): Promise<void> {
     });
   }
 
-  // Set headers for Vendors tab
+  // Always set correct headers for Vendors tab (PIN column removed)
+  const expectedVendorHeaders = ['ID', 'Vendor Name', 'Phone', 'Email', 'Status', 'Created At'];
   const vendorHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Vendors!A1:G1',
+    range: 'Vendors!A1:F1',
   });
 
-  if (!vendorHeaders.data.values || vendorHeaders.data.values.length === 0) {
+  const currentVendorHeaders = vendorHeaders.data.values?.[0] || [];
+  if (currentVendorHeaders.length !== expectedVendorHeaders.length ||
+      currentVendorHeaders.some((h, i) => h !== expectedVendorHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Vendors!A1:G1',
+      range: 'Vendors!A1:F1',
       valueInputOption: 'RAW',
       requestBody: {
-        values: [['ID', 'Vendor Name', 'PIN', 'Phone', 'Email', 'Status', 'Created At']],
+        values: [expectedVendorHeaders],
       },
     });
   }
