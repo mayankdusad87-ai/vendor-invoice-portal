@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeSheetHeaders, getActiveRejectionReasons, addRejectionReason } from '@/lib/google-sheets';
+import { initializeSheetHeaders, migrateOldPaymentRows, fixOrphanedPaymentStatuses, getActiveRejectionReasons, addRejectionReason } from '@/lib/google-sheets';
 import { requireAdmin, isAuthError } from '@/lib/auth';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
@@ -15,6 +15,12 @@ export async function POST(request: NextRequest) {
 
   try {
     await initializeSheetHeaders();
+
+    // Migrate any old 8-column payment rows to the new 11-column format
+    const migratedPayments = await migrateOldPaymentRows();
+
+    // Fix invoices marked paid/partially_paid with no matching payment rows
+    const fixedStatuses = await fixOrphanedPaymentStatuses();
 
     // Seed default rejection reasons if none exist
     const existingReasons = await getActiveRejectionReasons();
@@ -39,6 +45,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Sheet initialized successfully',
+      migratedPaymentRows: migratedPayments,
+      fixedOrphanedStatuses: fixedStatuses,
       driveFolderId: folderId,
       driveFolderUrl: folderId !== '(not set)' ? `https://drive.google.com/drive/folders/${folderId}` : null,
     });

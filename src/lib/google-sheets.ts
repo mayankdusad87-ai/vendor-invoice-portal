@@ -849,6 +849,118 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
   return { ...payment, id, createdAt };
 }
 
+// ==================== PAYMENT ROW MIGRATION ====================
+
+/**
+ * Migrates old 8-column payment rows to the new 11-column format.
+ *
+ * Old format (8 cols): [ID, InvoiceID, Amount, UTR, Date, PaidBy, Notes, CreatedAt]
+ * New format (11 cols): [ID, InvoiceID, VendorName, InvoiceNumber, Amount, UTR, Date, PaidBy, Notes, PaymentStatus, CreatedAt]
+ *
+ * Detection: a row is old-format if it has ≤ 8 cells AND cell[2] looks numeric (amount was in position 2).
+ * Returns the count of migrated rows.
+ */
+export async function migrateOldPaymentRows(): Promise<number> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Payments!A2:K',
+  });
+
+  const rows = response.data.values || [];
+  if (rows.length === 0) return 0;
+
+  let migratedCount = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    // Detect old format: ≤ 8 cells and cell[2] is numeric (was the amount column)
+    if (row.length <= 8 && row[2] && !isNaN(parseFloat(row[2]))) {
+      // Old format: [ID, InvoiceID, Amount, UTR, Date, PaidBy, Notes, CreatedAt]
+      const oldId = row[0] || '';
+      const oldInvoiceId = row[1] || '';
+      const oldAmount = row[2] || '';
+      const oldUtr = row[3] || '';
+      const oldDate = row[4] || '';
+      const oldPaidBy = row[5] || '';
+      const oldNotes = row[6] || '';
+      const oldCreatedAt = row[7] || '';
+
+      // Look up the invoice to get vendor name and invoice number
+      let vendorName = '';
+      let invoiceNumber = '';
+      try {
+        const invoice = await getInvoiceById(oldInvoiceId);
+        if (invoice) {
+          vendorName = invoice.vendorName || '';
+          invoiceNumber = invoice.invoiceNumber || '';
+        }
+      } catch {
+        // If invoice lookup fails, leave vendor/invoice fields empty
+      }
+
+      // Build new 11-column row
+      const newRow = [
+        oldId,           // A: ID
+        oldInvoiceId,    // B: Invoice ID
+        vendorName,      // C: Vendor Name (new)
+        invoiceNumber,   // D: Invoice Number (new)
+        oldAmount,       // E: Amount
+        oldUtr,          // F: UTR/Reference
+        oldDate,         // G: Payment Date
+        oldPaidBy,       // H: Paid By
+        oldNotes,        // I: Notes
+        'paid',          // J: Payment Status (new — default to "paid" for legacy rows)
+        oldCreatedAt,    // K: Created At
+      ];
+
+      // Write the corrected row back (row index i + 2 because row 1 is header, data starts at row 2)
+      const rowNumber = i + 2;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `Payments!A${rowNumber}:K${rowNumber}`,
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [newRow],
+        },
+      });
+
+      migratedCount++;
+      console.log(`Migrated payment row ${oldId} (row ${rowNumber}) from 8-col to 11-col format`);
+    }
+  }
+
+  return migratedCount;
+}
+
+/**
+ * Fixes invoices that are marked 'partially_paid' or 'paid' but have no corresponding
+ * payment rows. Resets them to 'approved' so the accounts team can re-record payments.
+ * Returns the count of fixed invoices.
+ */
+export async function fixOrphanedPaymentStatuses(): Promise<number> {
+  const invoices = await getInvoices();
+  const payments = await getPayments();
+
+  let fixedCount = 0;
+
+  for (const inv of invoices) {
+    if (inv.status === 'partially_paid' || inv.status === 'paid') {
+      const invoicePayments = payments.filter((p) => p.invoiceId === inv.id);
+      const totalPaid = invoicePayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+
+      if (totalPaid === 0) {
+        // Invoice says paid/partially_paid but has no payment rows — reset to approved
+        await updateInvoiceStatus(inv.id, 'approved', undefined, undefined);
+        fixedCount++;
+        console.log(`Fixed orphaned status for ${inv.id}: "${inv.status}" → "approved" (0 payments found)`);
+      }
+    }
+  }
+
+  return fixedCount;
+}
+
 // ==================== SHEET SETUP ====================
 
 export async function initializeSheetHeaders(): Promise<void> {
@@ -1003,19 +1115,26 @@ export async function initializeSheetHeaders(): Promise<void> {
     });
   }
 
-  // Set headers for Payments tab
+  // Always set correct headers for Payments tab (fixes stale/mismatched headers)
+  const expectedPaymentHeaders = [
+    'ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount',
+    'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At',
+  ];
+
   const paymentHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
     range: 'Payments!A1:K1',
   });
 
-  if (!paymentHeaders.data.values || paymentHeaders.data.values.length === 0) {
+  const currentPaymentHeaders = paymentHeaders.data.values?.[0] || [];
+  if (currentPaymentHeaders.length !== expectedPaymentHeaders.length ||
+      currentPaymentHeaders.some((h, i) => h !== expectedPaymentHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
       range: 'Payments!A1:K1',
       valueInputOption: 'RAW',
       requestBody: {
-        values: [['ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount', 'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At']],
+        values: [expectedPaymentHeaders],
       },
     });
   }
