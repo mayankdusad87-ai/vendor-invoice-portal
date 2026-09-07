@@ -27,6 +27,8 @@ export default function AdminDashboard() {
   const { isReady } = useAdminAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [setupRunning, setSetupRunning] = useState(false);
+  const [setupResult, setSetupResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isReady) return;
@@ -46,6 +48,30 @@ export default function AdminDashboard() {
     };
     fetchData();
   }, [isReady]);
+
+  const runSetup = async () => {
+    setSetupRunning(true);
+    setSetupResult(null);
+    try {
+      const res = await fetch('/api/setup', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        const parts: string[] = ['✅ Setup complete'];
+        if (data.migratedInvoiceColumns > 0) parts.push(`Migrated ${data.migratedInvoiceColumns} invoice rows to new column order`);
+        if (data.migratedVendorRows > 0) parts.push(`Migrated ${data.migratedVendorRows} vendor rows`);
+        if (data.migratedPaymentRows > 0) parts.push(`Migrated ${data.migratedPaymentRows} payment rows`);
+        if (data.fixedOrphanedStatuses > 0) parts.push(`Fixed ${data.fixedOrphanedStatuses} orphaned statuses`);
+        if (parts.length === 1) parts.push('No migrations needed — everything is up to date');
+        setSetupResult(parts.join('. '));
+      } else {
+        setSetupResult(`❌ Setup failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch {
+      setSetupResult('❌ Setup failed: Network error');
+    }
+    setSetupRunning(false);
+    setTimeout(() => setSetupResult(null), 8000);
+  };
 
   if (!isReady) return null;
 
@@ -124,6 +150,26 @@ export default function AdminDashboard() {
                   </svg>
                 }
               />
+            </div>
+
+            {/* Setup / Migrations */}
+            <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={runSetup}
+                disabled={setupRunning}
+                className="btn-secondary flex items-center gap-2 text-sm"
+              >
+                <svg className={`w-4 h-4 ${setupRunning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                {setupRunning ? 'Running Setup…' : 'Run Setup'}
+              </button>
+              {setupResult && (
+                <span className={`text-sm ${setupResult.startsWith('✅') ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {setupResult}
+                </span>
+              )}
             </div>
 
             {/* Recent Invoices */}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeSheetHeaders, migrateVendorRows, migrateOldPaymentRows, fixOrphanedPaymentStatuses, getActiveRejectionReasons, addRejectionReason } from '@/lib/google-sheets';
+import { initializeSheetHeaders, migrateVendorRows, migrateOldPaymentRows, migrateInvoiceColumns, fixOrphanedPaymentStatuses, getActiveRejectionReasons, addRejectionReason } from '@/lib/google-sheets';
 import { requireAdmin, isAuthError } from '@/lib/auth';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
@@ -14,6 +14,11 @@ export async function POST(request: NextRequest) {
   if (isAuthError(session)) return session;
 
   try {
+    // Migrate invoice columns BEFORE setting headers — the migration detects
+    // old order by checking the current header at index 2 ("Invoice Date" = old).
+    // After migration, initializeSheetHeaders will force-update the header row.
+    const migratedInvoiceCols = await migrateInvoiceColumns();
+
     await initializeSheetHeaders();
 
     // Migrate vendor rows: remove PIN column from old 7-col format
@@ -48,6 +53,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Sheet initialized successfully',
+      migratedInvoiceColumns: migratedInvoiceCols,
       migratedVendorRows: migratedVendors,
       migratedPaymentRows: migratedPayments,
       fixedOrphanedStatuses: fixedStatuses,

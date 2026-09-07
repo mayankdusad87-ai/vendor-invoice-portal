@@ -152,7 +152,7 @@ export default function AdminVendors() {
   const cancelForm = () => {
     setShowForm(false);
     setEditingVendor(null);
-    setForm({ name: '', pin: '', phone: '', email: '' });
+    setForm({ name: '', phone: '', email: '' });
     setError('');
   };
 

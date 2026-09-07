@@ -376,30 +376,30 @@ export async function updateRejectionReason(id: string, updates: Partial<Rejecti
 // ==================== INVOICES ====================
 
 export interface Invoice {
-  id: string;
-  vendorName: string;
-  invoiceDate: string;
-  invoiceNumber: string;
-  purpose: string;
-  amount: string;
-  remarks: string;
-  invoiceFileUrl: string;
-  invoiceFileName: string;
-  workPhotos: string; // comma-separated URLs
-  measurementSheetUrl: string;
-  measurementSheetName: string;
-  status: 'submitted' | 'under_review' | 'approved' | 'partially_paid' | 'paid' | 'rejected';
-  approvalComments: string;
-  approvedBy: string;
-  submittedAt: string;
-  updatedAt: string;
-  approvedDate: string; // Column R — set only when approved
-  invoiceType: string;  // Column S — Advance, RA, Final
-  submittedBy: string;  // Column T — engineer/vendor name who submitted
-  poNumber: string;       // Column U — PO number (optional)
-  challanUrl: string;     // Column V — Challan file URL (optional)
-  challanName: string;    // Column W — Challan file name (optional)
-  approvedAmount: string; // Column X — Amount approved by approver (may differ from invoice amount)
+  id: string;               // Col A  — BILLING SECTION
+  vendorName: string;       // Col B
+  invoiceNumber: string;    // Col C
+  invoiceDate: string;      // Col D
+  invoiceType: string;      // Col E  — Advance, RA, Final
+  purpose: string;          // Col F
+  amount: string;           // Col G
+  poNumber: string;         // Col H  — PO number (optional)
+  remarks: string;          // Col I
+  submittedBy: string;      // Col J  — engineer name who submitted
+  submittedAt: string;      // Col K
+  invoiceFileUrl: string;   // Col L
+  invoiceFileName: string;  // Col M
+  workPhotos: string;       // Col N  — comma-separated URLs
+  measurementSheetUrl: string;  // Col O
+  measurementSheetName: string; // Col P
+  challanUrl: string;       // Col Q  — Challan file URL (optional)
+  challanName: string;      // Col R  — Challan file name (optional)
+  status: 'submitted' | 'under_review' | 'approved' | 'partially_paid' | 'paid' | 'rejected'; // Col S — APPROVER SECTION
+  approvedBy: string;       // Col T
+  approvedAmount: string;   // Col U  — Amount approved by approver
+  approvalComments: string; // Col V
+  approvedDate: string;     // Col W  — set only when approved
+  updatedAt: string;        // Col X  — SYSTEM
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
@@ -413,28 +413,28 @@ export async function getInvoices(): Promise<Invoice[]> {
   return rows.map((row) => ({
     id: row[0] || '',
     vendorName: row[1] || '',
-    invoiceDate: row[2] || '',
-    invoiceNumber: row[3] || '',
-    purpose: row[4] || '',
-    amount: row[5] || '',
-    remarks: row[6] || '',
-    invoiceFileUrl: row[7] || '',
-    invoiceFileName: row[8] || '',
-    workPhotos: row[9] || '',
-    measurementSheetUrl: row[10] || '',
-    measurementSheetName: row[11] || '',
-    status: (row[12] as Invoice['status']) || 'submitted',
-    approvalComments: row[13] || '',
-    approvedBy: row[14] || '',
-    submittedAt: row[15] || '',
-    updatedAt: row[16] || '',
-    approvedDate: row[17] || '',
-    invoiceType: row[18] || '',
-    submittedBy: row[19] || '',
-    poNumber: row[20] || '',
-    challanUrl: row[21] || '',
-    challanName: row[22] || '',
-    approvedAmount: row[23] || '',
+    invoiceNumber: row[2] || '',
+    invoiceDate: row[3] || '',
+    invoiceType: row[4] || '',
+    purpose: row[5] || '',
+    amount: row[6] || '',
+    poNumber: row[7] || '',
+    remarks: row[8] || '',
+    submittedBy: row[9] || '',
+    submittedAt: row[10] || '',
+    invoiceFileUrl: row[11] || '',
+    invoiceFileName: row[12] || '',
+    workPhotos: row[13] || '',
+    measurementSheetUrl: row[14] || '',
+    measurementSheetName: row[15] || '',
+    challanUrl: row[16] || '',
+    challanName: row[17] || '',
+    status: (row[18] as Invoice['status']) || 'submitted',
+    approvedBy: row[19] || '',
+    approvedAmount: row[20] || '',
+    approvalComments: row[21] || '',
+    approvedDate: row[22] || '',
+    updatedAt: row[23] || '',
   }));
 }
 
@@ -461,30 +461,33 @@ export async function addInvoice(
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
-        id,
-        invoice.vendorName,
-        invoice.invoiceDate,
-        invoice.invoiceNumber,
-        invoice.purpose,
-        invoice.amount,
-        invoice.remarks,
-        invoice.invoiceFileUrl,
-        invoice.invoiceFileName,
-        invoice.workPhotos,
-        invoice.measurementSheetUrl,
-        invoice.measurementSheetName,
-        invoice.status || 'submitted',
-        '', // approvalComments
-        '', // approvedBy
-        now, // submittedAt
-        now, // updatedAt
-        '', // approvedDate — empty until approved
-        invoice.invoiceType || '', // invoiceType
-        invoice.submittedBy || '', // submittedBy
-        invoice.poNumber || '', // PO number
-        invoice.challanUrl || '', // Challan file URL
-        invoice.challanName || '', // Challan file name
-        '', // approvedAmount — empty until approved
+        // BILLING SECTION (A–R)
+        id,                                   // A: ID
+        invoice.vendorName,                   // B: Vendor Name
+        invoice.invoiceNumber,                // C: Invoice Number
+        invoice.invoiceDate,                  // D: Invoice Date
+        invoice.invoiceType || '',            // E: Invoice Type
+        invoice.purpose,                      // F: Purpose
+        invoice.amount,                       // G: Amount
+        invoice.poNumber || '',               // H: PO Number
+        invoice.remarks,                      // I: Remarks
+        invoice.submittedBy || '',            // J: Submitted By
+        now,                                  // K: Submitted At
+        invoice.invoiceFileUrl,               // L: Invoice File URL
+        invoice.invoiceFileName,              // M: Invoice File Name
+        invoice.workPhotos,                   // N: Work Photos
+        invoice.measurementSheetUrl,          // O: Measurement Sheet URL
+        invoice.measurementSheetName,         // P: Measurement Sheet Name
+        invoice.challanUrl || '',             // Q: Challan URL
+        invoice.challanName || '',            // R: Challan Name
+        // APPROVER SECTION (S–W)
+        invoice.status || 'submitted',        // S: Status
+        '',                                   // T: Approved By
+        '',                                   // U: Approved Amount
+        '',                                   // V: Approval Comments
+        '',                                   // W: Approved Date
+        // SYSTEM (X)
+        now,                                  // X: Updated At
       ]],
     },
   });
@@ -514,36 +517,35 @@ export async function updateInvoiceStatus(
 
   // Set approvedDate only when transitioning to approved
   const isApprovalAction = status === 'approved';
-  const approvedDate = isApprovalAction ? now : (currentRow[17] ?? '');
+  const approvedDate = isApprovalAction ? now : (currentRow[22] ?? '');
 
-  // Update columns M–R: status, approval comments, approved by, submitted at, updated at, approved date
+  // Update APPROVER SECTION columns S–W: Status, Approved By, Approved Amount, Approval Comments, Approved Date
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `Invoices!M${rowIndex + 2}:R${rowIndex + 2}`,
+    range: `Invoices!S${rowIndex + 2}:W${rowIndex + 2}`,
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
-        status,
-        approvalComments ?? currentRow[13] ?? '',
-        approvedBy ?? currentRow[14] ?? '',
-        currentRow[15] ?? now, // keep original submitted at
-        now, // updated at
-        approvedDate, // approved date — only set on approve/paid
+        status,                                       // S: Status
+        approvedBy ?? currentRow[19] ?? '',            // T: Approved By
+        (isApprovalAction && approvedAmount !== undefined)
+          ? approvedAmount
+          : (currentRow[20] ?? ''),                   // U: Approved Amount
+        approvalComments ?? currentRow[21] ?? '',      // V: Approval Comments
+        approvedDate,                                  // W: Approved Date
       ]],
     },
   });
 
-  // Update column X (approvedAmount) when approving
-  if (isApprovalAction && approvedAmount !== undefined) {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `Invoices!X${rowIndex + 2}`,
-      valueInputOption: 'RAW',
-      requestBody: {
-        values: [[approvedAmount]],
-      },
-    });
-  }
+  // Update SYSTEM column X: Updated At
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Invoices!X${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[now]],
+    },
+  });
 
   return true;
 }
@@ -580,35 +582,40 @@ export async function resubmitInvoice(
   const now = new Date().toISOString();
 
   // Update the full row — keep original vendor name & ID, apply edits, reset status to submitted
+  // NEW column order: A–R billing, S–W approver, X system
   const updatedRow = [
-    id,
-    currentRow[1], // vendorName stays same
-    updates.invoiceDate ?? currentRow[2],
-    updates.invoiceNumber ?? currentRow[3],
-    updates.purpose ?? currentRow[4],
-    updates.amount ?? currentRow[5],
-    updates.remarks ?? currentRow[6],
-    updates.invoiceFileUrl ?? currentRow[7] ?? '',
-    updates.invoiceFileName ?? currentRow[8] ?? '',
-    updates.workPhotos ?? currentRow[9] ?? '',
-    updates.measurementSheetUrl ?? currentRow[10] ?? '',
-    updates.measurementSheetName ?? currentRow[11] ?? '',
-    'submitted', // reset status
-    '', // clear approval comments
-    '', // clear approved by
-    currentRow[15], // keep original submitted at
-    now, // update updated at
-    '', // clear approved date on resubmit
-    currentRow[18] ?? '', // keep invoiceType
-    currentRow[19] ?? '', // keep submittedBy
-    updates.poNumber ?? currentRow[20] ?? '', // PO number
-    updates.challanUrl ?? currentRow[21] ?? '', // Challan URL
-    updates.challanName ?? currentRow[22] ?? '', // Challan name
+    // BILLING SECTION (A–R)
+    id,                                                    // A: ID
+    currentRow[1],                                         // B: Vendor Name (stays same)
+    updates.invoiceNumber ?? currentRow[2],                // C: Invoice Number
+    updates.invoiceDate ?? currentRow[3],                  // D: Invoice Date
+    currentRow[4] ?? '',                                   // E: Invoice Type (keep original)
+    updates.purpose ?? currentRow[5],                      // F: Purpose
+    updates.amount ?? currentRow[6],                       // G: Amount
+    updates.poNumber ?? currentRow[7] ?? '',               // H: PO Number
+    updates.remarks ?? currentRow[8],                      // I: Remarks
+    currentRow[9] ?? '',                                   // J: Submitted By (keep original)
+    currentRow[10],                                        // K: Submitted At (keep original)
+    updates.invoiceFileUrl ?? currentRow[11] ?? '',        // L: Invoice File URL
+    updates.invoiceFileName ?? currentRow[12] ?? '',       // M: Invoice File Name
+    updates.workPhotos ?? currentRow[13] ?? '',            // N: Work Photos
+    updates.measurementSheetUrl ?? currentRow[14] ?? '',   // O: Measurement Sheet URL
+    updates.measurementSheetName ?? currentRow[15] ?? '',  // P: Measurement Sheet Name
+    updates.challanUrl ?? currentRow[16] ?? '',            // Q: Challan URL
+    updates.challanName ?? currentRow[17] ?? '',           // R: Challan Name
+    // APPROVER SECTION (S–W)
+    'submitted',                                           // S: Status (reset)
+    '',                                                    // T: Approved By (clear)
+    '',                                                    // U: Approved Amount (clear)
+    '',                                                    // V: Approval Comments (clear)
+    '',                                                    // W: Approved Date (clear)
+    // SYSTEM (X)
+    now,                                                   // X: Updated At
   ];
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `Invoices!A${rowIndex + 2}:W${rowIndex + 2}`,
+    range: `Invoices!A${rowIndex + 2}:X${rowIndex + 2}`,
     valueInputOption: 'RAW',
     requestBody: { values: [updatedRow] },
   });
@@ -634,10 +641,10 @@ export async function updateInvoicePhotos(
   const rowIndex = rows.findIndex((row) => row[0] === id);
   if (rowIndex === -1) return false;
 
-  // Column J = workPhotos (index 9)
+  // Column N = workPhotos (index 13)
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `Invoices!J${rowIndex + 2}`,
+    range: `Invoices!N${rowIndex + 2}`,
     valueInputOption: 'RAW',
     requestBody: { values: [[workPhotosUrls]] },
   });
@@ -1033,6 +1040,109 @@ export async function fixOrphanedPaymentStatuses(): Promise<number> {
   return fixedCount;
 }
 
+/**
+ * Migrates invoice rows from the OLD column order to the NEW grouped-by-workflow order.
+ *
+ * OLD order (24 cols):
+ *   0:ID, 1:VendorName, 2:InvoiceDate, 3:InvoiceNumber, 4:Purpose, 5:Amount,
+ *   6:Remarks, 7:InvoiceFileURL, 8:InvoiceFileName, 9:WorkPhotos,
+ *   10:MeasurementSheetURL, 11:MeasurementSheetName, 12:Status,
+ *   13:ApprovalComments, 14:ApprovedBy, 15:SubmittedAt, 16:UpdatedAt,
+ *   17:ApprovedDate, 18:InvoiceType, 19:SubmittedBy, 20:PONumber,
+ *   21:ChallanURL, 22:ChallanName, 23:ApprovedAmount
+ *
+ * NEW order (24 cols):
+ *   0:ID, 1:VendorName, 2:InvoiceNumber, 3:InvoiceDate, 4:InvoiceType,
+ *   5:Purpose, 6:Amount, 7:PONumber, 8:Remarks, 9:SubmittedBy, 10:SubmittedAt,
+ *   11:InvoiceFileURL, 12:InvoiceFileName, 13:WorkPhotos,
+ *   14:MeasurementSheetURL, 15:MeasurementSheetName, 16:ChallanURL, 17:ChallanName,
+ *   18:Status, 19:ApprovedBy, 20:ApprovedAmount, 21:ApprovalComments, 22:ApprovedDate,
+ *   23:UpdatedAt
+ *
+ * Detection: if the header row's 3rd column (index 2) is "Invoice Date" (old) vs "Invoice Number" (new),
+ * the sheet needs migration. If headers already match new order, skip.
+ */
+export async function migrateInvoiceColumns(): Promise<number> {
+  const sheets = getSheets();
+
+  // Read the header row first to detect whether migration is needed
+  const headerResp = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Invoices!A1:X1',
+  });
+  const headers = headerResp.data.values?.[0] || [];
+
+  // If header at index 2 is already "Invoice Number", the new order is in place — skip
+  if (headers[2] === 'Invoice Number') {
+    return 0;
+  }
+
+  // If header at index 2 is not "Invoice Date" either, the sheet may be empty or
+  // in an unknown state — only migrate if we clearly see the old format
+  if (headers[2] !== 'Invoice Date' && headers.length >= 3) {
+    console.log('Invoice columns: unrecognized header order, skipping migration');
+    return 0;
+  }
+
+  // Read all data rows
+  const dataResp = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Invoices!A2:X',
+  });
+  const rows = dataResp.data.values || [];
+  if (rows.length === 0) return 0;
+
+  // Mapping: newIndex → oldIndex
+  // New idx  Field              Old idx
+  //  0       ID                  0
+  //  1       Vendor Name         1
+  //  2       Invoice Number      3
+  //  3       Invoice Date        2
+  //  4       Invoice Type       18
+  //  5       Purpose             4
+  //  6       Amount              5
+  //  7       PO Number          20
+  //  8       Remarks             6
+  //  9       Submitted By       19
+  // 10       Submitted At       15
+  // 11       Invoice File URL    7
+  // 12       Invoice File Name   8
+  // 13       Work Photos         9
+  // 14       Measurement URL    10
+  // 15       Measurement Name   11
+  // 16       Challan URL        21
+  // 17       Challan Name       22
+  // 18       Status             12
+  // 19       Approved By        14
+  // 20       Approved Amount    23
+  // 21       Approval Comments  13
+  // 22       Approved Date      17
+  // 23       Updated At         16
+  const oldToNewMap = [0, 1, 3, 2, 18, 4, 5, 20, 6, 19, 15, 7, 8, 9, 10, 11, 21, 22, 12, 14, 23, 13, 17, 16];
+
+  const remappedRows = rows.map((row) => {
+    const newRow: string[] = [];
+    for (let newIdx = 0; newIdx < 24; newIdx++) {
+      const oldIdx = oldToNewMap[newIdx];
+      newRow[newIdx] = row[oldIdx] ?? '';
+    }
+    return newRow;
+  });
+
+  // Write all remapped data rows back in one batch
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Invoices!A2:X${rows.length + 1}`,
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: remappedRows,
+    },
+  });
+
+  console.log(`Migrated ${rows.length} invoice rows to new column order`);
+  return rows.length;
+}
+
 // ==================== SHEET SETUP ====================
 
 export async function initializeSheetHeaders(): Promise<void> {
@@ -1095,13 +1205,17 @@ export async function initializeSheetHeaders(): Promise<void> {
     });
   }
 
-  // Always set correct headers for Invoices tab (fixes stale/mismatched headers)
+  // Always set correct headers for Invoices tab — grouped by workflow stage
   const expectedInvoiceHeaders = [
-    'ID', 'Vendor Name', 'Invoice Date', 'Invoice Number', 'Purpose', 'Amount',
-    'Remarks', 'Invoice File URL', 'Invoice File Name', 'Work Photos',
-    'Measurement Sheet URL', 'Measurement Sheet Name', 'Status',
-    'Approval Comments', 'Approved By', 'Submitted At', 'Updated At', 'Approved Date',
-    'Invoice Type', 'Submitted By', 'PO Number', 'Challan URL', 'Challan Name', 'Approved Amount'
+    // BILLING SECTION (A–R)
+    'ID', 'Vendor Name', 'Invoice Number', 'Invoice Date', 'Invoice Type',
+    'Purpose', 'Amount', 'PO Number', 'Remarks', 'Submitted By', 'Submitted At',
+    'Invoice File URL', 'Invoice File Name', 'Work Photos',
+    'Measurement Sheet URL', 'Measurement Sheet Name', 'Challan URL', 'Challan Name',
+    // APPROVER SECTION (S–W)
+    'Status', 'Approved By', 'Approved Amount', 'Approval Comments', 'Approved Date',
+    // SYSTEM (X)
+    'Updated At'
   ];
 
   const invoiceHeaders = await sheets.spreadsheets.values.get({
