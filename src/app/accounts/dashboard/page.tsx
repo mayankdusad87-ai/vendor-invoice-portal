@@ -218,27 +218,12 @@ function PaymentModal({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="input-field pl-7 w-full"
-                placeholder={`Max ${formatCurrency(remaining)}`}
+                placeholder="Enter payment amount"
               />
             </div>
-            <div className="flex gap-2 mt-1.5">
-              <button
-                type="button"
-                onClick={() => setAmount(String(remaining))}
-                className="text-xs px-2 py-1 rounded bg-[var(--primary-light)] text-[var(--primary)] hover:bg-[var(--primary-ring)] transition-colors"
-              >
-                Full Amount
-              </button>
-              {remaining > 1000 && (
-                <button
-                  type="button"
-                  onClick={() => setAmount(String(Math.round(remaining / 2)))}
-                  className="text-xs px-2 py-1 rounded bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-colors"
-                >
-                  Half
-                </button>
-              )}
-            </div>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Remaining balance: {formatCurrency(remaining)}
+            </p>
           </div>
 
           <div>
