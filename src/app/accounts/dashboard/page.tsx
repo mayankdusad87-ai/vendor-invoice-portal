@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import TypeBadge from '@/components/ui/TypeBadge';
-import StatCard from '@/components/ui/StatCard';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useAccountsAuth } from '@/hooks/useAccountsAuth';
 import type { InvoiceStatus } from '@/lib/constants';
@@ -85,7 +84,7 @@ function formatDate(dateStr: string): string {
   if (!dateStr) return '—';
   try {
     return new Date(dateStr).toLocaleDateString('en-IN', {
-      day: '2-digit', month: 'short', year: 'numeric',
+      day: 'numeric', month: 'short', year: 'numeric',
     });
   } catch {
     return dateStr;
@@ -102,45 +101,16 @@ function isImageUrl(url: string, fileName?: string): boolean {
   return false;
 }
 
-/* =====================================================================
-   TOAST COMPONENT
-   ===================================================================== */
-
-interface Toast {
-  id: string;
-  message: string;
-  type: 'success' | 'error' | 'info';
-}
-
-function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
-  return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2" role="status" aria-live="polite">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={`animate-slide-in flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border max-w-sm ${
-            t.type === 'success'
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-              : t.type === 'error'
-              ? 'bg-red-500/10 border-red-500/30 text-red-400'
-              : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-          }`}
-        >
-          <span className="text-lg" aria-hidden="true">
-            {t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : 'ℹ'}
-          </span>
-          <span className="text-sm font-medium flex-1">{t.message}</span>
-          <button onClick={() => onDismiss(t.id)} className="text-white/40 hover:text-white/70 text-lg" aria-label="Dismiss">
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  );
+function getPreviewUrl(url: string): string | null {
+  if (!url) return null;
+  if (url.startsWith('/api/files/')) return url;
+  const match = url.match(/drive\.google\.com\/file\/d\/([^/]+)\//);
+  if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
+  return null;
 }
 
 /* =====================================================================
-   PAYMENT MODAL
+   PAYMENT MODAL (light theme)
    ===================================================================== */
 
 function PaymentModal({
@@ -164,39 +134,39 @@ function PaymentModal({
   const remaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
-        className="card w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto p-5"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Record Payment"
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-[var(--text-primary)]">Record Payment</h3>
-          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl" aria-label="Close">×</button>
+          <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
         </div>
 
         {/* Invoice summary */}
-        <div className="p-3 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)] mb-4">
+        <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-sm text-[var(--text-muted)]">{invoice.vendorName}</span>
+            <span className="text-sm text-gray-500">{invoice.vendorName}</span>
             <TypeBadge type={invoice.invoiceType} />
           </div>
-          <p className="text-sm font-medium text-[var(--text-primary)]">#{invoice.invoiceNumber} — {invoice.purpose}</p>
+          <p className="text-sm font-medium text-gray-900">#{invoice.invoiceNumber} — {invoice.purpose}</p>
           <div className="flex items-center justify-between mt-2">
-            <span className="text-sm text-[var(--text-muted)]">Invoice Total</span>
-            <span className="font-bold text-[var(--text-primary)]">{formatCurrency(invoice.amount)}</span>
+            <span className="text-sm text-gray-500">Invoice Total</span>
+            <span className="font-bold text-gray-900">{formatCurrency(invoice.amount)}</span>
           </div>
           {paymentSummary && paymentSummary.totalPaid > 0 && (
             <>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-sm text-[var(--text-muted)]">Already Paid</span>
-                <span className="text-sm text-emerald-400">{formatCurrency(paymentSummary.totalPaid)}</span>
+                <span className="text-sm text-gray-500">Already Paid</span>
+                <span className="text-sm text-emerald-600">{formatCurrency(paymentSummary.totalPaid)}</span>
               </div>
-              <div className="flex items-center justify-between mt-1 pt-1 border-t border-[var(--border-muted)]">
-                <span className="text-sm font-medium text-[var(--text-secondary)]">Remaining</span>
-                <span className="font-bold text-violet-400">{formatCurrency(remaining)}</span>
+              <div className="flex items-center justify-between mt-1 pt-1 border-t border-gray-100">
+                <span className="text-sm font-medium text-gray-600">Remaining</span>
+                <span className="font-bold text-violet-600">{formatCurrency(remaining)}</span>
               </div>
             </>
           )}
@@ -205,11 +175,11 @@ function PaymentModal({
         {/* Payment form */}
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">
-              Payment Amount <span className="text-red-400">*</span>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">
+              Payment Amount <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">₹</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">₹</span>
               <input
                 type="number"
                 step="0.01"
@@ -217,46 +187,46 @@ function PaymentModal({
                 max={remaining}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="input-field pl-7 w-full"
+                className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
                 placeholder="Enter payment amount"
               />
             </div>
-            <p className="text-xs text-[var(--text-muted)] mt-1">
+            <p className="text-xs text-gray-400 mt-1">
               Remaining balance: {formatCurrency(remaining)}
             </p>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">
-              UTR / Reference Number <span className="text-red-400">*</span>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">
+              UTR / Reference Number <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={utrReference}
               onChange={(e) => setUtrReference(e.target.value)}
-              className="input-field w-full"
+              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
               placeholder="Enter UTR or payment reference"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">
-              Payment Date <span className="text-red-400">*</span>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">
+              Payment Date <span className="text-red-500">*</span>
             </label>
             <input
               type="date"
               value={paymentDate}
               onChange={(e) => setPaymentDate(e.target.value)}
-              className="input-field w-full"
+              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">Notes (optional)</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">Notes (optional)</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="input-field w-full"
+              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               rows={2}
               placeholder="GST payment, advance, etc."
             />
@@ -264,14 +234,16 @@ function PaymentModal({
         </div>
 
         <div className="flex items-center gap-3 mt-6">
-          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[44px]">
+            Cancel
+          </button>
           <button
             onClick={() => onSubmit({ amount, utrReference, paymentDate, notes })}
             disabled={isSubmitting || !amount || !utrReference || !paymentDate || parseFloat(amount) <= 0}
-            className="btn-success flex-1"
+            className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
           >
             {isSubmitting ? (
-              <span className="flex items-center gap-2">
+              <span className="flex items-center justify-center gap-2">
                 <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Processing…
               </span>
@@ -286,7 +258,7 @@ function PaymentModal({
 }
 
 /* =====================================================================
-   REJECT MODAL
+   REJECT MODAL (light theme)
    ===================================================================== */
 
 function RejectModal({
@@ -311,21 +283,21 @@ function RejectModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
-        className="card w-full max-w-lg mx-4"
+        className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-lg mx-4 p-5"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Reject Invoice"
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-red-400">Reject Invoice</h3>
-          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl" aria-label="Close">×</button>
+          <h3 className="text-lg font-bold text-red-600">Reject Invoice</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
         </div>
 
-        <p className="text-sm text-[var(--text-secondary)] mb-3">
-          This will reject <strong className="text-[var(--text-primary)]">#{invoice.invoiceNumber}</strong> from {invoice.vendorName} back to the approver for correction.
+        <p className="text-sm text-gray-600 mb-3">
+          This will reject <strong className="text-gray-900">#{invoice.invoiceNumber}</strong> from {invoice.vendorName} back to the approver for correction.
         </p>
 
         {/* Preset reasons */}
@@ -337,8 +309,8 @@ function RejectModal({
               onClick={() => setReason(r)}
               className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${
                 reason === r
-                  ? 'bg-red-500/15 border-red-500/30 text-red-400'
-                  : 'bg-[var(--surface-muted)] border-[var(--border-muted)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                  ? 'bg-red-50 border-red-200 text-red-700'
+                  : 'bg-gray-50 border-gray-200 text-gray-500 hover:text-gray-700'
               }`}
             >
               {r}
@@ -349,17 +321,19 @@ function RejectModal({
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          className="input-field w-full"
+          className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
           rows={3}
           placeholder="Describe the issue with this invoice…"
         />
 
         <div className="flex items-center gap-3 mt-4">
-          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[44px]">
+            Cancel
+          </button>
           <button
             onClick={() => onSubmit(reason)}
             disabled={isSubmitting || !reason.trim()}
-            className="btn-danger flex-1"
+            className="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
           >
             {isSubmitting ? 'Rejecting…' : 'Reject Invoice'}
           </button>
@@ -370,7 +344,7 @@ function RejectModal({
 }
 
 /* =====================================================================
-   PAYMENT HISTORY DRAWER
+   PAYMENT HISTORY MODAL (light theme)
    ===================================================================== */
 
 function PaymentHistory({
@@ -385,41 +359,41 @@ function PaymentHistory({
   if (!payments) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
-        className="card w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto"
+        className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto p-5"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Payment History"
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-[var(--text-primary)]">Payment History</h3>
-          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl" aria-label="Close">×</button>
+          <h3 className="text-lg font-bold text-gray-900">Payment History</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
         </div>
 
-        <div className="p-3 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)] mb-4">
-          <p className="text-sm font-medium text-[var(--text-primary)]">
+        <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
+          <p className="text-sm font-medium text-gray-900">
             #{invoice.invoiceNumber} — {invoice.vendorName}
           </p>
           <div className="grid grid-cols-3 gap-2 mt-2">
             <div>
-              <p className="text-xs text-[var(--text-muted)]">Invoice Total</p>
-              <p className="text-sm font-bold text-[var(--text-primary)]">{formatCurrency(payments.invoiceAmount)}</p>
+              <p className="text-xs text-gray-400">Invoice Total</p>
+              <p className="text-sm font-bold text-gray-900">{formatCurrency(payments.invoiceAmount)}</p>
             </div>
             <div>
-              <p className="text-xs text-[var(--text-muted)]">Total Paid</p>
-              <p className="text-sm font-bold text-emerald-400">{formatCurrency(payments.totalPaid)}</p>
+              <p className="text-xs text-gray-400">Total Paid</p>
+              <p className="text-sm font-bold text-emerald-600">{formatCurrency(payments.totalPaid)}</p>
             </div>
             <div>
-              <p className="text-xs text-[var(--text-muted)]">Remaining</p>
-              <p className={`text-sm font-bold ${payments.remaining === 0 ? 'text-emerald-400' : 'text-violet-400'}`}>
+              <p className="text-xs text-gray-400">Remaining</p>
+              <p className={`text-sm font-bold ${payments.remaining === 0 ? 'text-emerald-600' : 'text-violet-600'}`}>
                 {formatCurrency(payments.remaining)}
               </p>
             </div>
           </div>
           {/* Progress bar */}
-          <div className="mt-3 h-2 rounded-full bg-[var(--border)] overflow-hidden">
+          <div className="mt-3 h-2 rounded-full bg-gray-200 overflow-hidden">
             <div
               className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
               style={{ width: `${Math.min(100, (payments.totalPaid / payments.invoiceAmount) * 100)}%` }}
@@ -428,7 +402,7 @@ function PaymentHistory({
         </div>
 
         {payments.payments.length === 0 ? (
-          <div className="text-center py-6 text-[var(--text-muted)]">
+          <div className="text-center py-6 text-gray-400">
             <p className="text-2xl mb-1">💸</p>
             <p className="text-sm">No payments recorded yet</p>
           </div>
@@ -437,29 +411,29 @@ function PaymentHistory({
             {payments.payments.map((p, i) => (
               <div
                 key={p.id}
-                className="p-3 rounded-lg border border-[var(--border-muted)] bg-[var(--surface)]"
+                className="p-3 rounded-lg border border-gray-100 bg-gray-50"
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-[var(--text-muted)]">Payment #{i + 1}</span>
-                  <span className="font-bold text-emerald-400">{formatCurrency(p.amount)}</span>
+                  <span className="text-xs text-gray-400">Payment #{i + 1}</span>
+                  <span className="font-bold text-emerald-600">{formatCurrency(p.amount)}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                   <div>
-                    <span className="text-[var(--text-muted)]">UTR: </span>
-                    <span className="text-[var(--text-secondary)] font-mono">{p.utrReference}</span>
+                    <span className="text-gray-400">UTR: </span>
+                    <span className="text-gray-700 font-mono">{p.utrReference}</span>
                   </div>
                   <div>
-                    <span className="text-[var(--text-muted)]">Date: </span>
-                    <span className="text-[var(--text-secondary)]">{formatDate(p.paymentDate)}</span>
+                    <span className="text-gray-400">Date: </span>
+                    <span className="text-gray-700">{formatDate(p.paymentDate)}</span>
                   </div>
                   <div>
-                    <span className="text-[var(--text-muted)]">Paid by: </span>
-                    <span className="text-[var(--text-secondary)]">{p.paidBy}</span>
+                    <span className="text-gray-400">Paid by: </span>
+                    <span className="text-gray-700">{p.paidBy}</span>
                   </div>
                   {p.notes && (
                     <div className="col-span-2">
-                      <span className="text-[var(--text-muted)]">Notes: </span>
-                      <span className="text-[var(--text-secondary)]">{p.notes}</span>
+                      <span className="text-gray-400">Notes: </span>
+                      <span className="text-gray-700">{p.notes}</span>
                     </div>
                   )}
                 </div>
@@ -473,7 +447,7 @@ function PaymentHistory({
 }
 
 /* =====================================================================
-   FILE VIEWER MODAL
+   FILE VIEWER MODAL (light theme)
    ===================================================================== */
 
 function FileViewerModal({
@@ -490,19 +464,19 @@ function FileViewerModal({
   const isImage = isImageUrl(url, fileName);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
-        className="card w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden flex flex-col"
+        className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden flex flex-col p-4"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-[var(--text-primary)]">{title}</h3>
-          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl" aria-label="Close">×</button>
+          <h3 className="text-sm font-bold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
         </div>
-        <div className="flex-1 overflow-auto bg-[var(--background)] rounded-lg min-h-[300px]">
+        <div className="flex-1 overflow-auto bg-gray-50 rounded-lg min-h-[300px]">
           {isImage ? (
             <img src={url} alt={title} className="w-full h-auto object-contain" />
           ) : (
@@ -520,7 +494,7 @@ function FileViewerModal({
 }
 
 /* =====================================================================
-   MAIN DASHBOARD
+   MAIN DASHBOARD (light theme — matching approver)
    ===================================================================== */
 
 type FilterTab = 'all' | 'approved' | 'partially_paid' | 'paid' | 'rejected';
@@ -549,19 +523,15 @@ export default function AccountsDashboard() {
   const [paymentCache, setPaymentCache] = useState<Record<string, PaymentSummary>>({});
 
   // Toast
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Toast helpers
-  const addToast = useCallback((message: string, type: Toast['type']) => {
-    const id = `t-${Date.now()}`;
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
-  }, []);
-
-  const dismissToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Fetch invoices
   const fetchInvoices = useCallback(async () => {
@@ -599,12 +569,10 @@ export default function AccountsDashboard() {
   const filteredInvoices = useMemo(() => {
     let filtered = invoices;
 
-    // Tab filter
     if (activeTab !== 'all') {
       filtered = filtered.filter((inv) => inv.status === activeTab);
     }
 
-    // Search
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(
@@ -616,7 +584,6 @@ export default function AccountsDashboard() {
       );
     }
 
-    // Sort
     const sorted = [...filtered];
     switch (sortBy) {
       case 'amount':
@@ -634,14 +601,30 @@ export default function AccountsDashboard() {
 
   // Stats
   const stats = useMemo(() => {
-    const approved = invoices.filter((i) => i.status === 'approved').length;
-    const partiallyPaid = invoices.filter((i) => i.status === 'partially_paid').length;
-    const paid = invoices.filter((i) => i.status === 'paid').length;
-    const totalAmount = invoices
-      .filter((i) => ['approved', 'partially_paid'].includes(i.status))
-      .reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
-    return { approved, partiallyPaid, paid, totalAmount };
+    const approved = invoices.filter((i) => i.status === 'approved');
+    const partiallyPaid = invoices.filter((i) => i.status === 'partially_paid');
+    const paid = invoices.filter((i) => i.status === 'paid');
+    const outstanding = [...approved, ...partiallyPaid];
+    const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+    return {
+      approvedCount: approved.length,
+      approvedAmount: sumAmount(approved),
+      partiallyPaidCount: partiallyPaid.length,
+      partiallyPaidAmount: sumAmount(partiallyPaid),
+      paidCount: paid.length,
+      paidAmount: sumAmount(paid),
+      outstandingAmount: sumAmount(outstanding),
+    };
   }, [invoices]);
+
+  // Tab counts
+  const tabCounts = useMemo(() => ({
+    all: invoices.length,
+    approved: invoices.filter((i) => i.status === 'approved').length,
+    partially_paid: invoices.filter((i) => i.status === 'partially_paid').length,
+    paid: invoices.filter((i) => i.status === 'paid').length,
+    rejected: invoices.filter((i) => i.status === 'rejected').length,
+  }), [invoices]);
 
   // Payment submission
   const handleRecordPayment = useCallback(
@@ -663,14 +646,13 @@ export default function AccountsDashboard() {
         const result = await res.json();
         if (!res.ok) throw new Error(result.error || 'Failed to record payment');
 
-        addToast(
-          result.newStatus === 'paid'
-            ? `Payment recorded — invoice fully paid! 🎉`
+        setToast({
+          message: result.newStatus === 'paid'
+            ? `Payment recorded — invoice fully paid!`
             : `Payment of ${formatCurrency(data.amount)} recorded`,
-          'success'
-        );
+          type: 'success',
+        });
         setPaymentInvoice(null);
-        // Clear payment cache for this invoice
         setPaymentCache((prev) => {
           const next = { ...prev };
           delete next[paymentInvoice.id];
@@ -678,12 +660,12 @@ export default function AccountsDashboard() {
         });
         fetchInvoices();
       } catch (err) {
-        addToast(err instanceof Error ? err.message : 'Failed to record payment', 'error');
+        setToast({ message: err instanceof Error ? err.message : 'Failed to record payment', type: 'error' });
       } finally {
         setIsSubmitting(false);
       }
     },
-    [paymentInvoice, addToast, fetchInvoices]
+    [paymentInvoice, fetchInvoices]
   );
 
   // Rejection submission
@@ -700,19 +682,19 @@ export default function AccountsDashboard() {
         const result = await res.json();
         if (!res.ok) throw new Error(result.error || 'Failed to reject');
 
-        addToast('Invoice rejected — sent back to approver', 'info');
+        setToast({ message: 'Invoice rejected — sent back to approver', type: 'error' });
         setRejectInvoice(null);
         fetchInvoices();
       } catch (err) {
-        addToast(err instanceof Error ? err.message : 'Failed to reject invoice', 'error');
+        setToast({ message: err instanceof Error ? err.message : 'Failed to reject invoice', type: 'error' });
       } finally {
         setIsSubmitting(false);
       }
     },
-    [rejectInvoice, addToast, fetchInvoices]
+    [rejectInvoice, fetchInvoices]
   );
 
-  // Open payment modal (and pre-fetch payment data)
+  // Open payment modal (pre-fetch payment data)
   const openPaymentModal = useCallback(
     async (inv: Invoice) => {
       setPaymentInvoice(inv);
@@ -730,185 +712,244 @@ export default function AccountsDashboard() {
     [fetchPaymentSummary]
   );
 
-  // Tab counts
-  const tabCounts = useMemo(() => ({
-    all: invoices.length,
-    approved: invoices.filter((i) => i.status === 'approved').length,
-    partially_paid: invoices.filter((i) => i.status === 'partially_paid').length,
-    paid: invoices.filter((i) => i.status === 'paid').length,
-    rejected: invoices.filter((i) => i.status === 'rejected').length,
-  }), [invoices]);
-
-  /* ---- AUTH GATE ---- */
-  if (!isReady) {
-    return (
-      <div className="min-h-screen bg-[var(--background)] p-4 sm:p-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="skeleton h-10 w-10 rounded-lg" />
-            <div className="skeleton h-6 w-48 rounded" />
-          </div>
-          <LoadingSkeleton count={4} variant="list" />
-        </div>
-      </div>
-    );
-  }
+  if (!isReady) return null;
 
   return (
-    <div className="min-h-screen bg-[var(--background)]">
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+    <div className="min-h-screen bg-gray-50">
+      {/* ── Toast ── */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-[60] max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white transition-all animate-slide-in ${
+          toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'
+        }`}>
+          <div className="flex items-center gap-2">
+            {toast.type === 'success' ? (
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
+            {toast.message}
+          </div>
+        </div>
+      )}
 
-      {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--background)]/80 backdrop-blur-lg">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">
-              {getInitials(accountsName)}
-            </div>
+      {/* ── Header ── */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
+        <div className="max-w-5xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-base font-bold text-[var(--text-primary)] leading-tight">
-                Accounts Dashboard
-              </h1>
-              <p className="text-xs text-[var(--text-muted)]">{accountsName}</p>
+              <h1 className="text-xl font-bold text-gray-900">Accounts Dashboard</h1>
+              <p className="text-xs text-gray-500">Welcome back, {accountsName}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              {/* Search (desktop) */}
+              <div className="relative hidden sm:block">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search invoices..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-52 min-h-[40px]"
+                  aria-label="Search invoices"
+                />
+              </div>
+              {/* Logout */}
+              <button
+                onClick={logout}
+                className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-500 hover:text-red-500 hover:border-red-200 transition-colors"
+                aria-label="Log out"
+                title="Logout"
+              >
+                <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                </svg>
+              </button>
             </div>
           </div>
-          <button onClick={logout} className="btn-ghost text-sm">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-            Logout
-          </button>
+          {/* Mobile search */}
+          <div className="mt-2 sm:hidden">
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search invoices..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full min-h-[44px]"
+                aria-label="Search invoices"
+              />
+            </div>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main className="max-w-5xl mx-auto px-4 py-5 fade-in">
         {/* Error */}
         {error && (
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
             {error}
           </div>
         )}
 
-        {/* Stats row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard
-            title="Pending Payment"
-            value={stats.approved}
-            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>}
-            bgColor="bg-yellow-100"
-          />
-          <StatCard
-            title="Partially Paid"
-            value={stats.partiallyPaid}
-            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-            bgColor="bg-purple-100"
-          />
-          <StatCard
-            title="Fully Paid"
-            value={stats.paid}
-            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-            bgColor="bg-green-100"
-          />
-          <StatCard
-            title="Outstanding"
-            value={formatCurrency(stats.totalAmount)}
-            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
-            bgColor="bg-blue-100"
-          />
+        {/* ── Stat Cards — white with colored bottom borders ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {/* Pending Payment */}
+          <button
+            onClick={() => setActiveTab('approved')}
+            className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
+              activeTab === 'approved' ? 'ring-2 ring-amber-500 ring-offset-1' : ''
+            }`}
+            aria-label={`Pending payment: ${stats.approvedCount}`}
+          >
+            <div className="flex items-start justify-between">
+              <p className="text-xs font-medium text-gray-500">Pending payment</p>
+              <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                </svg>
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-amber-600 mt-1">{stats.approvedCount}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(stats.approvedAmount)}</p>
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
+          </button>
+
+          {/* Partially Paid */}
+          <button
+            onClick={() => setActiveTab('partially_paid')}
+            className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
+              activeTab === 'partially_paid' ? 'ring-2 ring-violet-500 ring-offset-1' : ''
+            }`}
+            aria-label={`Partially paid: ${stats.partiallyPaidCount}`}
+          >
+            <div className="flex items-start justify-between">
+              <p className="text-xs font-medium text-gray-500">Partially paid</p>
+              <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-violet-600 mt-1">{stats.partiallyPaidCount}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(stats.partiallyPaidAmount)}</p>
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-violet-500" />
+          </button>
+
+          {/* Fully Paid */}
+          <button
+            onClick={() => setActiveTab('paid')}
+            className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
+              activeTab === 'paid' ? 'ring-2 ring-emerald-500 ring-offset-1' : ''
+            }`}
+            aria-label={`Fully paid: ${stats.paidCount}`}
+          >
+            <div className="flex items-start justify-between">
+              <p className="text-xs font-medium text-gray-500">Fully paid</p>
+              <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.paidCount}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(stats.paidAmount)}</p>
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
+          </button>
+
+          {/* Outstanding */}
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
+              activeTab === 'all' ? 'ring-2 ring-blue-500 ring-offset-1' : ''
+            }`}
+            aria-label={`Outstanding: ${formatCurrency(stats.outstandingAmount)}`}
+          >
+            <div className="flex items-start justify-between">
+              <p className="text-xs font-medium text-gray-500">Outstanding</p>
+              <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                </svg>
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(stats.outstandingAmount)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{invoices.length} total invoices</p>
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500" />
+          </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 overflow-x-auto pb-1" role="tablist">
-          {(
-            [
-              { key: 'all', label: 'All' },
-              { key: 'approved', label: 'Pending' },
-              { key: 'partially_paid', label: 'Partial' },
-              { key: 'paid', label: 'Paid' },
-              { key: 'rejected', label: 'Rejected' },
-            ] as { key: FilterTab; label: string }[]
-          ).map((tab) => (
-            <button
-              key={tab.key}
-              role="tab"
-              aria-selected={activeTab === tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
-                activeTab === tab.key
-                  ? 'bg-[var(--primary-light)] text-[var(--primary)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface)]'
-              }`}
-            >
-              {tab.label}
-              <span className="ml-1.5 text-xs opacity-70">{tabCounts[tab.key]}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Search & sort */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search vendor, invoice #, PO number…"
-              className="input-field w-full pl-10"
-            />
-          </div>
+        {/* ── List header: count + sort ── */}
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm text-gray-500">
+            Showing <strong className="text-gray-700">{filteredInvoices.length}</strong> invoice{filteredInvoices.length !== 1 ? 's' : ''}
+            {activeTab !== 'all' && ` · ${activeTab.replace('_', ' ')}`}
+          </p>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            className="input-field w-full sm:w-40"
+            className="text-sm text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-h-[36px]"
+            aria-label="Sort invoices"
           >
-            <option value="date">Latest first</option>
-            <option value="amount">Highest amount</option>
-            <option value="vendor">Vendor A–Z</option>
+            <option value="date">Sort by date</option>
+            <option value="amount">Sort by amount</option>
+            <option value="vendor">Sort by vendor</option>
           </select>
         </div>
 
-        {/* Invoice list */}
+        {/* ── Invoice List ── */}
         {loading ? (
-          <LoadingSkeleton count={5} variant="list" />
+          <LoadingSkeleton variant="card" count={4} />
         ) : filteredInvoices.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="text-5xl mb-3">
-              {activeTab === 'paid' ? '🎉' : activeTab === 'rejected' ? '📋' : '📭'}
-            </div>
-            <p className="text-[var(--text-secondary)] font-medium">
-              {searchQuery
-                ? 'No invoices match your search'
-                : activeTab === 'all'
-                ? 'No invoices to process yet'
-                : activeTab === 'paid'
-                ? 'All payments tracked and completed!'
-                : `No ${activeTab.replace('_', ' ')} invoices`}
-            </p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">
-              {!searchQuery && activeTab === 'all'
-                ? 'Approved invoices will appear here for payment processing'
-                : ''}
-            </p>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm text-center py-16 px-6">
+            {activeTab === 'paid' && !searchQuery ? (
+              <>
+                <div className="text-4xl mb-3">🎉</div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">All payments complete!</h3>
+                <p className="text-gray-500 text-sm">Every invoice has been fully paid.</p>
+              </>
+            ) : activeTab === 'approved' && !searchQuery ? (
+              <>
+                <div className="text-4xl mb-3">✅</div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">No pending payments</h3>
+                <p className="text-gray-500 text-sm">All approved invoices have been processed.</p>
+              </>
+            ) : (
+              <>
+                <svg className="w-10 h-10 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <p className="text-gray-500 text-sm">
+                  {searchQuery ? `No invoices match "${searchQuery}"` : 'No invoices found'}
+                </p>
+              </>
+            )}
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {filteredInvoices.map((inv) => {
               const isExpanded = expandedId === inv.id;
               const canPay = inv.status === 'approved' || inv.status === 'partially_paid';
               const canReject = inv.status === 'approved' || inv.status === 'partially_paid';
               const cachedPayment = paymentCache[inv.id];
+              const invoiceIsImage = isImageUrl(inv.invoiceFileUrl, inv.invoiceFileName);
+              const invoicePreview = !invoiceIsImage ? getPreviewUrl(inv.invoiceFileUrl) : null;
 
               return (
                 <div
                   key={inv.id}
-                  className={`card border-l-4 ${statusBorderColor(inv.status)} transition-all duration-200 hover:bg-[var(--surface-hover)]`}
+                  className={`group bg-white rounded-xl border border-gray-200 shadow-sm transition-all hover:shadow-md border-l-4 ${statusBorderColor(inv.status)}`}
                 >
-                  {/* Row */}
+                  {/* Invoice row */}
                   <div
-                    className="flex items-center gap-3 cursor-pointer"
+                    className="flex items-center gap-3 p-4 cursor-pointer"
                     onClick={() => {
                       setExpandedId(isExpanded ? null : inv.id);
                       if (!isExpanded && !paymentCache[inv.id]) {
@@ -921,167 +962,216 @@ export default function AccountsDashboard() {
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedId(isExpanded ? null : inv.id); } }}
                   >
                     {/* Vendor avatar */}
-                    <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-slate-700 to-slate-600 flex items-center justify-center text-white text-xs font-bold">
+                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
                       {getInitials(inv.vendorName)}
                     </div>
 
-                    {/* Info */}
+                    {/* Content */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-[var(--text-primary)] truncate">{inv.vendorName}</span>
-                        <TypeBadge type={inv.invoiceType} />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-bold text-gray-900 text-sm">{inv.invoiceNumber}</span>
+                        <span className="text-gray-400 text-xs">·</span>
+                        <span className="text-sm text-gray-600">{inv.vendorName}</span>
+                        {inv.invoiceType && <TypeBadge type={inv.invoiceType} />}
                         <StatusBadge status={inv.status} />
                       </div>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
-                        #{inv.invoiceNumber} · {inv.purpose}
-                        {inv.poNumber && ` · PO: ${inv.poNumber}`}
+                      <p className="text-sm text-gray-500 mt-0.5 truncate">
+                        {inv.purpose}
+                        {inv.poNumber && <span className="text-gray-400"> · PO: {inv.poNumber}</span>}
                       </p>
-                    </div>
-
-                    {/* Amount + date */}
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-sm font-bold text-[var(--text-primary)]">{formatCurrency(inv.amount)}</p>
-                      <p className="text-xs text-[var(--text-muted)]">{formatDate(inv.invoiceDate)}</p>
-                    </div>
-
-                    {/* Expand arrow */}
-                    <svg
-                      className={`w-4 h-4 text-[var(--text-muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
-
-                  {/* Expanded details */}
-                  {isExpanded && (
-                    <div className="mt-4 pt-4 border-t border-[var(--border-muted)] space-y-4">
-                      {/* Detail grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                        <div>
-                          <span className="text-[var(--text-muted)]">Invoice Date</span>
-                          <p className="text-[var(--text-secondary)] font-medium">{formatDate(inv.invoiceDate)}</p>
-                        </div>
-                        <div>
-                          <span className="text-[var(--text-muted)]">Submitted By</span>
-                          <p className="text-[var(--text-secondary)] font-medium">{inv.submittedBy || '—'}</p>
-                        </div>
-                        <div>
-                          <span className="text-[var(--text-muted)]">Approved By</span>
-                          <p className="text-[var(--text-secondary)] font-medium">{inv.approvedBy || '—'}</p>
-                        </div>
-                        {inv.poNumber && (
-                          <div>
-                            <span className="text-[var(--text-muted)]">PO Number</span>
-                            <p className="text-[var(--text-secondary)] font-medium">{inv.poNumber}</p>
-                          </div>
-                        )}
-                        {inv.remarks && (
-                          <div className="col-span-2 sm:col-span-3">
-                            <span className="text-[var(--text-muted)]">Remarks</span>
-                            <p className="text-[var(--text-secondary)]">{inv.remarks}</p>
-                          </div>
-                        )}
-                        {inv.approvalComments && (
-                          <div className="col-span-2 sm:col-span-3">
-                            <span className="text-[var(--text-muted)]">Approval Comments</span>
-                            <p className="text-[var(--text-secondary)]">{inv.approvalComments}</p>
-                          </div>
-                        )}
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-base font-bold text-gray-900">
+                          {formatCurrency(inv.amount)}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {formatDate(inv.submittedAt || inv.invoiceDate)}
+                        </span>
                       </div>
+                    </div>
 
-                      {/* Payment summary if available */}
-                      {cachedPayment && cachedPayment.totalPaid > 0 && (
-                        <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/15">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-emerald-400 font-medium">
-                              {cachedPayment.isFullyPaid ? '✓ Fully Paid' : `◑ ${formatCurrency(cachedPayment.totalPaid)} paid`}
-                            </span>
-                            <span className="text-[var(--text-muted)]">
-                              {cachedPayment.payments.length} payment{cachedPayment.payments.length !== 1 ? 's' : ''}
-                              {!cachedPayment.isFullyPaid && ` · ${formatCurrency(cachedPayment.remaining)} remaining`}
-                            </span>
-                          </div>
-                          <div className="mt-2 h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all"
-                              style={{ width: `${Math.min(100, (cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}%` }}
-                            />
-                          </div>
+                    {/* Right side: quick actions on hover for payable invoices */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {canPay && !isExpanded && (
+                        <div className="hidden lg:flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openPaymentModal(inv); }}
+                            className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors border border-emerald-200"
+                            title="Record payment"
+                          >
+                            ₹ Pay
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setRejectInvoice(inv); }}
+                            className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 transition-colors border border-red-200"
+                            title="Reject invoice"
+                          >
+                            ✕ Reject
+                          </button>
                         </div>
                       )}
 
-                      {/* File links */}
-                      <div className="flex flex-wrap gap-2">
-                        {inv.invoiceFileUrl && (
-                          <button
-                            onClick={() => setFileViewer({ title: 'Invoice Document', url: inv.invoiceFileUrl, fileName: inv.invoiceFileName })}
-                            className="text-xs px-3 py-1.5 rounded-lg bg-[var(--primary-light)] text-[var(--primary)] hover:bg-[var(--primary-ring)] transition-colors"
-                          >
-                            📄 Invoice
-                          </button>
-                        )}
-                        {inv.measurementSheetUrl && (
-                          <button
-                            onClick={() => setFileViewer({ title: 'Measurement Sheet', url: inv.measurementSheetUrl, fileName: inv.measurementSheetName })}
-                            className="text-xs px-3 py-1.5 rounded-lg bg-[var(--accent-light)] text-[var(--accent)] hover:bg-[var(--accent-light)] transition-colors"
-                          >
-                            📏 Measurement Sheet
-                          </button>
-                        )}
-                        {inv.challanUrl && (
-                          <button
-                            onClick={() => setFileViewer({ title: 'Challan', url: inv.challanUrl!, fileName: inv.challanName })}
-                            className="text-xs px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-colors"
-                          >
-                            📋 Challan
-                          </button>
-                        )}
-                        {inv.workPhotos && (
-                          <button
-                            onClick={() => setFileViewer({ title: 'Work Photos', url: inv.workPhotos })}
-                            className="text-xs px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
-                          >
-                            📸 Work Photos
-                          </button>
-                        )}
-                      </div>
+                      {/* Chevron */}
+                      <svg
+                        className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                  </div>
 
-                      {/* Action buttons */}
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {canPay && (
-                          <button
-                            onClick={() => openPaymentModal(inv)}
-                            className="btn-success text-sm"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                            </svg>
-                            Record Payment
-                          </button>
+                  {/* ===== Expanded Details ===== */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 pt-0">
+                      <div className="border-t border-gray-100 pt-4">
+
+                        {/* Detail grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs mb-4">
+                          <div>
+                            <span className="text-gray-400">Invoice Date</span>
+                            <p className="text-gray-700 font-medium">{formatDate(inv.invoiceDate)}</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-400">Submitted By</span>
+                            <p className="text-gray-700 font-medium">{inv.submittedBy || '—'}</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-400">Approved By</span>
+                            <p className="text-gray-700 font-medium">{inv.approvedBy || '—'}</p>
+                          </div>
+                          {inv.poNumber && (
+                            <div>
+                              <span className="text-gray-400">PO Number</span>
+                              <p className="text-gray-700 font-medium">{inv.poNumber}</p>
+                            </div>
+                          )}
+                          {inv.remarks && (
+                            <div className="col-span-2 sm:col-span-3">
+                              <span className="text-gray-400">Remarks</span>
+                              <p className="text-gray-700">{inv.remarks}</p>
+                            </div>
+                          )}
+                          {inv.approvalComments && (
+                            <div className="col-span-2 sm:col-span-3">
+                              <span className="text-gray-400">Approval Comments</span>
+                              <p className="text-gray-700">{inv.approvalComments}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Payment progress (if any payments exist) */}
+                        {cachedPayment && cachedPayment.totalPaid > 0 && (
+                          <div className="mb-4 p-3 rounded-lg bg-emerald-50/50 border border-emerald-100">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-emerald-700 font-medium">
+                                {cachedPayment.isFullyPaid ? '✓ Fully Paid' : `◑ ${formatCurrency(cachedPayment.totalPaid)} paid`}
+                              </span>
+                              <span className="text-gray-500">
+                                {cachedPayment.payments.length} payment{cachedPayment.payments.length !== 1 ? 's' : ''}
+                                {!cachedPayment.isFullyPaid && ` · ${formatCurrency(cachedPayment.remaining)} remaining`}
+                              </span>
+                            </div>
+                            <div className="mt-2 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all"
+                                style={{ width: `${Math.min(100, (cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}%` }}
+                              />
+                            </div>
+                          </div>
                         )}
-                        {canReject && (
-                          <button
-                            onClick={() => setRejectInvoice(inv)}
-                            className="btn-danger text-sm"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                            Reject
-                          </button>
+
+                        {/* Invoice document */}
+                        {inv.invoiceFileUrl && (
+                          <div className="mb-4 rounded-lg p-4 bg-blue-50/50 border border-blue-100">
+                            <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                              </svg>
+                              Invoice — {inv.invoiceFileName || 'Uploaded file'}
+                            </p>
+                            {invoiceIsImage && (
+                              <img src={inv.invoiceFileUrl} alt={`Invoice ${inv.invoiceNumber}`}
+                                className="w-full max-h-[500px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity bg-white border border-gray-200"
+                                onClick={() => setFileViewer({ title: 'Invoice Document', url: inv.invoiceFileUrl, fileName: inv.invoiceFileName })} />
+                            )}
+                            {invoicePreview && (
+                              <iframe src={invoicePreview} className="w-full rounded-lg border border-gray-200"
+                                style={{ height: '500px' }} title={`Invoice ${inv.invoiceNumber} preview`} allow="autoplay" />
+                            )}
+                            {!invoiceIsImage && !invoicePreview && inv.invoiceFileUrl && (
+                              <a href={inv.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors min-h-[44px]">
+                                Open Invoice in New Tab
+                              </a>
+                            )}
+                          </div>
                         )}
-                        {(inv.status === 'partially_paid' || inv.status === 'paid') && (
-                          <button
-                            onClick={() => openHistoryModal(inv)}
-                            className="btn-secondary text-sm"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Payment History
-                          </button>
-                        )}
+
+                        {/* Other file links */}
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          {inv.measurementSheetUrl && (
+                            <button
+                              onClick={() => setFileViewer({ title: 'Measurement Sheet', url: inv.measurementSheetUrl, fileName: inv.measurementSheetName })}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-cyan-50 text-cyan-700 hover:bg-cyan-100 border border-cyan-200 transition-colors font-medium"
+                            >
+                              📏 Measurement Sheet
+                            </button>
+                          )}
+                          {inv.challanUrl && (
+                            <button
+                              onClick={() => setFileViewer({ title: 'Challan', url: inv.challanUrl!, fileName: inv.challanName })}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 transition-colors font-medium"
+                            >
+                              📋 Challan
+                            </button>
+                          )}
+                          {inv.workPhotos && (
+                            <button
+                              onClick={() => setFileViewer({ title: 'Work Photos', url: inv.workPhotos })}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition-colors font-medium"
+                            >
+                              📸 Work Photos
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex flex-wrap gap-2">
+                          {canPay && (
+                            <button
+                              onClick={() => openPaymentModal(inv)}
+                              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors min-h-[44px]"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                              </svg>
+                              Record Payment
+                            </button>
+                          )}
+                          {canReject && (
+                            <button
+                              onClick={() => setRejectInvoice(inv)}
+                              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors min-h-[44px]"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                              Reject
+                            </button>
+                          )}
+                          {(inv.status === 'partially_paid' || inv.status === 'paid') && (
+                            <button
+                              onClick={() => openHistoryModal(inv)}
+                              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors min-h-[44px]"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                              </svg>
+                              Payment History
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
