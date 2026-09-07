@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import TypeBadge from '@/components/ui/TypeBadge';
+import PhotoViewer from '@/components/ui/PhotoViewer';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useAccountsAuth } from '@/hooks/useAccountsAuth';
 import type { InvoiceStatus } from '@/lib/constants';
@@ -93,6 +94,10 @@ function formatDate(dateStr: string): string {
 
 function isImageUrl(url: string, fileName?: string): boolean {
   if (!url) return false;
+  // R2 proxy URLs
+  if (url.startsWith('/api/r2/')) {
+    return /\.(jpg|jpeg|png|webp|heic|heif)$/i.test(url);
+  }
   if (url.startsWith('/api/files/')) {
     if (fileName) return /\.(jpg|jpeg|png|webp|gif|heic|heif)$/i.test(fileName);
     return false;
@@ -104,6 +109,7 @@ function isImageUrl(url: string, fileName?: string): boolean {
 function getPreviewUrl(url: string): string | null {
   if (!url) return null;
   if (url.startsWith('/api/files/')) return url;
+  if (url.startsWith('/api/r2/')) return url;
   const match = url.match(/drive\.google\.com\/file\/d\/([^/]+)\//);
   if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
   return null;
@@ -1126,15 +1132,16 @@ export default function AccountsDashboard() {
                               📋 Challan
                             </button>
                           )}
-                          {inv.workPhotos && (
-                            <button
-                              onClick={() => setFileViewer({ title: 'Work Photos', url: inv.workPhotos })}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition-colors font-medium"
-                            >
-                              📸 Work Photos
-                            </button>
-                          )}
                         </div>
+
+                        {/* Work Photos — R2 versioned viewer */}
+                        {inv.workPhotos && (
+                          <PhotoViewer
+                            invoiceId={inv.id}
+                            quickPhotoUrls={inv.workPhotos.split(',').filter(Boolean)}
+                            showVersionHistory={true}
+                          />
+                        )}
 
                         {/* Action buttons */}
                         <div className="flex flex-wrap gap-2">

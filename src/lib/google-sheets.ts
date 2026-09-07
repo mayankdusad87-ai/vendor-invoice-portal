@@ -603,6 +603,35 @@ export async function resubmitInvoice(
   return true;
 }
 
+/**
+ * Update only the workPhotos field (column J) for an invoice.
+ * Used by the photo upload API to store R2 proxy URLs after upload.
+ */
+export async function updateInvoicePhotos(
+  id: string,
+  workPhotosUrls: string
+): Promise<boolean> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Invoices!A2:A',
+  });
+
+  const rows = response.data.values || [];
+  const rowIndex = rows.findIndex((row) => row[0] === id);
+  if (rowIndex === -1) return false;
+
+  // Column J = workPhotos (index 9)
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Invoices!J${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[workPhotosUrls]] },
+  });
+
+  return true;
+}
+
 // ==================== ACCOUNTS TEAM ====================
 
 export interface AccountsMember {

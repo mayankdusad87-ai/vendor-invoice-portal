@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import TypeBadge from '@/components/ui/TypeBadge';
+import PhotoViewer from '@/components/ui/PhotoViewer';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useApproverAuth } from '@/hooks/useApproverAuth';
 import type { InvoiceStatus } from '@/lib/constants';
@@ -35,6 +36,10 @@ interface RejectionReason {
 
 function isImageUrl(url: string, fileName?: string): boolean {
   if (!url) return false;
+  // R2 proxy URLs — check extension from key path
+  if (url.startsWith('/api/r2/')) {
+    return /\.(jpg|jpeg|png|webp|heic|heif)$/i.test(url);
+  }
   if (url.startsWith('/api/files/')) {
     if (fileName) return /\.(jpg|jpeg|png|webp|gif|heic|heif)$/i.test(fileName);
     return false;
@@ -48,6 +53,7 @@ function isImageUrl(url: string, fileName?: string): boolean {
 function getPreviewUrl(url: string): string | null {
   if (!url) return null;
   if (url.startsWith('/api/files/')) return url;
+  if (url.startsWith('/api/r2/')) return url; // R2 proxy URLs work directly
   const match = url.match(/drive\.google\.com\/file\/d\/([^/]+)\//);
   if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
   return null;
@@ -631,20 +637,13 @@ export default function ApproverDashboard() {
                           </div>
                         )}
 
-                        {/* Work Photos */}
-                        {photoUrls.length > 0 && (
-                          <div className="mb-4">
-                            <p className="text-xs font-medium text-gray-500 mb-2">
-                              Work Photos ({photoUrls.length})
-                            </p>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                              {photoUrls.map((url, i) => (
-                                <img key={i} src={url} alt={`Work photo ${i + 1}`}
-                                  className="w-full h-32 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity border border-gray-200"
-                                  onClick={() => setLightboxUrl(url)} />
-                              ))}
-                            </div>
-                          </div>
+                        {/* Work Photos — with R2 version history */}
+                        {(photoUrls.length > 0 || invoice.workPhotos) && (
+                          <PhotoViewer
+                            invoiceId={invoice.id}
+                            quickPhotoUrls={photoUrls}
+                            showVersionHistory={true}
+                          />
                         )}
 
                         {/* Measurement Sheet */}

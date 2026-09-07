@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadFileToSharePoint } from '@/lib/microsoft-drive';
+// SharePoint code kept for future use — uncomment when Azure AD app is ready
+// import { uploadFileToSharePoint } from '@/lib/microsoft-drive';
+import { uploadToR2, isAllowedFileType, extFromMime, MAX_FILE_SIZE } from '@/lib/r2';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 import { requireAuth, isAuthError } from '@/lib/auth';
 
+/**
+ * POST /api/upload — upload general files (invoice docs, measurement sheets) to R2.
+ *
+ * Files are stored at: files/{timestamp}-{index}.{ext}
+ * Served via: /api/r2/files/{timestamp}-{index}.{ext}
+ *
+ * For work photos, use /api/photos/upload instead (versioned per invoice).
+ */
 export async function POST(request: NextRequest) {
   // ── 1. Authenticate user ──
   const session = requireAuth(request);
@@ -42,22 +52,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate all files
-    const allowedTypes = [
-      'application/pdf',
-      'image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif',
-    ];
-
     let totalSize = 0;
     for (const file of filesToUpload) {
-      if (!allowedTypes.includes(file.type)) {
+      if (!isAllowedFileType(file.type)) {
         return NextResponse.json(
-          { error: `File type not allowed. Only PDF, JPEG, PNG, WebP, and HEIC are supported.` },
+          { error: 'File type not allowed. Only PDF, JPEG, PNG, WebP, and HEIC are supported.' },
           { status: 400 }
         );
       }
-      if (file.size > 10 * 1024 * 1024) {
+      if (file.size > MAX_FILE_SIZE) {
         return NextResponse.json(
-          { error: `Each file must be under 10MB.` },
+          { error: 'Each file must be under 10MB.' },
           { status: 400 }
         );
       }
@@ -72,13 +77,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Upload all files to SharePoint
+    // Upload all files to R2
+    const timestamp = Date.now();
     const uploadResults = await Promise.all(
-      filesToUpload.map(async (file) => {
-        const result = await uploadFileToSharePoint(file);
+      filesToUpload.map(async (file, index) => {
+        const ext = extFromMime(file.type);
+        const r2Key = `files/${timestamp}-${index + 1}.${ext}`;
+
+        const arrayBuffer = await file.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        await uploadToR2(r2Key, buffer, file.type);
+
         return {
-          url: result.url,
-          fileName: result.fileName,
+          url: `/api/r2/${r2Key}`,
+          fileName: file.name,
         };
       })
     );
@@ -89,7 +101,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: unknown) {
     console.error('Upload error:', error);
-    // Surface the actual error so it's diagnosable
     const msg = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { error: `Upload failed: ${msg}` },

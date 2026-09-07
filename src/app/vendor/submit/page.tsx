@@ -115,6 +115,7 @@ function SubmitInvoice() {
     }
   };
 
+  /** Upload general files (invoice docs, measurement sheets) to R2 via /api/upload */
   const uploadFiles = async (files: File[]): Promise<{ url: string; fileName: string }[]> => {
     if (files.length === 0) return [];
 
@@ -132,10 +133,32 @@ function SubmitInvoice() {
     return data.files || [];
   };
 
+  /** Upload work photos to R2 with versioned storage via /api/photos/upload */
+  const uploadWorkPhotosToR2 = async (invoiceId: string, photos: File[]): Promise<void> => {
+    if (photos.length === 0) return;
+
+    const formData = new FormData();
+    formData.append('invoiceId', invoiceId);
+    photos.forEach((photo) => formData.append('photos', photo));
+
+    const res = await fetch('/api/photos/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Photo upload failed');
+  };
+
   const ALLOWED_FILE_TYPES = [
     'application/pdf', 'image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif',
   ];
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const ALLOWED_PHOTO_TYPES = [
+    'image/jpeg', 'image/png', 'image/jpg', 'image/heic', 'image/heif',
+  ];
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB for docs
+  const MAX_PHOTO_SIZE = 5 * 1024 * 1024;  // 5MB for photos
+  const MAX_PHOTOS = 5;
 
   const validateFile = (file: File): string | null => {
     if (!ALLOWED_FILE_TYPES.includes(file.type)) {
@@ -143,6 +166,16 @@ function SubmitInvoice() {
     }
     if (file.size > MAX_FILE_SIZE) {
       return `"${file.name}" is too large (max 10MB per file)`;
+    }
+    return null;
+  };
+
+  const validatePhoto = (file: File): string | null => {
+    if (!ALLOWED_PHOTO_TYPES.includes(file.type)) {
+      return `"${file.name}" — only JPG, PNG, HEIC photos allowed`;
+    }
+    if (file.size > MAX_PHOTO_SIZE) {
+      return `"${file.name}" is too large (max 5MB per photo)`;
     }
     return null;
   };
@@ -187,18 +220,23 @@ function SubmitInvoice() {
       return;
     }
 
-    // Work photos: require at least 1 (new or existing)
+    // Work photos: require at least 1 (new or existing), max 5
     const hasExistingPhotos = isResubmit && existingPhotoCount > 0;
     if (workPhotos.length === 0 && !hasExistingPhotos) {
       setError('At least one work photo is required as evidence');
       return;
     }
+    if (workPhotos.length > MAX_PHOTOS) {
+      setError(`Maximum ${MAX_PHOTOS} photos per upload`);
+      return;
+    }
 
-    // Validate file types before uploading
+    // Validate photo types and sizes (5MB each, JPG/PNG/HEIC only)
     for (const photo of workPhotos) {
-      const photoErr = validateFile(photo);
+      const photoErr = validatePhoto(photo);
       if (photoErr) { setError(photoErr); return; }
     }
+    // Validate other file types
     if (invoiceFile) {
       const invoiceErr = validateFile(invoiceFile);
       if (invoiceErr) { setError(invoiceErr); return; }
@@ -211,7 +249,7 @@ function SubmitInvoice() {
     setLoading(true);
 
     try {
-      // Upload invoice file (or keep existing)
+      // Upload invoice file to R2 (or keep existing)
       let invoiceFileUrl = existingFiles.invoiceFileUrl;
       let invoiceFileName = existingFiles.invoiceFileName;
       if (invoiceFile) {
@@ -223,18 +261,7 @@ function SubmitInvoice() {
         }
       }
 
-      // Upload work photos (or keep existing)
-      let workPhotosUrls = existingFiles.workPhotos;
-      if (workPhotos.length > 0) {
-        setUploadProgress(`Uploading ${workPhotos.length} work photo(s)...`);
-        const results = await uploadFiles(workPhotos);
-        const newUrls = results.map((r) => r.url).filter(Boolean).join(',');
-        workPhotosUrls = workPhotosUrls
-          ? `${workPhotosUrls},${newUrls}`
-          : newUrls;
-      }
-
-      // Upload measurement sheet (or keep existing)
+      // Upload measurement sheet to R2 (or keep existing)
       let measurementSheetUrl = existingFiles.measurementSheetUrl;
       let measurementSheetName = existingFiles.measurementSheetName;
       if (measurementSheet) {
@@ -247,7 +274,14 @@ function SubmitInvoice() {
       }
 
       if (isResubmit && resubmitId) {
-        // Resubmit: PATCH existing invoice
+        // ── Resubmit flow ──
+        // 1. Upload new work photos to R2 (versioned — e.g. v2, v3)
+        if (workPhotos.length > 0) {
+          setUploadProgress(`Uploading ${workPhotos.length} work photo(s)...`);
+          await uploadWorkPhotosToR2(resubmitId, workPhotos);
+        }
+
+        // 2. Resubmit the invoice form data (PATCH)
         setUploadProgress('Resubmitting invoice...');
         const res = await fetch('/api/invoices', {
           method: 'PATCH',
@@ -258,7 +292,7 @@ function SubmitInvoice() {
             ...form,
             invoiceFileUrl,
             invoiceFileName,
-            workPhotos: workPhotosUrls,
+            // workPhotos updated by uploadWorkPhotosToR2 — don't overwrite
             measurementSheetUrl,
             measurementSheetName,
           }),
@@ -272,7 +306,8 @@ function SubmitInvoice() {
           return;
         }
       } else {
-        // New submission: POST
+        // ── New submission flow ──
+        // 1. Create invoice first (without work photos) to get invoiceId
         setUploadProgress('Submitting invoice...');
         const res = await fetch('/api/invoices', {
           method: 'POST',
@@ -282,7 +317,7 @@ function SubmitInvoice() {
             ...form,
             invoiceFileUrl,
             invoiceFileName,
-            workPhotos: workPhotosUrls,
+            workPhotos: '', // photos uploaded separately after getting invoiceId
             measurementSheetUrl,
             measurementSheetName,
           }),
@@ -294,6 +329,12 @@ function SubmitInvoice() {
           setLoading(false);
           setUploadProgress('');
           return;
+        }
+
+        // 2. Upload work photos to R2 with the new invoiceId (versioned as v1)
+        if (workPhotos.length > 0 && data.invoice?.id) {
+          setUploadProgress(`Uploading ${workPhotos.length} work photo(s)...`);
+          await uploadWorkPhotosToR2(data.invoice.id, workPhotos);
         }
       }
 
@@ -312,13 +353,22 @@ function SubmitInvoice() {
   };
 
   const handleCameraCapture = () => {
+    if (workPhotos.length >= MAX_PHOTOS) {
+      setError(`Maximum ${MAX_PHOTOS} photos allowed`);
+      return;
+    }
     cameraInputRef.current?.click();
   };
 
   const handleCameraPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      setWorkPhotos((prev) => [...prev, ...Array.from(files)]);
+      const remaining = MAX_PHOTOS - workPhotos.length;
+      const toAdd = Array.from(files).slice(0, remaining);
+      setWorkPhotos((prev) => [...prev, ...toAdd]);
+      if (Array.from(files).length > remaining) {
+        setError(`Maximum ${MAX_PHOTOS} photos allowed. Only ${remaining} added.`);
+      }
     }
     if (cameraInputRef.current) cameraInputRef.current.value = '';
   };
@@ -580,11 +630,20 @@ function SubmitInvoice() {
                     Upload Photos
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/heic,image/heif"
                       multiple
                       onChange={(e) => {
                         if (e.target.files) {
-                          setWorkPhotos((prev) => [...prev, ...Array.from(e.target.files!)]);
+                          const remaining = MAX_PHOTOS - workPhotos.length;
+                          if (remaining <= 0) {
+                            setError(`Maximum ${MAX_PHOTOS} photos allowed`);
+                            return;
+                          }
+                          const toAdd = Array.from(e.target.files).slice(0, remaining);
+                          setWorkPhotos((prev) => [...prev, ...toAdd]);
+                          if (Array.from(e.target.files).length > remaining) {
+                            setError(`Maximum ${MAX_PHOTOS} photos. Only ${remaining} added.`);
+                          }
                         }
                       }}
                       className="hidden"
@@ -628,7 +687,12 @@ function SubmitInvoice() {
                   </div>
                 )}
                 {workPhotos.length === 0 && !isResubmit && (
-                  <p className="text-xs text-gray-400">Take or upload photos of the completed work</p>
+                  <p className="text-xs text-gray-400">Take or upload photos of the completed work (max {MAX_PHOTOS}, 5 MB each)</p>
+                )}
+                {workPhotos.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {workPhotos.length} of {MAX_PHOTOS} photo(s) selected
+                  </p>
                 )}
               </div>
 
