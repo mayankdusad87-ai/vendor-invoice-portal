@@ -667,7 +667,7 @@ export async function updateInvoiceStatus(
       values: [[
         status,                                       // S: Status
         approvedBy ?? currentRow[19] ?? '',            // T: Approved By
-        (isApprovalAction && approvedAmount !== undefined)
+        approvedAmount !== undefined
           ? approvedAmount
           : (currentRow[20] ?? ''),                   // U: Approved Amount
         approvalComments ?? currentRow[21] ?? '',      // V: Approval Comments

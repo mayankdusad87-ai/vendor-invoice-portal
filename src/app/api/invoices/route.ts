@@ -29,8 +29,11 @@ export async function GET(request: NextRequest) {
       const check = rateLimit(key, { maxRequests: 30, windowMs: 60_000 });
       if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);
 
+      // No vendor filter → return all invoices for the billing manager
       if (!vendorNameParam) {
-        return NextResponse.json({ invoices: [] });
+        const invoices = await getInvoices();
+        invoices.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+        return NextResponse.json({ invoices });
       }
 
       const sanitizedName = sanitizeString(vendorNameParam, 100);
