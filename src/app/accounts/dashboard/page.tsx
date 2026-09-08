@@ -682,6 +682,8 @@ export default function AccountsDashboard() {
     const paid = invoices.filter((i) => i.status === 'paid');
     const outstanding = [...approved, ...partiallyPaid];
     const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+    // Total disbursed across all invoices from bulk summaries
+    const totalDisbursed = Object.values(bulkSummaries).reduce((sum, s) => sum + s.totalPaid, 0);
     return {
       approvedCount: approved.length,
       approvedAmount: sumAmount(approved),
@@ -690,8 +692,9 @@ export default function AccountsDashboard() {
       paidCount: paid.length,
       paidAmount: sumAmount(paid),
       outstandingAmount: sumAmount(outstanding),
+      totalDisbursed,
     };
-  }, [invoices]);
+  }, [invoices, bulkSummaries]);
 
   // Payment submission
   const handleRecordPayment = useCallback(
@@ -912,18 +915,22 @@ export default function AccountsDashboard() {
             className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
               activeTab === 'paid' ? 'ring-2 ring-emerald-500 ring-offset-1' : ''
             }`}
-            aria-label={`Fully paid: ${stats.paidCount}`}
+            aria-label={`Total disbursed: ${formatCurrency(stats.totalDisbursed)}`}
           >
             <div className="flex items-start justify-between">
-              <p className="text-xs font-medium text-gray-500">Fully paid</p>
+              <p className="text-xs font-medium text-gray-500">Total Disbursed</p>
               <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
                 <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                 </svg>
               </div>
             </div>
-            <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.paidCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">worth {formatCurrency(stats.paidAmount)}</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">
+              {summariesLoading ? '…' : formatCurrency(stats.totalDisbursed)}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {stats.paidCount} invoice{stats.paidCount !== 1 ? 's' : ''} fully paid
+            </p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
           </button>
 

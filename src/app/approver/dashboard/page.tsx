@@ -129,6 +129,7 @@ export default function ApproverDashboard() {
 
   // Payment data cache (for partially_paid / paid invoices)
   const [paymentCache, setPaymentCache] = useState<Record<string, PaymentSummary>>({});
+  const [paymentLoadErrors, setPaymentLoadErrors] = useState<Record<string, boolean>>({});
 
   // Increase approved amount modal
   const [increaseAmountInvoice, setIncreaseAmountInvoice] = useState<Invoice | null>(null);
@@ -181,13 +182,19 @@ export default function ApproverDashboard() {
   // Fetch payment summary for an invoice
   const fetchPaymentSummary = useCallback(async (invoiceId: string): Promise<PaymentSummary | null> => {
     if (paymentCache[invoiceId]) return paymentCache[invoiceId];
+    // Clear previous error for this invoice
+    setPaymentLoadErrors((prev) => { const n = { ...prev }; delete n[invoiceId]; return n; });
     try {
       const res = await fetch(`/api/payments?invoiceId=${invoiceId}`);
-      if (!res.ok) return null;
+      if (!res.ok) {
+        setPaymentLoadErrors((prev) => ({ ...prev, [invoiceId]: true }));
+        return null;
+      }
       const data = await res.json();
       setPaymentCache((prev) => ({ ...prev, [invoiceId]: data }));
       return data;
     } catch {
+      setPaymentLoadErrors((prev) => ({ ...prev, [invoiceId]: true }));
       return null;
     }
   }, [paymentCache]);
@@ -917,6 +924,16 @@ export default function ApproverDashboard() {
                                   </div>
                                 )}
                               </>
+                            ) : paymentLoadErrors[invoice.id] ? (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-red-500">Failed to load payment data</span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); fetchPaymentSummary(invoice.id); }}
+                                  className="text-xs px-2.5 py-1 rounded-lg bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 font-medium transition-colors"
+                                >
+                                  Retry
+                                </button>
+                              </div>
                             ) : (
                               <div className="flex items-center gap-2 text-sm text-gray-400">
                                 <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-violet-500 rounded-full animate-spin" />
