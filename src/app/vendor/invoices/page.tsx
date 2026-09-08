@@ -4,9 +4,34 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import StatusBadge from '@/components/ui/StatusBadge';
 import TypeBadge from '@/components/ui/TypeBadge';
+import PhotoViewer from '@/components/ui/PhotoViewer';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useEngineerAuth } from '@/hooks/useEngineerAuth';
 import type { InvoiceStatus } from '@/lib/constants';
+
+function isImageUrl(url: string, fileName?: string): boolean {
+  if (!url) return false;
+  if (url.startsWith('/api/r2/')) {
+    return /\.(jpg|jpeg|png|webp|heic|heif)$/i.test(url);
+  }
+  if (url.startsWith('/api/files/')) {
+    if (fileName) return /\.(jpg|jpeg|png|webp|gif|heic|heif)$/i.test(fileName);
+    return false;
+  }
+  if (url.includes('lh3.googleusercontent.com/d/')) return true;
+  if (url.includes('drive.google.com/uc')) return true;
+  if (/\.(jpg|jpeg|png|webp|gif|heic)(\?|$)/i.test(url)) return true;
+  return false;
+}
+
+function getPreviewUrl(url: string): string | null {
+  if (!url) return null;
+  if (url.startsWith('/api/files/')) return url;
+  if (url.startsWith('/api/r2/')) return url;
+  const match = url.match(/drive\.google\.com\/file\/d\/([^/]+)\//);
+  if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
+  return null;
+}
 
 interface Invoice {
   id: string;
@@ -35,6 +60,8 @@ export default function VendorInvoices() {
   const [loading, setLoading] = useState(true);
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
   const [selectedVendor, setSelectedVendor] = useState('');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isReady) return;
@@ -141,89 +168,207 @@ export default function VendorInvoices() {
           <div className="space-y-3">
             <p className="text-sm text-gray-500 mb-2">{invoices.length} invoice(s) for <strong className="text-gray-900">{selectedVendor}</strong></p>
             {invoices.map((invoice) => {
-              const photoCount = invoice.workPhotos ? invoice.workPhotos.split(',').filter(Boolean).length : 0;
+              const photoUrls = invoice.workPhotos ? invoice.workPhotos.split(',').filter(Boolean) : [];
+              const photoCount = photoUrls.length;
+              const isExpanded = expandedId === invoice.id;
+              const invoiceIsImage = isImageUrl(invoice.invoiceFileUrl, invoice.invoiceFileName);
+              const invoicePreview = !invoiceIsImage ? getPreviewUrl(invoice.invoiceFileUrl) : null;
+              const measurementIsImage = isImageUrl(invoice.measurementSheetUrl, invoice.measurementSheetName);
+              const measurementPreview = !measurementIsImage ? getPreviewUrl(invoice.measurementSheetUrl) : null;
 
               return (
-                <div key={invoice.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                    <div>
-                      <span className="text-sm font-bold text-gray-900">{invoice.invoiceNumber}</span>
-                      <span className="text-xs text-gray-500 ml-2">
-                        {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}
-                      </span>
+                <div key={invoice.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  {/* Clickable summary row */}
+                  <div
+                    className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                    onClick={() => setExpandedId(isExpanded ? null : invoice.id)}
+                    role="button"
+                    aria-expanded={isExpanded}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setExpandedId(isExpanded ? null : invoice.id);
+                      }
+                    }}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                      <div>
+                        <span className="text-sm font-bold text-gray-900">{invoice.invoiceNumber}</span>
+                        <span className="text-xs text-gray-500 ml-2">
+                          {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
+                        <StatusBadge status={invoice.status} />
+                        <svg
+                          className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
-                      <StatusBadge status={invoice.status} />
+                    <p className="text-sm text-gray-600 mb-2">{invoice.purpose}</p>
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                      <span className="font-semibold text-gray-900 text-base">
+                        ₹{Number(invoice.amount).toLocaleString('en-IN')}
+                      </span>
+                      {photoCount > 0 && (
+                        <span className="inline-flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                          </svg>
+                          {photoCount} photo(s)
+                        </span>
+                      )}
+                      {invoice.measurementSheetUrl && (
+                        <span className="inline-flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          Measurement sheet
+                        </span>
+                      )}
+                      {invoice.invoiceFileUrl && (
+                        <span className="inline-flex items-center gap-1 text-blue-600">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+                          </svg>
+                          Invoice file
+                        </span>
+                      )}
                     </div>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-2">{invoice.purpose}</p>
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                    <span className="font-semibold text-gray-900 text-base">
-                      ₹{Number(invoice.amount).toLocaleString('en-IN')}
-                    </span>
-                    {photoCount > 0 && (
-                      <span className="inline-flex items-center gap-1">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                        </svg>
-                        {photoCount} photo(s)
-                      </span>
-                    )}
-                    {invoice.measurementSheetUrl && (
-                      <span className="inline-flex items-center gap-1">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Measurement sheet
-                      </span>
-                    )}
-                    {invoice.invoiceFileUrl && (
-                      <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
-                        </svg>
-                        Invoice file
-                      </a>
-                    )}
                   </div>
 
-                  {/* Approval info */}
-                  {invoice.approvedBy && (
-                    <div className="mt-3 pt-3 border-t border-gray-100">
-                      <p className="text-xs text-gray-500 flex items-center gap-1">
-                        {invoice.status === 'rejected' ? (
-                          <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        ) : (
-                          <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
+                  {/* ===== Expanded Detail Section ===== */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 pt-0">
+                      <div className="border-t border-gray-100 pt-4">
+
+                        {/* Remarks */}
+                        {invoice.remarks && (
+                          <div className="mb-4">
+                            <p className="text-xs font-medium text-gray-500 mb-1">Remarks</p>
+                            <p className="text-sm text-gray-700">{invoice.remarks}</p>
+                          </div>
                         )}
-                        {invoice.status === 'rejected' ? 'Rejected' : 'Approved'} by{' '}
-                        <strong>{invoice.approvedBy}</strong>
-                      </p>
-                      {invoice.approvalComments && (
-                        <p className="text-sm text-gray-600 mt-1 italic">
-                          &ldquo;{invoice.approvalComments}&rdquo;
-                        </p>
-                      )}
+
+                        {/* Invoice Document */}
+                        {invoice.invoiceFileUrl && (
+                          <div className="mb-4 rounded-lg p-4 bg-blue-50/50 border border-blue-100">
+                            <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                              </svg>
+                              Invoice — {invoice.invoiceFileName || 'Uploaded file'}
+                            </p>
+                            {invoiceIsImage && (
+                              <img src={invoice.invoiceFileUrl} alt={`Invoice ${invoice.invoiceNumber}`}
+                                className="w-full max-h-[500px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity bg-white border border-gray-200"
+                                onClick={() => setLightboxUrl(invoice.invoiceFileUrl)} />
+                            )}
+                            {invoicePreview && (
+                              <iframe src={invoicePreview} className="w-full rounded-lg border border-gray-200"
+                                style={{ height: '500px' }} title={`Invoice ${invoice.invoiceNumber} preview`} allow="autoplay" />
+                            )}
+                            {!invoiceIsImage && !invoicePreview && (
+                              <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors min-h-[44px]">
+                                Open Invoice in New Tab
+                              </a>
+                            )}
+                            {(invoiceIsImage || invoicePreview) && (
+                              <a href={invoice.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs mt-2 text-blue-600 hover:underline">
+                                Open in new tab ↗
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Work Photos */}
+                        {photoUrls.length > 0 && (
+                          <PhotoViewer
+                            invoiceId={invoice.id}
+                            quickPhotoUrls={photoUrls}
+                            showVersionHistory={true}
+                          />
+                        )}
+
+                        {/* Measurement Sheet */}
+                        {invoice.measurementSheetUrl && (
+                          <div className="mb-4">
+                            <p className="text-xs font-medium text-gray-500 mb-2">
+                              Measurement Sheet — {invoice.measurementSheetName || 'Uploaded file'}
+                            </p>
+                            {measurementIsImage && (
+                              <img src={invoice.measurementSheetUrl} alt="Measurement sheet"
+                                className="w-full max-h-[400px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity bg-white border border-gray-200"
+                                onClick={() => setLightboxUrl(invoice.measurementSheetUrl)} />
+                            )}
+                            {measurementPreview && (
+                              <iframe src={measurementPreview} className="w-full rounded-lg border border-gray-200"
+                                style={{ height: '400px' }} title="Measurement sheet preview" allow="autoplay" />
+                            )}
+                            {!measurementIsImage && !measurementPreview && (
+                              <a href={invoice.measurementSheetUrl} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline">
+                                {invoice.measurementSheetName || 'View Measurement Sheet'} ↗
+                              </a>
+                            )}
+                            {(measurementIsImage || measurementPreview) && (
+                              <a href={invoice.measurementSheetUrl} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs mt-2 text-blue-600 hover:underline">
+                                Open in new tab ↗
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Approval info */}
+                        {invoice.approvedBy && (
+                          <div className="mb-4 rounded-lg p-3 bg-gray-50 border border-gray-100">
+                            <p className="text-xs text-gray-500 flex items-center gap-1">
+                              {invoice.status === 'rejected' ? (
+                                <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                              {invoice.status === 'rejected' ? 'Rejected' : 'Approved'} by{' '}
+                              <strong>{invoice.approvedBy}</strong>
+                            </p>
+                            {invoice.approvalComments && (
+                              <p className="text-sm text-gray-600 mt-1 italic">
+                                &ldquo;{invoice.approvalComments}&rdquo;
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 
                   {/* Resubmit button for rejected invoices */}
                   {invoice.status === 'rejected' && (
-                    <div className="mt-3 pt-3 border-t border-gray-100">
-                      <Link
-                        href={`/vendor/submit?resubmit=${invoice.id}`}
-                        className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors min-h-[44px]"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        Resubmit with Corrections
-                      </Link>
+                    <div className="px-4 pb-4 pt-0 border-t border-gray-100 mt-0">
+                      <div className="pt-3">
+                        <Link
+                          href={`/vendor/submit?resubmit=${invoice.id}`}
+                          className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors min-h-[44px]"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Resubmit with Corrections
+                        </Link>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -232,6 +377,28 @@ export default function VendorInvoices() {
           </div>
         )}
       </main>
+
+      {/* ── Lightbox for full-size image ── */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.85)' }}
+          onClick={() => setLightboxUrl(null)}
+          role="dialog"
+          aria-label="Full size photo"
+        >
+          <button onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+            aria-label="Close lightbox">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <img src={lightboxUrl} alt="Full size"
+            className="max-w-full max-h-[90vh] object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }

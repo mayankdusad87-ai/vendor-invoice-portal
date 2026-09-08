@@ -53,8 +53,10 @@ interface PaymentSummary {
   totalPaid: number;
   invoiceAmount: number;
   approvedAmount: number;
-  remaining: number;
+  remaining: number;       // invoice remaining (invoiceAmount - totalPaid)
+  availableToPay: number;  // cap remaining (approvedAmount - totalPaid)
   isFullyPaid: boolean;
+  approvedCapReached?: boolean;
 }
 
 /* =====================================================================
@@ -139,7 +141,10 @@ function PaymentModal({
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
 
-  const remaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
+  // remaining = how much is left on the invoice (invoice - paid)
+  const invoiceRemaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
+  // availableToPay = how much accounts can pay now (approved cap - paid)
+  const availableToPay = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -185,9 +190,15 @@ function PaymentModal({
                 <span className="text-sm text-emerald-600">{formatCurrency(paymentSummary.totalPaid)}</span>
               </div>
               <div className="flex items-center justify-between mt-1 pt-1 border-t border-gray-100">
-                <span className="text-sm font-medium text-gray-600">Remaining</span>
-                <span className="font-bold text-violet-600">{formatCurrency(remaining)}</span>
+                <span className="text-sm font-medium text-gray-600">Invoice Remaining</span>
+                <span className="font-bold text-violet-600">{formatCurrency(invoiceRemaining)}</span>
               </div>
+              {availableToPay !== invoiceRemaining && (
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-sm text-amber-600">Available to Pay Now</span>
+                  <span className="font-bold text-amber-600">{formatCurrency(availableToPay)}</span>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -204,7 +215,7 @@ function PaymentModal({
                 type="number"
                 step="0.01"
                 min="0.01"
-                max={remaining}
+                max={availableToPay}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
@@ -212,7 +223,10 @@ function PaymentModal({
               />
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Remaining balance: {formatCurrency(remaining)}
+              Invoice remaining: {formatCurrency(invoiceRemaining)}
+              {availableToPay !== invoiceRemaining && (
+                <span className="text-amber-500"> · Available now: {formatCurrency(availableToPay)}</span>
+              )}
             </p>
           </div>
 
@@ -259,7 +273,7 @@ function PaymentModal({
           </button>
           <button
             onClick={() => onSubmit({ amount, utrReference, paymentDate, notes })}
-            disabled={isSubmitting || !amount || !utrReference || !paymentDate || parseFloat(amount) <= 0}
+            disabled={isSubmitting || !amount || !utrReference || !paymentDate || parseFloat(amount) <= 0 || parseFloat(amount) > availableToPay + 0.01}
             className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
           >
             {isSubmitting ? (
@@ -856,7 +870,7 @@ export default function AccountsDashboard() {
               </div>
             </div>
             <p className="text-2xl font-bold text-amber-600 mt-1">{stats.approvedCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(stats.approvedAmount)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">worth {formatCurrency(stats.approvedAmount)}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
           </button>
 
@@ -877,7 +891,7 @@ export default function AccountsDashboard() {
               </div>
             </div>
             <p className="text-2xl font-bold text-violet-600 mt-1">{stats.partiallyPaidCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(stats.partiallyPaidAmount)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">worth {formatCurrency(stats.partiallyPaidAmount)}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-violet-500" />
           </button>
 
@@ -898,7 +912,7 @@ export default function AccountsDashboard() {
               </div>
             </div>
             <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.paidCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(stats.paidAmount)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">worth {formatCurrency(stats.paidAmount)}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
           </button>
 
@@ -911,15 +925,15 @@ export default function AccountsDashboard() {
             aria-label={`Outstanding: ${formatCurrency(stats.outstandingAmount)}`}
           >
             <div className="flex items-start justify-between">
-              <p className="text-xs font-medium text-gray-500">Outstanding</p>
+              <p className="text-xs font-medium text-gray-500">Unpaid Invoices</p>
               <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center">
                 <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
                 </svg>
               </div>
             </div>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(stats.outstandingAmount)}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{invoices.length} total invoices</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{stats.approvedCount + stats.partiallyPaidCount}</p>
+            <p className="text-xs text-gray-400 mt-0.5">worth {formatCurrency(stats.outstandingAmount)}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500" />
           </button>
         </div>

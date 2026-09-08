@@ -526,7 +526,7 @@ export default function ApproverDashboard() {
               </div>
             </div>
             <p className="text-2xl font-bold text-amber-600 mt-1">{stats.pendingCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">₹{stats.pendingAmount.toLocaleString('en-IN')}</p>
+            <p className="text-xs text-gray-400 mt-0.5">worth ₹{stats.pendingAmount.toLocaleString('en-IN')}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
           </button>
 
@@ -547,7 +547,7 @@ export default function ApproverDashboard() {
               </div>
             </div>
             <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.approvedCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">₹{stats.approvedAmount.toLocaleString('en-IN')}</p>
+            <p className="text-xs text-gray-400 mt-0.5">worth ₹{stats.approvedAmount.toLocaleString('en-IN')}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
           </button>
 
@@ -568,7 +568,7 @@ export default function ApproverDashboard() {
               </div>
             </div>
             <p className="text-2xl font-bold text-violet-600 mt-1">{stats.inPaymentCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">₹{stats.inPaymentAmount.toLocaleString('en-IN')}</p>
+            <p className="text-xs text-gray-400 mt-0.5">worth ₹{stats.inPaymentAmount.toLocaleString('en-IN')}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-violet-500" />
           </button>
 
@@ -589,7 +589,7 @@ export default function ApproverDashboard() {
               </div>
             </div>
             <p className="text-2xl font-bold text-red-600 mt-1">{stats.rejectedCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">₹{stats.rejectedAmount.toLocaleString('en-IN')}</p>
+            <p className="text-xs text-gray-400 mt-0.5">worth ₹{stats.rejectedAmount.toLocaleString('en-IN')}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-red-500" />
           </button>
         </div>

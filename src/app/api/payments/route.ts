@@ -22,19 +22,22 @@ export async function GET(request: NextRequest) {
     const invoiceAmount = invoice ? parseFloat(invoice.amount) || 0 : 0;
     // Approved amount is the payment cap (how much accounts is authorized to pay right now)
     const approvedAmount = invoice?.approvedAmount ? parseFloat(invoice.approvedAmount) || invoiceAmount : invoiceAmount;
-    // Remaining = how much more accounts can pay under the current approval cap
-    const remainingApproved = Math.max(0, approvedAmount - totalPaid);
+    // Remaining on invoice = how much more needs to be paid to fully close the invoice
+    const remainingOnInvoice = Math.max(0, invoiceAmount - totalPaid);
+    // Available to pay now = how much more accounts can pay under the current approval cap
+    const availableToPay = Math.max(0, approvedAmount - totalPaid);
 
     return NextResponse.json({
       payments,
       totalPaid,
       invoiceAmount,
       approvedAmount,
-      remaining: remainingApproved,
+      remaining: remainingOnInvoice,
+      availableToPay,
       // Fully paid = total payments cover the INVOICE amount (not just approved amount)
       isFullyPaid: totalPaid >= invoiceAmount,
       // Whether approved cap is exhausted (accounts can't pay more without higher approval)
-      approvedCapReached: remainingApproved <= 0 && totalPaid < invoiceAmount,
+      approvedCapReached: availableToPay <= 0 && totalPaid < invoiceAmount,
     });
   } catch (error) {
     console.error('Failed to fetch payments:', error);
@@ -165,7 +168,8 @@ export async function POST(request: NextRequest) {
       payment,
       newStatus,
       totalPaid: newTotalPaid,
-      remaining: Math.max(0, approvedAmount - newTotalPaid),
+      remaining: Math.max(0, invoiceAmount - newTotalPaid),
+      availableToPay: Math.max(0, approvedAmount - newTotalPaid),
       invoiceAmount,
       approvedAmount,
     });
