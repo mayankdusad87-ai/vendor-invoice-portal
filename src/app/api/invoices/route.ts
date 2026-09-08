@@ -186,8 +186,66 @@ export async function PUT(request: NextRequest) {
     const status = sanitizeString(body.status, 20);
     const approvalComments = sanitizeString(body.approvalComments, 500);
 
-    if (!id || !status) {
-      return NextResponse.json({ error: 'Invoice ID and status are required' }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: 'Invoice ID is required' }, { status: 400 });
+    }
+
+    // Verify the invoice exists before any action
+    const invoice = await getInvoiceById(id);
+    if (!invoice) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    // Identity from session — never from client
+    const approvedBy = approverPayload?.approverName || (session.type === 'admin' ? 'Admin' : '');
+
+    // ── Special action: increase approved amount on a partially_paid invoice ──
+    if (body.action === 'increase_approved_amount') {
+      if (invoice.status !== 'partially_paid' && invoice.status !== 'paid') {
+        return NextResponse.json(
+          { error: 'Can only increase approved amount on partially paid or paid invoices' },
+          { status: 400 }
+        );
+      }
+      const rawAmount = body.approvedAmount;
+      if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
+        return NextResponse.json({ error: 'New approved amount is required' }, { status: 400 });
+      }
+      const newApproved = parseFloat(rawAmount);
+      if (isNaN(newApproved) || newApproved <= 0) {
+        return NextResponse.json({ error: 'Approved amount must be a positive number' }, { status: 400 });
+      }
+      const invoiceAmount = parseFloat(invoice.amount) || 0;
+      if (newApproved > invoiceAmount + 0.01) {
+        return NextResponse.json(
+          { error: `Approved amount cannot exceed invoice amount (₹${invoiceAmount.toLocaleString('en-IN')})` },
+          { status: 400 }
+        );
+      }
+      const currentApproved = parseFloat(invoice.approvedAmount) || 0;
+      if (newApproved <= currentApproved + 0.01) {
+        return NextResponse.json(
+          { error: `New amount must be higher than current approved amount (₹${currentApproved.toLocaleString('en-IN')})` },
+          { status: 400 }
+        );
+      }
+
+      // Keep status as partially_paid (accounts now has more room to pay)
+      const success = await updateInvoiceStatus(
+        id, 'partially_paid',
+        approvalComments || invoice.approvalComments,
+        approvedBy || invoice.approvedBy,
+        String(newApproved)
+      );
+      if (!success) {
+        return NextResponse.json({ error: 'Failed to update approved amount' }, { status: 500 });
+      }
+      return NextResponse.json({ success: true, approvedAmount: String(newApproved) });
+    }
+
+    // ── Standard status change flow ──
+    if (!status) {
+      return NextResponse.json({ error: 'Status is required' }, { status: 400 });
     }
 
     const validStatuses = ['submitted', 'under_review', 'approved', 'rejected'];
@@ -203,12 +261,6 @@ export async function PUT(request: NextRequest) {
             : 'Rejection reason is required' },
         { status: 400 }
       );
-    }
-
-    // Verify the invoice exists before updating
-    const invoice = await getInvoiceById(id);
-    if (!invoice) {
-      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
     }
 
     // Prevent re-approving or re-rejecting an invoice already in that status
@@ -236,9 +288,6 @@ export async function PUT(request: NextRequest) {
       }
       approvedAmount = String(parsedAmount);
     }
-
-    // Identity from session — never from client
-    const approvedBy = approverPayload?.approverName || (session.type === 'admin' ? 'Admin' : '');
 
     const success = await updateInvoiceStatus(id, status as typeof invoice.status, approvalComments, approvedBy, approvedAmount);
     if (!success) {

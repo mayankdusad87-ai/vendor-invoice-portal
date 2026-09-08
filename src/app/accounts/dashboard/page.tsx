@@ -283,24 +283,18 @@ function PaymentModal({
 
 function RejectModal({
   invoice,
+  rejectionReasons,
   onClose,
   onSubmit,
   isSubmitting,
 }: {
   invoice: Invoice;
+  rejectionReasons: { id: string; reason: string }[];
   onClose: () => void;
   onSubmit: (reason: string) => void;
   isSubmitting: boolean;
 }) {
   const [reason, setReason] = useState('');
-
-  const presetReasons = [
-    'GST amount mismatch',
-    'Wrong company name on invoice',
-    'Unclear purpose / work description',
-    'Missing supporting documents',
-    'Invoice number duplicate',
-  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -320,23 +314,25 @@ function RejectModal({
           This will reject <strong className="text-gray-900">#{invoice.invoiceNumber}</strong> from {invoice.vendorName} back to the approver for correction.
         </p>
 
-        {/* Preset reasons */}
-        <div className="flex flex-wrap gap-2 mb-3">
-          {presetReasons.map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setReason(r)}
-              className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${
-                reason === r
-                  ? 'bg-red-50 border-red-200 text-red-700'
-                  : 'bg-gray-50 border-gray-200 text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
+        {/* Rejection reasons from database */}
+        {rejectionReasons.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {rejectionReasons.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setReason(r.reason)}
+                className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${
+                  reason === r.reason
+                    ? 'bg-red-50 border-red-200 text-red-700'
+                    : 'bg-gray-50 border-gray-200 text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {r.reason}
+              </button>
+            ))}
+          </div>
+        )}
 
         <textarea
           value={reason}
@@ -418,11 +414,11 @@ function PaymentHistory({
               </p>
             </div>
           </div>
-          {/* Progress bar */}
+          {/* Progress bar — based on invoice amount (approved amount is just a payment cap) */}
           <div className="mt-3 h-2 rounded-full bg-gray-200 overflow-hidden">
             <div
               className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-              style={{ width: `${Math.min(100, (payments.totalPaid / (payments.approvedAmount || payments.invoiceAmount)) * 100)}%` }}
+              style={{ width: `${Math.min(100, (payments.totalPaid / payments.invoiceAmount) * 100)}%` }}
             />
           </div>
         </div>
@@ -548,6 +544,9 @@ export default function AccountsDashboard() {
   // Payment data cache
   const [paymentCache, setPaymentCache] = useState<Record<string, PaymentSummary>>({});
 
+  // Rejection reasons from database
+  const [rejectionReasons, setRejectionReasons] = useState<{ id: string; reason: string }[]>([]);
+
   // Toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -587,9 +586,22 @@ export default function AccountsDashboard() {
     }
   }, [paymentCache]);
 
+  const fetchRejectionReasons = useCallback(async () => {
+    try {
+      const res = await fetch('/api/rejection-reasons?active=true');
+      const data = await res.json();
+      if (res.ok) setRejectionReasons(data.reasons || []);
+    } catch {
+      console.error('Failed to fetch rejection reasons');
+    }
+  }, []);
+
   useEffect(() => {
-    if (isReady) fetchInvoices();
-  }, [isReady, fetchInvoices]);
+    if (isReady) {
+      fetchInvoices();
+      fetchRejectionReasons();
+    }
+  }, [isReady, fetchInvoices, fetchRejectionReasons]);
 
   // Filter & sort
   const filteredInvoices = useMemo(() => {
@@ -1117,7 +1129,7 @@ export default function AccountsDashboard() {
                             <div className="mt-2 h-1.5 rounded-full bg-gray-200 overflow-hidden">
                               <div
                                 className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all"
-                                style={{ width: `${Math.min(100, (cachedPayment.totalPaid / (cachedPayment.approvedAmount || cachedPayment.invoiceAmount)) * 100)}%` }}
+                                style={{ width: `${Math.min(100, (cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}%` }}
                               />
                             </div>
                           </div>
@@ -1238,6 +1250,7 @@ export default function AccountsDashboard() {
       {rejectInvoice && (
         <RejectModal
           invoice={rejectInvoice}
+          rejectionReasons={rejectionReasons}
           onClose={() => setRejectInvoice(null)}
           onSubmit={handleReject}
           isSubmitting={isSubmitting}

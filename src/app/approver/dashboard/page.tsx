@@ -27,6 +27,20 @@ interface Invoice {
   submittedAt: string;
   invoiceType: string;
   submittedBy: string;
+  approvedAmount?: string;
+  poNumber?: string;
+  challanUrl?: string;
+  challanName?: string;
+}
+
+interface PaymentSummary {
+  payments: { id: string; amount: string; utrReference: string; paymentDate: string; paidBy: string; notes: string; createdAt: string }[];
+  totalPaid: number;
+  invoiceAmount: number;
+  approvedAmount: number;
+  remaining: number;
+  isFullyPaid: boolean;
+  approvedCapReached?: boolean;
 }
 
 interface RejectionReason {
@@ -113,6 +127,15 @@ export default function ApproverDashboard() {
   const [actionError, setActionError] = useState<Record<string, string>>({});
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
+  // Payment data cache (for partially_paid / paid invoices)
+  const [paymentCache, setPaymentCache] = useState<Record<string, PaymentSummary>>({});
+
+  // Increase approved amount modal
+  const [increaseAmountInvoice, setIncreaseAmountInvoice] = useState<Invoice | null>(null);
+  const [newApprovedAmount, setNewApprovedAmount] = useState('');
+  const [increaseComment, setIncreaseComment] = useState('');
+  const [increaseLoading, setIncreaseLoading] = useState(false);
+
   // Confirmation dialog
   const [confirmDialog, setConfirmDialog] = useState<{
     invoiceId: string;
@@ -154,6 +177,60 @@ export default function ApproverDashboard() {
       console.error('Failed to fetch rejection reasons');
     }
   };
+
+  // Fetch payment summary for an invoice
+  const fetchPaymentSummary = useCallback(async (invoiceId: string): Promise<PaymentSummary | null> => {
+    if (paymentCache[invoiceId]) return paymentCache[invoiceId];
+    try {
+      const res = await fetch(`/api/payments?invoiceId=${invoiceId}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      setPaymentCache((prev) => ({ ...prev, [invoiceId]: data }));
+      return data;
+    } catch {
+      return null;
+    }
+  }, [paymentCache]);
+
+  // Handle increase approved amount
+  const handleIncreaseApprovedAmount = useCallback(async () => {
+    if (!increaseAmountInvoice) return;
+    const parsed = parseFloat(newApprovedAmount);
+    if (isNaN(parsed) || parsed <= 0) return;
+
+    setIncreaseLoading(true);
+    try {
+      const res = await fetch('/api/invoices', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: increaseAmountInvoice.id,
+          action: 'increase_approved_amount',
+          approvedAmount: newApprovedAmount,
+          approvalComments: increaseComment || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update');
+
+      setToast({ message: `Approved amount increased to ₹${parsed.toLocaleString('en-IN')}`, type: 'success' });
+      setIncreaseAmountInvoice(null);
+      setNewApprovedAmount('');
+      setIncreaseComment('');
+      // Clear payment cache for this invoice so it refetches
+      setPaymentCache((prev) => { const n = { ...prev }; delete n[increaseAmountInvoice.id]; return n; });
+      // Update local state
+      setInvoices((prev) =>
+        prev.map((i) =>
+          i.id === increaseAmountInvoice.id ? { ...i, approvedAmount: String(parsed) } : i
+        )
+      );
+    } catch (err) {
+      setToast({ message: err instanceof Error ? err.message : 'Failed to increase amount', type: 'error' });
+    } finally {
+      setIncreaseLoading(false);
+    }
+  }, [increaseAmountInvoice, newApprovedAmount, increaseComment]);
 
   const getComment = (id: string) => comments[id] || '';
   const getReason = (id: string) => selectedReasons[id] || '';
@@ -282,6 +359,7 @@ export default function ApproverDashboard() {
     const pending = invoices.filter((i) => i.status === 'submitted' || i.status === 'under_review');
     const approved = invoices.filter((i) => i.status === 'approved');
     const rejected = invoices.filter((i) => i.status === 'rejected');
+    const inPayment = invoices.filter((i) => i.status === 'partially_paid' || i.status === 'paid');
     const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
     return {
       total: invoices.length,
@@ -292,6 +370,8 @@ export default function ApproverDashboard() {
       approvedAmount: sumAmount(approved),
       rejectedCount: rejected.length,
       rejectedAmount: sumAmount(rejected),
+      inPaymentCount: inPayment.length,
+      inPaymentAmount: sumAmount(inPayment),
     };
   }, [invoices]);
 
@@ -301,6 +381,7 @@ export default function ApproverDashboard() {
       if (filter === 'pending') return inv.status === 'submitted' || inv.status === 'under_review';
       if (filter === 'approved') return inv.status === 'approved';
       if (filter === 'rejected') return inv.status === 'rejected';
+      if (filter === 'in_payment') return inv.status === 'partially_paid' || inv.status === 'paid';
       return true;
     });
 
@@ -323,7 +404,7 @@ export default function ApproverDashboard() {
   }, [invoices, filter, searchTerm, sortBy]);
 
   // Label for "Showing X invoices"
-  const filterLabel = filter === 'pending' ? 'pending' : filter === 'approved' ? 'approved' : filter === 'rejected' ? 'rejected' : 'all';
+  const filterLabel = filter === 'pending' ? 'pending' : filter === 'approved' ? 'approved' : filter === 'rejected' ? 'rejected' : filter === 'in_payment' ? 'in payment' : 'all';
 
   if (!isReady) return null;
 
@@ -406,7 +487,7 @@ export default function ApproverDashboard() {
 
       <main className="max-w-5xl mx-auto px-4 py-5 fade-in">
         {/* ── Stat Cards — white with colored bottom borders ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
           {/* Total */}
           <button
             onClick={() => setFilter('all')}
@@ -416,16 +497,16 @@ export default function ApproverDashboard() {
             aria-label={`Total invoices: ${stats.total}`}
           >
             <div className="flex items-start justify-between">
-              <p className="text-xs font-medium text-gray-500">Total invoices</p>
-              <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
-                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <p className="text-xs font-medium text-gray-500">Total</p>
+              <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                 </svg>
               </div>
             </div>
             <p className="text-2xl font-bold text-gray-900 mt-1">{stats.total}</p>
             <p className="text-xs text-gray-400 mt-0.5">₹{stats.totalAmount.toLocaleString('en-IN')}</p>
-            <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500" />
           </button>
 
           {/* Pending */}
@@ -437,7 +518,7 @@ export default function ApproverDashboard() {
             aria-label={`Pending review: ${stats.pendingCount}`}
           >
             <div className="flex items-start justify-between">
-              <p className="text-xs font-medium text-gray-500">Pending review</p>
+              <p className="text-xs font-medium text-gray-500">Pending</p>
               <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
                 <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
@@ -468,6 +549,27 @@ export default function ApproverDashboard() {
             <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.approvedCount}</p>
             <p className="text-xs text-gray-400 mt-0.5">₹{stats.approvedAmount.toLocaleString('en-IN')}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
+          </button>
+
+          {/* In Payment (partially_paid + paid) */}
+          <button
+            onClick={() => setFilter('in_payment')}
+            className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
+              filter === 'in_payment' ? 'ring-2 ring-violet-500 ring-offset-1' : ''
+            }`}
+            aria-label={`In payment: ${stats.inPaymentCount}`}
+          >
+            <div className="flex items-start justify-between">
+              <p className="text-xs font-medium text-gray-500">In Payment</p>
+              <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-violet-600 mt-1">{stats.inPaymentCount}</p>
+            <p className="text-xs text-gray-400 mt-0.5">₹{stats.inPaymentAmount.toLocaleString('en-IN')}</p>
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-violet-500" />
           </button>
 
           {/* Rejected */}
@@ -541,6 +643,8 @@ export default function ApproverDashboard() {
               const measurementIsImage = isImageUrl(invoice.measurementSheetUrl, invoice.measurementSheetName);
               const measurementPreview = !measurementIsImage ? getPreviewUrl(invoice.measurementSheetUrl) : null;
               const isPending = invoice.status === 'submitted' || invoice.status === 'under_review';
+              const isPaymentPhase = invoice.status === 'partially_paid' || invoice.status === 'paid';
+              const cachedPayment = paymentCache[invoice.id];
 
               return (
                 <div
@@ -551,11 +655,27 @@ export default function ApproverDashboard() {
                   {/* Invoice row */}
                   <div
                     className="flex items-center gap-3 p-4 cursor-pointer"
-                    onClick={() => setExpandedId(isExpanded ? null : invoice.id)}
+                    onClick={() => {
+                      const newExpanded = isExpanded ? null : invoice.id;
+                      setExpandedId(newExpanded);
+                      // Fetch payment data for payment-phase invoices when expanding
+                      if (newExpanded && isPaymentPhase && !paymentCache[invoice.id]) {
+                        fetchPaymentSummary(invoice.id);
+                      }
+                    }}
                     role="button"
                     aria-expanded={isExpanded}
                     tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedId(isExpanded ? null : invoice.id); } }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        const newExpanded = isExpanded ? null : invoice.id;
+                        setExpandedId(newExpanded);
+                        if (newExpanded && isPaymentPhase && !paymentCache[invoice.id]) {
+                          fetchPaymentSummary(invoice.id);
+                        }
+                      }
+                    }}
                   >
                     {/* Vendor avatar */}
                     <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
@@ -572,10 +692,15 @@ export default function ApproverDashboard() {
                         <StatusBadge status={invoice.status} />
                       </div>
                       <p className="text-sm text-gray-500 mt-0.5 truncate">{invoice.purpose}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-base font-bold text-gray-900">
                           ₹{Number(invoice.amount).toLocaleString('en-IN')}
                         </span>
+                        {invoice.approvedAmount && parseFloat(invoice.approvedAmount) !== parseFloat(invoice.amount) && (
+                          <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            Approved: ₹{Number(invoice.approvedAmount).toLocaleString('en-IN')}
+                          </span>
+                        )}
                         <span className="text-xs text-gray-400">
                           {new Date(invoice.submittedAt || invoice.invoiceDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                         </span>
@@ -711,9 +836,92 @@ export default function ApproverDashboard() {
                             <p className="text-xs text-gray-500">
                               {invoice.status === 'rejected' ? 'Rejected' : 'Approved'} by{' '}
                               <strong className="text-gray-700">{invoice.approvedBy}</strong>
+                              {invoice.approvedAmount && (
+                                <span className="ml-2">
+                                  · Approved ₹{Number(invoice.approvedAmount).toLocaleString('en-IN')}
+                                  {parseFloat(invoice.approvedAmount) !== parseFloat(invoice.amount) && (
+                                    <span className="text-gray-400"> of ₹{Number(invoice.amount).toLocaleString('en-IN')}</span>
+                                  )}
+                                </span>
+                              )}
                             </p>
                             {invoice.approvalComments && (
                               <p className="text-sm text-gray-600 mt-1 italic">&ldquo;{invoice.approvalComments}&rdquo;</p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Payment progress for partially_paid / paid invoices */}
+                        {isPaymentPhase && (
+                          <div className="mb-4 rounded-lg p-4 bg-violet-50/50 border border-violet-100">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold text-gray-900">Payment Progress</span>
+                              <StatusBadge status={invoice.status} />
+                            </div>
+                            {cachedPayment ? (
+                              <>
+                                <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+                                  <div>
+                                    <p className="text-gray-400">Invoice</p>
+                                    <p className="font-bold text-gray-900">₹{cachedPayment.invoiceAmount.toLocaleString('en-IN')}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400">Paid</p>
+                                    <p className="font-bold text-emerald-600">₹{cachedPayment.totalPaid.toLocaleString('en-IN')}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400">Remaining</p>
+                                    <p className={`font-bold ${cachedPayment.remaining === 0 ? 'text-emerald-600' : 'text-violet-600'}`}>
+                                      ₹{cachedPayment.remaining.toLocaleString('en-IN')}
+                                    </p>
+                                  </div>
+                                </div>
+                                {/* Progress bar based on invoice amount */}
+                                <div className="h-2 rounded-full bg-gray-200 overflow-hidden mb-2">
+                                  <div
+                                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                                    style={{ width: `${Math.min(100, (cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}%` }}
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between text-xs text-gray-400">
+                                  <span>{cachedPayment.payments.length} payment{cachedPayment.payments.length !== 1 ? 's' : ''}</span>
+                                  <span>{Math.round((cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}% of invoice</span>
+                                </div>
+                                {/* Show approved cap info */}
+                                {cachedPayment.approvedAmount < cachedPayment.invoiceAmount && (
+                                  <div className="mt-2 pt-2 border-t border-violet-100">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="text-gray-500">
+                                        Approved cap: ₹{cachedPayment.approvedAmount.toLocaleString('en-IN')}
+                                        <span className="text-gray-400"> of ₹{cachedPayment.invoiceAmount.toLocaleString('en-IN')}</span>
+                                      </span>
+                                      {cachedPayment.approvedCapReached && invoice.status === 'partially_paid' && (
+                                        <span className="text-amber-600 font-medium">Cap reached</span>
+                                      )}
+                                    </div>
+                                    {/* Increase Approved Amount button */}
+                                    {invoice.status === 'partially_paid' && (
+                                      <button
+                                        onClick={() => {
+                                          setIncreaseAmountInvoice(invoice);
+                                          setNewApprovedAmount(String(cachedPayment.invoiceAmount));
+                                        }}
+                                        className="mt-2 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors min-h-[44px]"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                        </svg>
+                                        Increase Approved Amount
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="flex items-center gap-2 text-sm text-gray-400">
+                                <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-violet-500 rounded-full animate-spin" />
+                                Loading payment data…
+                              </div>
                             )}
                           </div>
                         )}
@@ -880,6 +1088,98 @@ export default function ApproverDashboard() {
                   : 'bg-amber-500 hover:bg-amber-600'
                 }`}>
                 Yes, {confirmDialog.action === 'approved' ? 'Approve' : confirmDialog.action === 'rejected' ? 'Reject' : 'Mark Review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Increase Approved Amount Modal ── */}
+      {increaseAmountInvoice && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.4)' }}
+          onClick={() => setIncreaseAmountInvoice(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Increase Approved Amount"
+        >
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Increase Approved Amount</h3>
+              <button onClick={() => setIncreaseAmountInvoice(null)} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
+            </div>
+
+            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
+              <p className="text-sm font-medium text-gray-900">
+                #{increaseAmountInvoice.invoiceNumber} — {increaseAmountInvoice.vendorName}
+              </p>
+              <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                <div>
+                  <span className="text-gray-400">Invoice Amount</span>
+                  <p className="font-bold text-gray-900">₹{Number(increaseAmountInvoice.amount).toLocaleString('en-IN')}</p>
+                </div>
+                <div>
+                  <span className="text-gray-400">Current Approved</span>
+                  <p className="font-bold text-emerald-700">₹{Number(increaseAmountInvoice.approvedAmount || increaseAmountInvoice.amount).toLocaleString('en-IN')}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  New Approved Amount <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={parseFloat(increaseAmountInvoice.approvedAmount || '0') + 0.01}
+                    max={increaseAmountInvoice.amount}
+                    value={newApprovedAmount}
+                    onChange={(e) => setNewApprovedAmount(e.target.value)}
+                    className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 min-h-[44px]"
+                    aria-label="New approved amount"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Must be higher than ₹{Number(increaseAmountInvoice.approvedAmount || 0).toLocaleString('en-IN')} and up to ₹{Number(increaseAmountInvoice.amount).toLocaleString('en-IN')}
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Comments (optional)</label>
+                <textarea
+                  value={increaseComment}
+                  onChange={(e) => setIncreaseComment(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                  rows={2}
+                  placeholder="Reason for increasing approved amount…"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setIncreaseAmountInvoice(null)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors min-h-[44px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleIncreaseApprovedAmount}
+                disabled={increaseLoading || !newApprovedAmount || parseFloat(newApprovedAmount) <= parseFloat(increaseAmountInvoice.approvedAmount || '0')}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 text-white font-semibold text-sm hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+              >
+                {increaseLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Updating…
+                  </span>
+                ) : (
+                  'Update Amount'
+                )}
               </button>
             </div>
           </div>

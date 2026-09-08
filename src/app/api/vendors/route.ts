@@ -56,6 +56,11 @@ export async function POST(request: NextRequest) {
     const name = sanitizeString(body.name, 100);
     const phone = sanitizeString(body.phone, 20);
     const email = sanitizeString(body.email, 100);
+    const gstin = sanitizeString(body.gstin, 20);
+    const state = sanitizeString(body.state, 50);
+    const address = sanitizeString(body.address, 300);
+    const vendorType = sanitizeString(body.vendorType, 50);
+    const category = sanitizeString(body.category, 50);
 
     if (!name) {
       return NextResponse.json(
@@ -80,6 +85,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate GSTIN format if provided (15-char alphanumeric)
+    if (gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstin.toUpperCase())) {
+      return NextResponse.json(
+        { error: 'Invalid GSTIN format (expected 15-character GST number)' },
+        { status: 400 }
+      );
+    }
+
     // Check for duplicate vendor name
     const existingVendors = await getVendors();
     if (existingVendors.some((v) => v.name.toLowerCase() === name.toLowerCase() && v.status === 'active')) {
@@ -93,6 +106,11 @@ export async function POST(request: NextRequest) {
       name,
       phone,
       email,
+      gstin: gstin ? gstin.toUpperCase() : '',
+      state,
+      address,
+      vendorType,
+      category,
       status: 'active',
     });
 
@@ -142,6 +160,25 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
       }
       sanitizedUpdates.email = email;
+    }
+    if (body.gstin !== undefined) {
+      const gstin = sanitizeString(body.gstin, 20);
+      if (gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstin.toUpperCase())) {
+        return NextResponse.json({ error: 'Invalid GSTIN format' }, { status: 400 });
+      }
+      sanitizedUpdates.gstin = gstin ? gstin.toUpperCase() : '';
+    }
+    if (body.state !== undefined) {
+      sanitizedUpdates.state = sanitizeString(body.state, 50);
+    }
+    if (body.address !== undefined) {
+      sanitizedUpdates.address = sanitizeString(body.address, 300);
+    }
+    if (body.vendorType !== undefined) {
+      sanitizedUpdates.vendorType = sanitizeString(body.vendorType, 50);
+    }
+    if (body.category !== undefined) {
+      sanitizedUpdates.category = sanitizeString(body.category, 50);
     }
     if (body.status !== undefined) {
       const status = sanitizeString(body.status, 20);
