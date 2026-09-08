@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import TypeBadge from '@/components/ui/TypeBadge';
 import PhotoViewer from '@/components/ui/PhotoViewer';
@@ -53,10 +53,19 @@ interface PaymentSummary {
   totalPaid: number;
   invoiceAmount: number;
   approvedAmount: number;
-  remaining: number;       // invoice remaining (invoiceAmount - totalPaid)
-  availableToPay: number;  // cap remaining (approvedAmount - totalPaid)
+  remaining: number;
+  availableToPay: number;
   isFullyPaid: boolean;
   approvedCapReached?: boolean;
+}
+
+interface BulkSummary {
+  totalPaid: number;
+  remaining: number;
+  availableToPay: number;
+  isFullyPaid: boolean;
+  approvedCapReached: boolean;
+  paymentCount: number;
 }
 
 /* =====================================================================
@@ -98,7 +107,6 @@ function formatDate(dateStr: string): string {
 
 function isImageUrl(url: string, fileName?: string): boolean {
   if (!url) return false;
-  // R2 proxy URLs
   if (url.startsWith('/api/r2/')) {
     return /\.(jpg|jpeg|png|webp|heic|heif)$/i.test(url);
   }
@@ -120,7 +128,7 @@ function getPreviewUrl(url: string): string | null {
 }
 
 /* =====================================================================
-   PAYMENT MODAL (light theme)
+   PAYMENT MODAL
    ===================================================================== */
 
 function PaymentModal({
@@ -141,9 +149,7 @@ function PaymentModal({
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
 
-  // remaining = how much is left on the invoice (invoice - paid)
   const invoiceRemaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
-  // availableToPay = how much accounts can pay now (approved cap - paid)
   const availableToPay = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
 
   return (
@@ -292,7 +298,7 @@ function PaymentModal({
 }
 
 /* =====================================================================
-   REJECT MODAL (light theme)
+   REJECT MODAL
    ===================================================================== */
 
 function RejectModal({
@@ -328,7 +334,6 @@ function RejectModal({
           This will reject <strong className="text-gray-900">#{invoice.invoiceNumber}</strong> from {invoice.vendorName} back to the approver for correction.
         </p>
 
-        {/* Rejection reasons from database */}
         {rejectionReasons.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3">
             {rejectionReasons.map((r) => (
@@ -374,7 +379,7 @@ function RejectModal({
 }
 
 /* =====================================================================
-   PAYMENT HISTORY MODAL (light theme)
+   PAYMENT HISTORY MODAL
    ===================================================================== */
 
 function PaymentHistory({
@@ -428,7 +433,6 @@ function PaymentHistory({
               </p>
             </div>
           </div>
-          {/* Progress bar — based on invoice amount (approved amount is just a payment cap) */}
           <div className="mt-3 h-2 rounded-full bg-gray-200 overflow-hidden">
             <div
               className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
@@ -483,7 +487,7 @@ function PaymentHistory({
 }
 
 /* =====================================================================
-   FILE VIEWER MODAL (light theme)
+   FILE VIEWER MODAL
    ===================================================================== */
 
 function FileViewerModal({
@@ -530,7 +534,7 @@ function FileViewerModal({
 }
 
 /* =====================================================================
-   MAIN DASHBOARD (light theme — matching approver)
+   MAIN DASHBOARD — TABLE LAYOUT
    ===================================================================== */
 
 type FilterTab = 'all' | 'approved' | 'partially_paid' | 'paid' | 'rejected';
@@ -543,6 +547,13 @@ export default function AccountsDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Bulk payment summaries (loaded once for all invoices)
+  const [bulkSummaries, setBulkSummaries] = useState<Record<string, BulkSummary>>({});
+  const [summariesLoading, setSummariesLoading] = useState(true);
+
+  // Per-invoice detailed payment data (loaded on expand for modals)
+  const [paymentCache, setPaymentCache] = useState<Record<string, PaymentSummary>>({});
+
   // Filters & search
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -554,9 +565,6 @@ export default function AccountsDashboard() {
   const [historyInvoice, setHistoryInvoice] = useState<Invoice | null>(null);
   const [fileViewer, setFileViewer] = useState<{ title: string; url: string; fileName?: string } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  // Payment data cache
-  const [paymentCache, setPaymentCache] = useState<Record<string, PaymentSummary>>({});
 
   // Rejection reasons from database
   const [rejectionReasons, setRejectionReasons] = useState<{ id: string; reason: string }[]>([]);
@@ -586,7 +594,22 @@ export default function AccountsDashboard() {
     }
   }, []);
 
-  // Fetch payment summary for an invoice
+  // Fetch bulk payment summaries (one API call for all invoices)
+  const fetchBulkSummaries = useCallback(async () => {
+    setSummariesLoading(true);
+    try {
+      const res = await fetch('/api/payments/bulk-summary');
+      if (!res.ok) throw new Error('Failed to fetch');
+      const data = await res.json();
+      setBulkSummaries(data.summaries || {});
+    } catch {
+      console.error('Failed to load bulk payment summaries');
+    } finally {
+      setSummariesLoading(false);
+    }
+  }, []);
+
+  // Fetch per-invoice detailed payments (for modals)
   const fetchPaymentSummary = useCallback(async (invoiceId: string): Promise<PaymentSummary | null> => {
     if (paymentCache[invoiceId]) return paymentCache[invoiceId];
     try {
@@ -613,9 +636,10 @@ export default function AccountsDashboard() {
   useEffect(() => {
     if (isReady) {
       fetchInvoices();
+      fetchBulkSummaries();
       fetchRejectionReasons();
     }
-  }, [isReady, fetchInvoices, fetchRejectionReasons]);
+  }, [isReady, fetchInvoices, fetchBulkSummaries, fetchRejectionReasons]);
 
   // Filter & sort
   const filteredInvoices = useMemo(() => {
@@ -669,15 +693,6 @@ export default function AccountsDashboard() {
     };
   }, [invoices]);
 
-  // Tab counts
-  const tabCounts = useMemo(() => ({
-    all: invoices.length,
-    approved: invoices.filter((i) => i.status === 'approved').length,
-    partially_paid: invoices.filter((i) => i.status === 'partially_paid').length,
-    paid: invoices.filter((i) => i.status === 'paid').length,
-    rejected: invoices.filter((i) => i.status === 'rejected').length,
-  }), [invoices]);
-
   // Payment submission
   const handleRecordPayment = useCallback(
     async (data: { amount: string; utrReference: string; paymentDate: string; notes: string }) => {
@@ -711,13 +726,14 @@ export default function AccountsDashboard() {
           return next;
         });
         fetchInvoices();
+        fetchBulkSummaries();
       } catch (err) {
         setToast({ message: err instanceof Error ? err.message : 'Failed to record payment', type: 'error' });
       } finally {
         setIsSubmitting(false);
       }
     },
-    [paymentInvoice, fetchInvoices]
+    [paymentInvoice, fetchInvoices, fetchBulkSummaries]
   );
 
   // Rejection submission
@@ -790,14 +806,13 @@ export default function AccountsDashboard() {
 
       {/* ── Header ── */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-4 py-3">
+        <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-gray-900">Accounts Dashboard</h1>
               <p className="text-xs text-gray-500">Welcome back, {accountsName}</p>
             </div>
             <div className="flex items-center gap-3">
-              {/* Search (desktop) */}
               <div className="relative hidden sm:block">
                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -811,7 +826,6 @@ export default function AccountsDashboard() {
                   aria-label="Search invoices"
                 />
               </div>
-              {/* Logout */}
               <button
                 onClick={logout}
                 className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-500 hover:text-red-500 hover:border-red-200 transition-colors"
@@ -843,7 +857,7 @@ export default function AccountsDashboard() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-5 fade-in">
+      <main className="max-w-7xl mx-auto px-4 py-5 fade-in">
         {/* Error */}
         {error && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -851,9 +865,8 @@ export default function AccountsDashboard() {
           </div>
         )}
 
-        {/* ── Stat Cards — white with colored bottom borders ── */}
+        {/* ── Stat Cards ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-          {/* Pending Payment */}
           <button
             onClick={() => setActiveTab('approved')}
             className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
@@ -874,7 +887,6 @@ export default function AccountsDashboard() {
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
           </button>
 
-          {/* Partially Paid */}
           <button
             onClick={() => setActiveTab('partially_paid')}
             className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
@@ -895,7 +907,6 @@ export default function AccountsDashboard() {
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-violet-500" />
           </button>
 
-          {/* Fully Paid */}
           <button
             onClick={() => setActiveTab('paid')}
             className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
@@ -916,13 +927,12 @@ export default function AccountsDashboard() {
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
           </button>
 
-          {/* Outstanding */}
           <button
             onClick={() => setActiveTab('all')}
             className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
               activeTab === 'all' ? 'ring-2 ring-blue-500 ring-offset-1' : ''
             }`}
-            aria-label={`Outstanding: ${formatCurrency(stats.outstandingAmount)}`}
+            aria-label={`Unpaid invoices: ${stats.approvedCount + stats.partiallyPaidCount}`}
           >
             <div className="flex items-start justify-between">
               <p className="text-xs font-medium text-gray-500">Unpaid Invoices</p>
@@ -956,7 +966,7 @@ export default function AccountsDashboard() {
           </select>
         </div>
 
-        {/* ── Invoice List ── */}
+        {/* ── Invoice Table (desktop) / Cards (mobile) ── */}
         {loading ? (
           <LoadingSkeleton variant="card" count={4} />
         ) : filteredInvoices.length === 0 ? (
@@ -985,269 +995,479 @@ export default function AccountsDashboard() {
             )}
           </div>
         ) : (
-          <div className="space-y-2.5">
-            {filteredInvoices.map((inv) => {
-              const isExpanded = expandedId === inv.id;
-              const canPay = inv.status === 'approved' || inv.status === 'partially_paid';
-              const canReject = inv.status === 'approved' || inv.status === 'partially_paid';
-              const cachedPayment = paymentCache[inv.id];
-              const invoiceIsImage = isImageUrl(inv.invoiceFileUrl, inv.invoiceFileName);
-              const invoicePreview = !invoiceIsImage ? getPreviewUrl(inv.invoiceFileUrl) : null;
+          <>
+            {/* ===== Desktop Table ===== */}
+            <div className="hidden lg:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice #</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vendor</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice Amt</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Approved</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Paid</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Remaining</th>
+                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Docs</th>
+                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredInvoices.map((inv) => {
+                      const isExpanded = expandedId === inv.id;
+                      const canPay = inv.status === 'approved' || inv.status === 'partially_paid';
+                      const canReject = inv.status === 'approved' || inv.status === 'partially_paid';
+                      const bulk = bulkSummaries[inv.id];
+                      const invoiceAmt = parseFloat(inv.amount) || 0;
+                      const approvedAmt = inv.approvedAmount ? parseFloat(inv.approvedAmount) || invoiceAmt : invoiceAmt;
+                      const totalPaid = bulk?.totalPaid ?? 0;
+                      const remaining = bulk?.remaining ?? invoiceAmt;
+                      const invoiceIsImage = isImageUrl(inv.invoiceFileUrl, inv.invoiceFileName);
+                      const invoicePreview = !invoiceIsImage ? getPreviewUrl(inv.invoiceFileUrl) : null;
+                      const hasAttachments = !!(inv.invoiceFileUrl || inv.workPhotos || inv.measurementSheetUrl || inv.challanUrl);
+                      const cachedPayment = paymentCache[inv.id];
 
-              return (
-                <div
-                  key={inv.id}
-                  className={`group bg-white rounded-xl border border-gray-200 shadow-sm transition-all hover:shadow-md border-l-4 ${statusBorderColor(inv.status)}`}
-                >
-                  {/* Invoice row */}
-                  <div
-                    className="flex items-center gap-3 p-4 cursor-pointer"
-                    onClick={() => {
-                      setExpandedId(isExpanded ? null : inv.id);
-                      if (!isExpanded && !paymentCache[inv.id]) {
-                        fetchPaymentSummary(inv.id);
-                      }
-                    }}
-                    role="button"
-                    aria-expanded={isExpanded}
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedId(isExpanded ? null : inv.id); } }}
-                  >
-                    {/* Vendor avatar */}
-                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
-                      {getInitials(inv.vendorName)}
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-bold text-gray-900 text-sm">{inv.invoiceNumber}</span>
-                        <span className="text-gray-400 text-xs">·</span>
-                        <span className="text-sm text-gray-600">{inv.vendorName}</span>
-                        {inv.invoiceType && <TypeBadge type={inv.invoiceType} />}
-                        <StatusBadge status={inv.status} />
-                      </div>
-                      <p className="text-sm text-gray-500 mt-0.5 truncate">
-                        {inv.purpose}
-                        {inv.poNumber && <span className="text-gray-400"> · PO: {inv.poNumber}</span>}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className="text-base font-bold text-gray-900">
-                          {formatCurrency(inv.amount)}
-                        </span>
-                        {inv.approvedAmount && parseFloat(inv.approvedAmount) !== parseFloat(inv.amount) && (
-                          <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                            Approved: {formatCurrency(inv.approvedAmount)}
-                          </span>
-                        )}
-                        <span className="text-xs text-gray-400">
-                          {formatDate(inv.submittedAt || inv.invoiceDate)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Right side: quick actions on hover for payable invoices */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {canPay && !isExpanded && (
-                        <div className="hidden lg:flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openPaymentModal(inv); }}
-                            className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors border border-emerald-200"
-                            title="Record payment"
+                      return (
+                        <React.Fragment key={inv.id}>
+                          <tr
+                            className={`hover:bg-gray-50 cursor-pointer transition-colors border-l-4 ${statusBorderColor(inv.status)} ${isExpanded ? 'bg-blue-50/30' : ''}`}
+                            onClick={() => {
+                              setExpandedId(isExpanded ? null : inv.id);
+                              if (!isExpanded && !paymentCache[inv.id]) {
+                                fetchPaymentSummary(inv.id);
+                              }
+                            }}
                           >
-                            ₹ Pay
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setRejectInvoice(inv); }}
-                            className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 transition-colors border border-red-200"
-                            title="Reject invoice"
-                          >
-                            ✕ Reject
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Chevron */}
-                      <svg
-                        className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
-                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                        aria-hidden="true"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* ===== Expanded Details ===== */}
-                  {isExpanded && (
-                    <div className="px-4 pb-4 pt-0">
-                      <div className="border-t border-gray-100 pt-4">
-
-                        {/* Detail grid */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs mb-4">
-                          <div>
-                            <span className="text-gray-400">Invoice Date</span>
-                            <p className="text-gray-700 font-medium">{formatDate(inv.invoiceDate)}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-400">Submitted By</span>
-                            <p className="text-gray-700 font-medium">{inv.submittedBy || '—'}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-400">Approved By</span>
-                            <p className="text-gray-700 font-medium">{inv.approvedBy || '—'}</p>
-                          </div>
-                          {inv.approvedAmount && (
-                            <div>
-                              <span className="text-gray-400">Approved Amount</span>
-                              <p className={`font-medium ${parseFloat(inv.approvedAmount) !== parseFloat(inv.amount) ? 'text-emerald-700' : 'text-gray-700'}`}>
-                                {formatCurrency(inv.approvedAmount)}
-                                {parseFloat(inv.approvedAmount) !== parseFloat(inv.amount) && (
-                                  <span className="text-xs text-gray-400 ml-1">(Invoice: {formatCurrency(inv.amount)})</span>
+                            <td className="px-4 py-3">
+                              <span className="font-bold text-gray-900">{inv.invoiceNumber}</span>
+                              {inv.invoiceType && (
+                                <span className="ml-1.5"><TypeBadge type={inv.invoiceType} /></span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                                  {getInitials(inv.vendorName)}
+                                </div>
+                                <span className="text-gray-700 truncate max-w-[140px]">{inv.vendorName}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">{formatCurrency(invoiceAmt)}</td>
+                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                              <span className={approvedAmt !== invoiceAmt ? 'text-emerald-700 font-semibold' : 'text-gray-600'}>
+                                {formatCurrency(approvedAmt)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                              {summariesLoading ? (
+                                <span className="text-gray-300">…</span>
+                              ) : totalPaid > 0 ? (
+                                <span className="text-emerald-600 font-semibold">{formatCurrency(totalPaid)}</span>
+                              ) : (
+                                <span className="text-gray-300">₹0</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                              {summariesLoading ? (
+                                <span className="text-gray-300">…</span>
+                              ) : remaining > 0 ? (
+                                <span className="text-violet-600 font-semibold">{formatCurrency(remaining)}</span>
+                              ) : (
+                                <span className="text-emerald-500 font-medium">₹0</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <StatusBadge status={inv.status} />
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {hasAttachments ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (inv.invoiceFileUrl) {
+                                      setFileViewer({ title: `Invoice ${inv.invoiceNumber}`, url: inv.invoiceFileUrl, fileName: inv.invoiceFileName });
+                                    } else {
+                                      setExpandedId(inv.id);
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                  title="View attachments"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+                                  </svg>
+                                  View
+                                </button>
+                              ) : (
+                                <span className="text-gray-300 text-xs">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                {canPay && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openPaymentModal(inv); }}
+                                    className="px-2 py-1 rounded text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                                    title="Record payment"
+                                  >
+                                    ₹ Pay
+                                  </button>
                                 )}
-                              </p>
-                            </div>
+                                {canReject && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setRejectInvoice(inv); }}
+                                    className="px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-colors"
+                                    title="Reject"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                                {(inv.status === 'partially_paid' || inv.status === 'paid') && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openHistoryModal(inv); }}
+                                    className="px-2 py-1 rounded text-xs font-medium bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 transition-colors"
+                                    title="Payment history"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* Expanded detail row */}
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={10} className="p-0">
+                                <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100">
+                                  {/* Detail grid */}
+                                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs mb-4">
+                                    <div>
+                                      <span className="text-gray-400">Purpose</span>
+                                      <p className="text-gray-700 font-medium">{inv.purpose}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">Submitted By</span>
+                                      <p className="text-gray-700 font-medium">{inv.submittedBy || '—'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">Approved By</span>
+                                      <p className="text-gray-700 font-medium">{inv.approvedBy || '—'}</p>
+                                    </div>
+                                    {inv.poNumber && (
+                                      <div>
+                                        <span className="text-gray-400">PO Number</span>
+                                        <p className="text-gray-700 font-medium">{inv.poNumber}</p>
+                                      </div>
+                                    )}
+                                    {inv.remarks && (
+                                      <div className="col-span-2">
+                                        <span className="text-gray-400">Remarks</span>
+                                        <p className="text-gray-700">{inv.remarks}</p>
+                                      </div>
+                                    )}
+                                    {inv.approvalComments && (
+                                      <div className="col-span-2">
+                                        <span className="text-gray-400">Approval Comments</span>
+                                        <p className="text-gray-700 italic">&ldquo;{inv.approvalComments}&rdquo;</p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Payment progress */}
+                                  {cachedPayment && cachedPayment.totalPaid > 0 && (
+                                    <div className="mb-4 p-3 rounded-lg bg-emerald-50/50 border border-emerald-100">
+                                      <div className="flex items-center justify-between text-xs">
+                                        <span className="text-emerald-700 font-medium">
+                                          {cachedPayment.isFullyPaid ? '✓ Fully Paid' : `◑ ${formatCurrency(cachedPayment.totalPaid)} paid`}
+                                        </span>
+                                        <span className="text-gray-500">
+                                          {cachedPayment.payments.length} payment{cachedPayment.payments.length !== 1 ? 's' : ''}
+                                          {!cachedPayment.isFullyPaid && ` · ${formatCurrency(cachedPayment.remaining)} remaining`}
+                                        </span>
+                                      </div>
+                                      <div className="mt-2 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                                        <div
+                                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all"
+                                          style={{ width: `${Math.min(100, (cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Invoice document */}
+                                  {inv.invoiceFileUrl && (
+                                    <div className="mb-4 rounded-lg p-4 bg-blue-50/50 border border-blue-100">
+                                      <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                        </svg>
+                                        Invoice — {inv.invoiceFileName || 'Uploaded file'}
+                                      </p>
+                                      {invoiceIsImage && (
+                                        <img src={inv.invoiceFileUrl} alt={`Invoice ${inv.invoiceNumber}`}
+                                          className="w-full max-h-[500px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity bg-white border border-gray-200"
+                                          onClick={() => setFileViewer({ title: 'Invoice Document', url: inv.invoiceFileUrl, fileName: inv.invoiceFileName })} />
+                                      )}
+                                      {invoicePreview && (
+                                        <iframe src={invoicePreview} className="w-full rounded-lg border border-gray-200"
+                                          style={{ height: '500px' }} title={`Invoice ${inv.invoiceNumber} preview`} allow="autoplay" />
+                                      )}
+                                      {!invoiceIsImage && !invoicePreview && inv.invoiceFileUrl && (
+                                        <a href={inv.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors min-h-[44px]">
+                                          Open Invoice in New Tab
+                                        </a>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* File links */}
+                                  <div className="flex flex-wrap gap-2 mb-4">
+                                    {inv.measurementSheetUrl && (
+                                      <button
+                                        onClick={() => setFileViewer({ title: 'Measurement Sheet', url: inv.measurementSheetUrl, fileName: inv.measurementSheetName })}
+                                        className="text-xs px-3 py-1.5 rounded-lg bg-cyan-50 text-cyan-700 hover:bg-cyan-100 border border-cyan-200 transition-colors font-medium"
+                                      >
+                                        📏 Measurement Sheet
+                                      </button>
+                                    )}
+                                    {inv.challanUrl && (
+                                      <button
+                                        onClick={() => setFileViewer({ title: 'Challan', url: inv.challanUrl!, fileName: inv.challanName })}
+                                        className="text-xs px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 transition-colors font-medium"
+                                      >
+                                        📋 Challan
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* Work Photos */}
+                                  {inv.workPhotos && (
+                                    <PhotoViewer
+                                      invoiceId={inv.id}
+                                      quickPhotoUrls={inv.workPhotos.split(',').filter(Boolean)}
+                                      showVersionHistory={true}
+                                    />
+                                  )}
+
+                                  {/* Action buttons */}
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    {canPay && (
+                                      <button
+                                        onClick={() => openPaymentModal(inv)}
+                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors min-h-[44px]"
+                                      >
+                                        Record Payment
+                                      </button>
+                                    )}
+                                    {canReject && (
+                                      <button
+                                        onClick={() => setRejectInvoice(inv)}
+                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors min-h-[44px]"
+                                      >
+                                        Reject
+                                      </button>
+                                    )}
+                                    {(inv.status === 'partially_paid' || inv.status === 'paid') && (
+                                      <button
+                                        onClick={() => openHistoryModal(inv)}
+                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors min-h-[44px]"
+                                      >
+                                        Payment History
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                          {inv.poNumber && (
-                            <div>
-                              <span className="text-gray-400">PO Number</span>
-                              <p className="text-gray-700 font-medium">{inv.poNumber}</p>
-                            </div>
-                          )}
-                          {inv.remarks && (
-                            <div className="col-span-2 sm:col-span-3">
-                              <span className="text-gray-400">Remarks</span>
-                              <p className="text-gray-700">{inv.remarks}</p>
-                            </div>
-                          )}
-                          {inv.approvalComments && (
-                            <div className="col-span-2 sm:col-span-3">
-                              <span className="text-gray-400">Approval Comments</span>
-                              <p className="text-gray-700">{inv.approvalComments}</p>
-                            </div>
-                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* ===== Mobile Cards ===== */}
+            <div className="lg:hidden space-y-2.5">
+              {filteredInvoices.map((inv) => {
+                const isExpanded = expandedId === inv.id;
+                const canPay = inv.status === 'approved' || inv.status === 'partially_paid';
+                const bulk = bulkSummaries[inv.id];
+                const invoiceAmt = parseFloat(inv.amount) || 0;
+                const approvedAmt = inv.approvedAmount ? parseFloat(inv.approvedAmount) || invoiceAmt : invoiceAmt;
+                const totalPaid = bulk?.totalPaid ?? 0;
+                const remaining = bulk?.remaining ?? invoiceAmt;
+                const cachedPayment = paymentCache[inv.id];
+                const invoiceIsImage = isImageUrl(inv.invoiceFileUrl, inv.invoiceFileName);
+                const invoicePreview = !invoiceIsImage ? getPreviewUrl(inv.invoiceFileUrl) : null;
+
+                return (
+                  <div
+                    key={inv.id}
+                    className={`bg-white rounded-xl border border-gray-200 shadow-sm transition-all border-l-4 ${statusBorderColor(inv.status)}`}
+                  >
+                    <div
+                      className="p-4 cursor-pointer"
+                      onClick={() => {
+                        setExpandedId(isExpanded ? null : inv.id);
+                        if (!isExpanded && !paymentCache[inv.id]) {
+                          fetchPaymentSummary(inv.id);
+                        }
+                      }}
+                      role="button"
+                      aria-expanded={isExpanded}
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedId(isExpanded ? null : inv.id); } }}
+                    >
+                      {/* Header row */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-gray-900 text-sm">{inv.invoiceNumber}</span>
+                          <span className="text-gray-400 text-xs">·</span>
+                          <span className="text-sm text-gray-600">{inv.vendorName}</span>
                         </div>
-
-                        {/* Payment progress (if any payments exist) */}
-                        {cachedPayment && cachedPayment.totalPaid > 0 && (
-                          <div className="mb-4 p-3 rounded-lg bg-emerald-50/50 border border-emerald-100">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-emerald-700 font-medium">
-                                {cachedPayment.isFullyPaid ? '✓ Fully Paid' : `◑ ${formatCurrency(cachedPayment.totalPaid)} paid`}
-                              </span>
-                              <span className="text-gray-500">
-                                {cachedPayment.payments.length} payment{cachedPayment.payments.length !== 1 ? 's' : ''}
-                                {!cachedPayment.isFullyPaid && ` · ${formatCurrency(cachedPayment.remaining)} remaining`}
-                              </span>
-                            </div>
-                            <div className="mt-2 h-1.5 rounded-full bg-gray-200 overflow-hidden">
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all"
-                                style={{ width: `${Math.min(100, (cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}%` }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Invoice document */}
-                        {inv.invoiceFileUrl && (
-                          <div className="mb-4 rounded-lg p-4 bg-blue-50/50 border border-blue-100">
-                            <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                              </svg>
-                              Invoice — {inv.invoiceFileName || 'Uploaded file'}
-                            </p>
-                            {invoiceIsImage && (
-                              <img src={inv.invoiceFileUrl} alt={`Invoice ${inv.invoiceNumber}`}
-                                className="w-full max-h-[500px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity bg-white border border-gray-200"
-                                onClick={() => setFileViewer({ title: 'Invoice Document', url: inv.invoiceFileUrl, fileName: inv.invoiceFileName })} />
-                            )}
-                            {invoicePreview && (
-                              <iframe src={invoicePreview} className="w-full rounded-lg border border-gray-200"
-                                style={{ height: '500px' }} title={`Invoice ${inv.invoiceNumber} preview`} allow="autoplay" />
-                            )}
-                            {!invoiceIsImage && !invoicePreview && inv.invoiceFileUrl && (
-                              <a href={inv.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors min-h-[44px]">
-                                Open Invoice in New Tab
-                              </a>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Other file links */}
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          {inv.measurementSheetUrl && (
-                            <button
-                              onClick={() => setFileViewer({ title: 'Measurement Sheet', url: inv.measurementSheetUrl, fileName: inv.measurementSheetName })}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-cyan-50 text-cyan-700 hover:bg-cyan-100 border border-cyan-200 transition-colors font-medium"
-                            >
-                              📏 Measurement Sheet
-                            </button>
-                          )}
-                          {inv.challanUrl && (
-                            <button
-                              onClick={() => setFileViewer({ title: 'Challan', url: inv.challanUrl!, fileName: inv.challanName })}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 transition-colors font-medium"
-                            >
-                              📋 Challan
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Work Photos — R2 versioned viewer */}
-                        {inv.workPhotos && (
-                          <PhotoViewer
-                            invoiceId={inv.id}
-                            quickPhotoUrls={inv.workPhotos.split(',').filter(Boolean)}
-                            showVersionHistory={true}
-                          />
-                        )}
-
-                        {/* Action buttons */}
-                        <div className="flex flex-wrap gap-2">
-                          {canPay && (
-                            <button
-                              onClick={() => openPaymentModal(inv)}
-                              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors min-h-[44px]"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
-                              </svg>
-                              Record Payment
-                            </button>
-                          )}
-                          {canReject && (
-                            <button
-                              onClick={() => setRejectInvoice(inv)}
-                              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors min-h-[44px]"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                              Reject
-                            </button>
-                          )}
-                          {(inv.status === 'partially_paid' || inv.status === 'paid') && (
-                            <button
-                              onClick={() => openHistoryModal(inv)}
-                              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors min-h-[44px]"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                              </svg>
-                              Payment History
-                            </button>
-                          )}
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={inv.status} />
+                          <svg
+                            className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
                         </div>
                       </div>
+
+                      {/* Key amounts — always visible */}
+                      <div className="grid grid-cols-4 gap-2 text-xs">
+                        <div>
+                          <span className="text-gray-400">Invoice</span>
+                          <p className="font-bold text-gray-900">{formatCurrency(invoiceAmt)}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Approved</span>
+                          <p className={`font-bold ${approvedAmt !== invoiceAmt ? 'text-emerald-700' : 'text-gray-700'}`}>
+                            {formatCurrency(approvedAmt)}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Paid</span>
+                          <p className={`font-bold ${totalPaid > 0 ? 'text-emerald-600' : 'text-gray-300'}`}>
+                            {summariesLoading ? '…' : formatCurrency(totalPaid)}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Remaining</span>
+                          <p className={`font-bold ${remaining > 0 ? 'text-violet-600' : 'text-emerald-500'}`}>
+                            {summariesLoading ? '…' : formatCurrency(remaining)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-gray-400 mt-2">{formatDate(inv.invoiceDate)} · {inv.purpose}</p>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+
+                    {/* Expanded detail */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 pt-0">
+                        <div className="border-t border-gray-100 pt-4">
+                          {/* Payment progress */}
+                          {cachedPayment && cachedPayment.totalPaid > 0 && (
+                            <div className="mb-4 p-3 rounded-lg bg-emerald-50/50 border border-emerald-100">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-emerald-700 font-medium">
+                                  {cachedPayment.isFullyPaid ? '✓ Fully Paid' : `◑ ${formatCurrency(cachedPayment.totalPaid)} paid`}
+                                </span>
+                                <span className="text-gray-500">
+                                  {cachedPayment.payments.length} payment{cachedPayment.payments.length !== 1 ? 's' : ''}
+                                </span>
+                              </div>
+                              <div className="mt-2 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400"
+                                  style={{ width: `${Math.min(100, (cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Invoice document */}
+                          {inv.invoiceFileUrl && (
+                            <div className="mb-4 rounded-lg p-4 bg-blue-50/50 border border-blue-100">
+                              <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                </svg>
+                                Invoice — {inv.invoiceFileName || 'Uploaded file'}
+                              </p>
+                              {invoiceIsImage && (
+                                <img src={inv.invoiceFileUrl} alt={`Invoice ${inv.invoiceNumber}`}
+                                  className="w-full max-h-[400px] object-contain rounded-lg bg-white border border-gray-200" />
+                              )}
+                              {invoicePreview && (
+                                <iframe src={invoicePreview} className="w-full rounded-lg border border-gray-200"
+                                  style={{ height: '400px' }} title={`Invoice ${inv.invoiceNumber} preview`} allow="autoplay" />
+                              )}
+                              {!invoiceIsImage && !invoicePreview && inv.invoiceFileUrl && (
+                                <a href={inv.invoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors min-h-[44px]">
+                                  Open Invoice
+                                </a>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Work Photos */}
+                          {inv.workPhotos && (
+                            <PhotoViewer
+                              invoiceId={inv.id}
+                              quickPhotoUrls={inv.workPhotos.split(',').filter(Boolean)}
+                              showVersionHistory={true}
+                            />
+                          )}
+
+                          {/* Action buttons */}
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {canPay && (
+                              <button
+                                onClick={() => openPaymentModal(inv)}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors min-h-[44px]"
+                              >
+                                Record Payment
+                              </button>
+                            )}
+                            {(inv.status === 'approved' || inv.status === 'partially_paid') && (
+                              <button
+                                onClick={() => setRejectInvoice(inv)}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors min-h-[44px]"
+                              >
+                                Reject
+                              </button>
+                            )}
+                            {(inv.status === 'partially_paid' || inv.status === 'paid') && (
+                              <button
+                                onClick={() => openHistoryModal(inv)}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors min-h-[44px]"
+                              >
+                                Payment History
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </main>
 
