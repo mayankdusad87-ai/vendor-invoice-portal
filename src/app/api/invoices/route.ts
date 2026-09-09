@@ -111,7 +111,9 @@ export async function POST(request: NextRequest) {
     const poNumber = sanitizeString(body.poNumber, 50);
     const challanUrl = sanitizeString(body.challanUrl, 2000);
     const challanName = sanitizeString(body.challanName, 200);
-    const gstAmount = sanitizeString(body.gstAmount, 20);
+    // GST: sanitize as amount (reject non-numeric/negative), but allow empty (optional field)
+    const rawGst = body.gstAmount;
+    const gstAmount = rawGst ? sanitizeAmount(rawGst) : '';
 
     // Derive submittedBy from authenticated session — never from client
     const submittedBy = session.type === 'engineer'

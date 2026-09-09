@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAccounts, isAuthError } from '@/lib/auth';
 import { getInvoiceById, updateInvoiceStatus } from '@/lib/google-sheets';
-import { sanitizeString } from '@/lib/security';
+import { sanitizeString, rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 /**
  * POST /api/invoices/accounts-reject — accounts team rejects an invoice back to approver
@@ -13,6 +13,11 @@ import { sanitizeString } from '@/lib/security';
 export async function POST(request: NextRequest) {
   const session = requireAccounts(request);
   if (isAuthError(session)) return session;
+
+  // Rate limit: 5 rejections per minute per IP
+  const rlKey = getRateLimitKey(request, 'accounts-reject');
+  const rlCheck = rateLimit(rlKey, { maxRequests: 5, windowMs: 60_000 });
+  if (!rlCheck.allowed) return rateLimitResponse(rlCheck.retryAfterMs!);
 
   try {
     const body = await request.json();

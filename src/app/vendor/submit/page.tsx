@@ -59,6 +59,7 @@ function SubmitInvoice() {
   });
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!authReady) return;
@@ -182,13 +183,20 @@ function SubmitInvoice() {
     return null;
   };
 
+  /** Set error message and scroll it into view */
+  const showError = (msg: string) => {
+    setError(msg);
+    // Scroll after React re-renders the error banner
+    setTimeout(() => errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     // ── Validate all fields ──
     if (!selectedVendor) {
-      setError('Please select a vendor name');
+      showError('Please select a vendor name');
       return;
     }
 
@@ -196,56 +204,101 @@ function SubmitInvoice() {
     const trimmedPurpose = form.purpose.trim();
 
     if (!form.invoiceDate) {
-      setError('Invoice date is required');
+      showError('Invoice date is required');
       return;
     }
+
+    // Validate date range — not before 2020, not more than 30 days in future
+    const invoiceDateObj = new Date(form.invoiceDate);
+    const today = new Date();
+    const minDate = new Date('2020-01-01');
+    const maxDate = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    if (isNaN(invoiceDateObj.getTime())) {
+      showError('Invalid invoice date');
+      return;
+    }
+    if (invoiceDateObj < minDate) {
+      showError('Invoice date cannot be before 01/01/2020');
+      return;
+    }
+    if (invoiceDateObj > maxDate) {
+      showError('Invoice date cannot be more than 30 days in the future');
+      return;
+    }
+
     if (!trimmedNumber || trimmedNumber.length < 2) {
-      setError('Invoice number must be at least 2 characters');
+      showError('Invoice number must be at least 2 characters');
       return;
     }
     if (!form.invoiceType) {
-      setError('Please select an invoice type');
+      showError('Please select an invoice type');
       return;
     }
     if (!trimmedPurpose || trimmedPurpose.length < 5) {
-      setError('Purpose/description must be at least 5 characters');
+      showError('Purpose/description must be at least 5 characters');
       return;
     }
 
     const numAmount = parseFloat(form.amount);
     if (!form.amount || isNaN(numAmount) || numAmount <= 0) {
-      setError('Amount must be greater than ₹0');
+      showError('Amount must be greater than ₹0');
       return;
     }
     if (numAmount > 999999999) {
-      setError('Amount seems too large. Please verify.');
+      showError('Amount seems too large (max ₹99,99,99,999). Please verify.');
       return;
+    }
+    // Block scientific notation like 1e5
+    if (/[eE]/.test(form.amount)) {
+      showError('Please enter a plain number for the amount (no scientific notation)');
+      return;
+    }
+
+    // GST validation — optional but must be valid if entered
+    if (form.gstAmount) {
+      const numGst = parseFloat(form.gstAmount);
+      if (isNaN(numGst) || numGst < 0) {
+        showError('GST amount cannot be negative');
+        return;
+      }
+      if (numGst > numAmount) {
+        showError('GST amount cannot exceed the invoice amount');
+        return;
+      }
+      if (numGst > 999999999) {
+        showError('GST amount seems too large. Please verify.');
+        return;
+      }
+      if (/[eE]/.test(form.gstAmount)) {
+        showError('Please enter a plain number for GST (no scientific notation)');
+        return;
+      }
     }
 
     // Work photos: require at least 1 (new or existing), max 5
     const hasExistingPhotos = isResubmit && existingPhotoCount > 0;
     if (workPhotos.length === 0 && !hasExistingPhotos) {
-      setError('At least one work photo is required as evidence');
+      showError('At least one work photo is required as evidence');
       return;
     }
     if (workPhotos.length > MAX_PHOTOS) {
-      setError(`Maximum ${MAX_PHOTOS} photos per upload`);
+      showError(`Maximum ${MAX_PHOTOS} photos per upload`);
       return;
     }
 
     // Validate photo types and sizes (5MB each, JPG/PNG/HEIC only)
     for (const photo of workPhotos) {
       const photoErr = validatePhoto(photo);
-      if (photoErr) { setError(photoErr); return; }
+      if (photoErr) { showError(photoErr); return; }
     }
     // Validate other file types
     if (invoiceFile) {
       const invoiceErr = validateFile(invoiceFile);
-      if (invoiceErr) { setError(invoiceErr); return; }
+      if (invoiceErr) { showError(invoiceErr); return; }
     }
     if (measurementSheet) {
       const msErr = validateFile(measurementSheet);
-      if (msErr) { setError(msErr); return; }
+      if (msErr) { showError(msErr); return; }
     }
 
     setLoading(true);
@@ -302,7 +355,7 @@ function SubmitInvoice() {
 
         const data = await res.json();
         if (!res.ok) {
-          setError(data.error || 'Failed to resubmit invoice');
+          showError(data.error || 'Failed to resubmit invoice');
           setLoading(false);
           setUploadProgress('');
           return;
@@ -327,7 +380,7 @@ function SubmitInvoice() {
 
         const data = await res.json();
         if (!res.ok) {
-          setError(data.error || 'Failed to submit invoice');
+          showError(data.error || 'Failed to submit invoice');
           setLoading(false);
           setUploadProgress('');
           return;
@@ -348,7 +401,7 @@ function SubmitInvoice() {
       setExistingFiles({ invoiceFileUrl: '', invoiceFileName: '', workPhotos: '', measurementSheetUrl: '', measurementSheetName: '' });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong';
-      setError(message + '. Please try again.');
+      showError(message + '. Please try again.');
     }
     setLoading(false);
     setUploadProgress('');
@@ -356,7 +409,7 @@ function SubmitInvoice() {
 
   const handleCameraCapture = () => {
     if (workPhotos.length >= MAX_PHOTOS) {
-      setError(`Maximum ${MAX_PHOTOS} photos allowed`);
+      showError(`Maximum ${MAX_PHOTOS} photos allowed`);
       return;
     }
     cameraInputRef.current?.click();
@@ -369,7 +422,7 @@ function SubmitInvoice() {
       const toAdd = Array.from(files).slice(0, remaining);
       setWorkPhotos((prev) => [...prev, ...toAdd]);
       if (Array.from(files).length > remaining) {
-        setError(`Maximum ${MAX_PHOTOS} photos allowed. Only ${remaining} added.`);
+        showError(`Maximum ${MAX_PHOTOS} photos allowed. Only ${remaining} added.`);
       }
     }
     if (cameraInputRef.current) cameraInputRef.current.value = '';
@@ -565,6 +618,7 @@ function SubmitInvoice() {
                   </label>
                   <input
                     type="number"
+                    inputMode="decimal"
                     value={form.amount}
                     onChange={(e) => setForm({ ...form, amount: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
@@ -580,6 +634,7 @@ function SubmitInvoice() {
                   </label>
                   <input
                     type="number"
+                    inputMode="decimal"
                     value={form.gstAmount}
                     onChange={(e) => setForm({ ...form, gstAmount: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
@@ -790,7 +845,7 @@ function SubmitInvoice() {
 
               {/* Error & Progress */}
               {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2 text-red-700 text-sm">
+                <div ref={errorRef} className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2 text-red-700 text-sm" role="alert">
                   <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9 .75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>

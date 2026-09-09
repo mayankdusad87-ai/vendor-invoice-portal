@@ -168,9 +168,48 @@ function PaymentModal({
   const [utrReference, setUtrReference] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
+  const [formError, setFormError] = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const invoiceRemaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
   const availableToPay = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
+
+  /** Validate all fields and show specific error messages */
+  const validateAndConfirm = () => {
+    setFormError('');
+    const parsedAmt = parseFloat(amount);
+
+    if (!amount || isNaN(parsedAmt) || parsedAmt <= 0) {
+      setFormError('Please enter a valid payment amount greater than ₹0');
+      return;
+    }
+    if (parsedAmt > availableToPay + 0.01) {
+      setFormError(`Payment amount (₹${parsedAmt.toLocaleString('en-IN')}) exceeds available balance of ₹${availableToPay.toLocaleString('en-IN')}`);
+      return;
+    }
+    if (!utrReference.trim()) {
+      setFormError('UTR / Reference number is required');
+      return;
+    }
+    if (utrReference.trim().length < 3) {
+      setFormError('UTR / Reference number must be at least 3 characters');
+      return;
+    }
+    if (!paymentDate) {
+      setFormError('Payment date is required');
+      return;
+    }
+    // Check date not more than 30 days in future
+    const dateObj = new Date(paymentDate);
+    const maxDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    if (dateObj > maxDate) {
+      setFormError('Payment date cannot be more than 30 days in the future');
+      return;
+    }
+
+    // Show confirmation dialog
+    setShowConfirm(true);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -181,137 +220,194 @@ function PaymentModal({
         aria-modal="true"
         aria-label="Record Payment"
       >
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
-        </div>
+        {/* ── Confirmation Step ── */}
+        {showConfirm ? (
+          <div className="text-center py-4">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-50 mb-4">
+              <svg className="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Payment</h3>
+            <p className="text-sm text-gray-600 mb-1">
+              You are about to record a payment of
+            </p>
+            <p className="text-2xl font-bold text-emerald-700 mb-2">
+              ₹{parseFloat(amount).toLocaleString('en-IN')}
+            </p>
+            <p className="text-sm text-gray-500 mb-1">
+              for invoice <strong className="text-gray-900">#{invoice.invoiceNumber}</strong>
+            </p>
+            <p className="text-sm text-gray-500 mb-1">
+              Vendor: <strong className="text-gray-700">{invoice.vendorName}</strong>
+            </p>
+            <p className="text-sm text-gray-500 mb-4">
+              UTR: <strong className="text-gray-700">{utrReference}</strong> · Date: {paymentDate}
+            </p>
+            <p className="text-xs text-amber-600 mb-5 font-medium">
+              ⚠ This action cannot be undone. Please verify before confirming.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[44px]"
+              >
+                Go Back
+              </button>
+              <button
+                onClick={() => { setShowConfirm(false); onSubmit({ amount, utrReference, paymentDate, notes }); }}
+                disabled={isSubmitting}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 min-h-[44px]"
+              >
+                {isSubmitting ? 'Processing…' : 'Yes, Record Payment'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
+            </div>
 
-        {/* Invoice summary */}
-        <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm text-gray-500">{invoice.vendorName}</span>
-            <TypeBadge type={invoice.invoiceType} />
-          </div>
-          <p className="text-sm font-medium text-gray-900">#{invoice.invoiceNumber} — {invoice.purpose}</p>
-          <div className="flex items-center justify-between mt-2">
-            <span className="text-sm text-gray-500">Invoice Amount</span>
-            <span className="text-sm text-gray-900">{formatCurrency(invoice.amount)}</span>
-          </div>
-          {paymentSummary && paymentSummary.approvedAmount !== paymentSummary.invoiceAmount && (
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-sm font-medium text-emerald-700">Approved Amount</span>
-              <span className="font-bold text-emerald-700">{formatCurrency(paymentSummary.approvedAmount)}</span>
-            </div>
-          )}
-          {!(paymentSummary && paymentSummary.approvedAmount !== paymentSummary.invoiceAmount) && (
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-sm text-gray-500">Approved Amount</span>
-              <span className="font-bold text-gray-900">{formatCurrency(invoice.approvedAmount || invoice.amount)}</span>
-            </div>
-          )}
-          {paymentSummary && paymentSummary.totalPaid > 0 && (
-            <>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-sm text-gray-500">Already Paid</span>
-                <span className="text-sm text-emerald-600">{formatCurrency(paymentSummary.totalPaid)}</span>
+            {/* Invoice summary */}
+            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-gray-500">{invoice.vendorName}</span>
+                <TypeBadge type={invoice.invoiceType} />
               </div>
-              <div className="flex items-center justify-between mt-1 pt-1 border-t border-gray-100">
-                <span className="text-sm font-medium text-gray-600">Invoice Remaining</span>
-                <span className="font-bold text-violet-600">{formatCurrency(invoiceRemaining)}</span>
+              <p className="text-sm font-medium text-gray-900">#{invoice.invoiceNumber} — {invoice.purpose}</p>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-sm text-gray-500">Invoice Amount</span>
+                <span className="text-sm text-gray-900">{formatCurrency(invoice.amount)}</span>
               </div>
-              {availableToPay !== invoiceRemaining && (
+              {paymentSummary && paymentSummary.approvedAmount !== paymentSummary.invoiceAmount && (
                 <div className="flex items-center justify-between mt-1">
-                  <span className="text-sm text-amber-600">Available to Pay Now</span>
-                  <span className="font-bold text-amber-600">{formatCurrency(availableToPay)}</span>
+                  <span className="text-sm font-medium text-emerald-700">Approved Amount</span>
+                  <span className="font-bold text-emerald-700">{formatCurrency(paymentSummary.approvedAmount)}</span>
                 </div>
               )}
-            </>
-          )}
-        </div>
-
-        {/* Payment form */}
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">
-              Payment Amount <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">₹</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max={availableToPay}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-                placeholder="Enter payment amount"
-              />
-            </div>
-            <p className="text-xs text-gray-400 mt-1">
-              Invoice remaining: {formatCurrency(invoiceRemaining)}
-              {availableToPay !== invoiceRemaining && (
-                <span className="text-amber-500"> · Available now: {formatCurrency(availableToPay)}</span>
+              {!(paymentSummary && paymentSummary.approvedAmount !== paymentSummary.invoiceAmount) && (
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-sm text-gray-500">Approved Amount</span>
+                  <span className="font-bold text-gray-900">{formatCurrency(invoice.approvedAmount || invoice.amount)}</span>
+                </div>
               )}
-            </p>
-          </div>
+              {paymentSummary && paymentSummary.totalPaid > 0 && (
+                <>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-sm text-gray-500">Already Paid</span>
+                    <span className="text-sm text-emerald-600">{formatCurrency(paymentSummary.totalPaid)}</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-1 pt-1 border-t border-gray-100">
+                    <span className="text-sm font-medium text-gray-600">Invoice Remaining</span>
+                    <span className="font-bold text-violet-600">{formatCurrency(invoiceRemaining)}</span>
+                  </div>
+                  {availableToPay !== invoiceRemaining && (
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-sm text-amber-600">Available to Pay Now</span>
+                      <span className="font-bold text-amber-600">{formatCurrency(availableToPay)}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">
-              UTR / Reference Number <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={utrReference}
-              onChange={(e) => setUtrReference(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-              placeholder="Enter UTR or payment reference"
-            />
-          </div>
+            {/* Payment form */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  Payment Amount <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">₹</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={availableToPay}
+                    value={amount}
+                    onChange={(e) => { setAmount(e.target.value); setFormError(''); }}
+                    className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                    placeholder="Enter payment amount"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Invoice remaining: {formatCurrency(invoiceRemaining)}
+                  {availableToPay !== invoiceRemaining && (
+                    <span className="text-amber-500"> · Available now: {formatCurrency(availableToPay)}</span>
+                  )}
+                </p>
+              </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">
-              Payment Date <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="date"
-              value={paymentDate}
-              onChange={(e) => setPaymentDate(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-            />
-          </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  UTR / Reference Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={utrReference}
+                  onChange={(e) => { setUtrReference(e.target.value); setFormError(''); }}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                  placeholder="Enter UTR or payment reference (min 3 chars)"
+                />
+              </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">Notes (optional)</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              rows={2}
-              placeholder="GST payment, advance, etc."
-            />
-          </div>
-        </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  Payment Date <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => { setPaymentDate(e.target.value); setFormError(''); }}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                />
+              </div>
 
-        <div className="flex items-center gap-3 mt-6">
-          <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[44px]">
-            Cancel
-          </button>
-          <button
-            onClick={() => onSubmit({ amount, utrReference, paymentDate, notes })}
-            disabled={isSubmitting || !amount || !utrReference || !paymentDate || parseFloat(amount) <= 0 || parseFloat(amount) > availableToPay + 0.01}
-            className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-          >
-            {isSubmitting ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Processing…
-              </span>
-            ) : (
-              `Pay ${amount ? formatCurrency(amount) : ''}`
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Notes (optional)</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  rows={2}
+                  placeholder="GST payment, advance, etc."
+                />
+              </div>
+            </div>
+
+            {/* Validation error */}
+            {formError && (
+              <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-100 text-red-700 text-sm" role="alert">
+                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+                {formError}
+              </div>
             )}
-          </button>
-        </div>
+
+            <div className="flex items-center gap-3 mt-6">
+              <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[44px]">
+                Cancel
+              </button>
+              <button
+                onClick={validateAndConfirm}
+                disabled={isSubmitting}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Processing…
+                  </span>
+                ) : (
+                  `Pay ${amount ? formatCurrency(amount) : ''}`
+                )}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -335,6 +431,20 @@ function RejectModal({
   isSubmitting: boolean;
 }) {
   const [reason, setReason] = useState('');
+  const [rejectError, setRejectError] = useState('');
+
+  const handleRejectSubmit = () => {
+    setRejectError('');
+    if (!reason.trim()) {
+      setRejectError('Please provide a rejection reason');
+      return;
+    }
+    if (reason.trim().length < 5) {
+      setRejectError('Rejection reason must be at least 5 characters');
+      return;
+    }
+    onSubmit(reason);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -360,7 +470,7 @@ function RejectModal({
               <button
                 key={r.id}
                 type="button"
-                onClick={() => setReason(r.reason)}
+                onClick={() => { setReason(r.reason); setRejectError(''); }}
                 className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${
                   reason === r.reason
                     ? 'bg-red-50 border-red-200 text-red-700'
@@ -375,18 +485,27 @@ function RejectModal({
 
         <textarea
           value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          onChange={(e) => { setReason(e.target.value); setRejectError(''); }}
           className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
           rows={3}
-          placeholder="Describe the issue with this invoice…"
+          placeholder="Describe the issue with this invoice (min 5 characters)…"
         />
+
+        {rejectError && (
+          <div className="mt-2 flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-100 text-red-700 text-xs" role="alert">
+            <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            {rejectError}
+          </div>
+        )}
 
         <div className="flex items-center gap-3 mt-4">
           <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[44px]">
             Cancel
           </button>
           <button
-            onClick={() => onSubmit(reason)}
+            onClick={handleRejectSubmit}
             disabled={isSubmitting || !reason.trim()}
             className="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
           >

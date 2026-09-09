@@ -258,10 +258,29 @@ export default function ApproverDashboard() {
   }, [paymentCache]);
 
   // Handle increase approved amount
+  const [increaseError, setIncreaseError] = useState('');
+
   const handleIncreaseApprovedAmount = useCallback(async () => {
     if (!increaseAmountInvoice) return;
+    setIncreaseError('');
+
     const parsed = parseFloat(newApprovedAmount);
-    if (isNaN(parsed) || parsed <= 0) return;
+    if (!newApprovedAmount || isNaN(parsed) || parsed <= 0) {
+      setIncreaseError('Please enter a valid amount greater than ₹0');
+      return;
+    }
+    const currentApproved = parseFloat(increaseAmountInvoice.approvedAmount || increaseAmountInvoice.amount) || 0;
+    if (parsed <= currentApproved + 0.01) {
+      setIncreaseError(`New amount must be higher than current approved amount (₹${currentApproved.toLocaleString('en-IN')})`);
+      return;
+    }
+    const baseAmt = parseFloat(increaseAmountInvoice.amount) || 0;
+    const gst = parseFloat(increaseAmountInvoice.gstAmount || '') || 0;
+    const totalInvoiceAmt = baseAmt + gst;
+    if (parsed > totalInvoiceAmt + 0.01) {
+      setIncreaseError(`Cannot exceed total invoice amount (₹${totalInvoiceAmt.toLocaleString('en-IN')})`);
+      return;
+    }
 
     setIncreaseLoading(true);
     try {
@@ -347,7 +366,11 @@ export default function ApproverDashboard() {
       const gst = parseFloat(gstAmount || '') || 0;
       const totalInvoiceAmt = baseAmt + gst;
       if (!amt || isNaN(parsed) || parsed <= 0) {
-        setError(invoiceId, 'Please enter a valid approved amount');
+        setError(invoiceId, 'Please enter a valid approved amount greater than ₹0');
+        return;
+      }
+      if (parsed < 1) {
+        setError(invoiceId, 'Approved amount must be at least ₹1');
         return;
       }
       if (parsed > totalInvoiceAmt + 0.01) {
@@ -1388,7 +1411,7 @@ export default function ApproverDashboard() {
                           min={minAmount + 0.01}
                           max={String(totalInvoiceAmt)}
                           value={newApprovedAmount}
-                          onChange={(e) => setNewApprovedAmount(e.target.value)}
+                          onChange={(e) => { setNewApprovedAmount(e.target.value); setIncreaseError(''); }}
                           className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 min-h-[44px]"
                           aria-label="New approved amount"
                         />
@@ -1412,16 +1435,26 @@ export default function ApproverDashboard() {
                     </div>
                   </div>
 
+                  {/* Validation error */}
+                  {increaseError && (
+                    <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-100 text-red-700 text-xs" role="alert">
+                      <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                      </svg>
+                      {increaseError}
+                    </div>
+                  )}
+
                   <div className="flex gap-2 mt-5">
                     <button
-                      onClick={() => setIncreaseAmountInvoice(null)}
+                      onClick={() => { setIncreaseAmountInvoice(null); setIncreaseError(''); }}
                       className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors min-h-[44px]"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleIncreaseApprovedAmount}
-                      disabled={increaseLoading || !newApprovedAmount || parseFloat(newApprovedAmount) <= minAmount}
+                      disabled={increaseLoading || !newApprovedAmount}
                       className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 text-white font-semibold text-sm hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                     >
                       {increaseLoading ? (

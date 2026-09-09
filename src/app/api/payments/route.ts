@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
 import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus } from '@/lib/google-sheets';
-import { sanitizeString, sanitizeDate } from '@/lib/security';
+import { sanitizeString, sanitizeDate, rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 /**
  * GET /api/payments?invoiceId=XXX — get all payments for an invoice
@@ -59,6 +59,11 @@ export async function POST(request: NextRequest) {
   if (session.type !== 'accounts' && session.type !== 'admin') {
     return NextResponse.json({ error: 'Forbidden: accounts role required' }, { status: 403 });
   }
+
+  // Rate limit: 10 payments per minute per IP
+  const rlKey = getRateLimitKey(request, 'record-payment');
+  const rlCheck = rateLimit(rlKey, { maxRequests: 10, windowMs: 60_000 });
+  if (!rlCheck.allowed) return rateLimitResponse(rlCheck.retryAfterMs!);
 
   try {
     const body = await request.json();
