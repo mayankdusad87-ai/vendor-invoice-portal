@@ -41,6 +41,7 @@ function SubmitInvoice() {
     invoiceType: '',
     purpose: '',
     amount: '',
+    gstAmount: '',
     remarks: '',
   });
 
@@ -94,6 +95,7 @@ function SubmitInvoice() {
           invoiceType: invoice.invoiceType || '',
           purpose: invoice.purpose,
           amount: invoice.amount,
+          gstAmount: invoice.gstAmount || '',
           remarks: invoice.remarks,
         });
         setExistingFiles({
@@ -339,7 +341,7 @@ function SubmitInvoice() {
       }
 
       setSuccess(true);
-      setForm({ invoiceDate: '', invoiceNumber: '', invoiceType: '', purpose: '', amount: '', remarks: '' });
+      setForm({ invoiceDate: '', invoiceNumber: '', invoiceType: '', purpose: '', amount: '', gstAmount: '', remarks: '' });
       setInvoiceFile(null);
       setWorkPhotos([]);
       setMeasurementSheet(null);
@@ -556,20 +558,36 @@ function SubmitInvoice() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Amount (₹) *
-                </label>
-                <input
-                  type="number"
-                  value={form.amount}
-                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-                  placeholder="0.00"
-                  min="1"
-                  step="0.01"
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Amount (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    value={form.amount}
+                    onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                    placeholder="0.00"
+                    min="1"
+                    step="0.01"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    GST Amount (₹) <span className="text-xs text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={form.gstAmount}
+                    onChange={(e) => setForm({ ...form, gstAmount: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
               </div>
 
               <div>

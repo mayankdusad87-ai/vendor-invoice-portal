@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
     const poNumber = sanitizeString(body.poNumber, 50);
     const challanUrl = sanitizeString(body.challanUrl, 2000);
     const challanName = sanitizeString(body.challanName, 200);
+    const gstAmount = sanitizeString(body.gstAmount, 20);
 
     // Derive submittedBy from authenticated session — never from client
     const submittedBy = session.type === 'engineer'
@@ -166,6 +167,7 @@ export async function POST(request: NextRequest) {
       poNumber,
       challanUrl,
       challanName,
+      gstAmount: gstAmount || '',
     });
 
     return NextResponse.json({ success: true, invoice });

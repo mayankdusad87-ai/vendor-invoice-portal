@@ -28,6 +28,7 @@ interface Invoice {
   invoiceType: string;
   submittedBy: string;
   approvedAmount?: string;
+  gstAmount?: string;
   poNumber?: string;
   challanUrl?: string;
   challanName?: string;
@@ -220,18 +221,30 @@ export default function ApproverDashboard() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update');
 
+      const invoiceId = increaseAmountInvoice.id;
       setToast({ message: `Approved amount increased to ₹${parsed.toLocaleString('en-IN')}`, type: 'success' });
       setIncreaseAmountInvoice(null);
       setNewApprovedAmount('');
       setIncreaseComment('');
-      // Clear payment cache for this invoice so it refetches
-      setPaymentCache((prev) => { const n = { ...prev }; delete n[increaseAmountInvoice.id]; return n; });
-      // Update local state
+      // Update local invoice state
       setInvoices((prev) =>
         prev.map((i) =>
-          i.id === increaseAmountInvoice.id ? { ...i, approvedAmount: String(parsed) } : i
+          i.id === invoiceId ? { ...i, approvedAmount: String(parsed) } : i
         )
       );
+      // Re-fetch payment data so the payment progress section updates immediately
+      // (previously we just deleted the cache, leaving an eternal spinner)
+      try {
+        const payRes = await fetch(`/api/payments?invoiceId=${invoiceId}`);
+        if (payRes.ok) {
+          const payData = await payRes.json();
+          setPaymentCache((prev) => ({ ...prev, [invoiceId]: payData }));
+        } else {
+          setPaymentCache((prev) => { const n = { ...prev }; delete n[invoiceId]; return n; });
+        }
+      } catch {
+        setPaymentCache((prev) => { const n = { ...prev }; delete n[invoiceId]; return n; });
+      }
     } catch (err) {
       setToast({ message: err instanceof Error ? err.message : 'Failed to increase amount', type: 'error' });
     } finally {
@@ -703,6 +716,11 @@ export default function ApproverDashboard() {
                         <span className="text-base font-bold text-gray-900">
                           ₹{Number(invoice.amount).toLocaleString('en-IN')}
                         </span>
+                        {invoice.gstAmount && parseFloat(invoice.gstAmount) > 0 && (
+                          <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                            +GST ₹{Number(invoice.gstAmount).toLocaleString('en-IN')}
+                          </span>
+                        )}
                         {invoice.approvedAmount && parseFloat(invoice.approvedAmount) !== parseFloat(invoice.amount) && (
                           <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
                             Approved: ₹{Number(invoice.approvedAmount).toLocaleString('en-IN')}
@@ -1127,78 +1145,102 @@ export default function ApproverDashboard() {
               <button onClick={() => setIncreaseAmountInvoice(null)} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
             </div>
 
-            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
-              <p className="text-sm font-medium text-gray-900">
-                #{increaseAmountInvoice.invoiceNumber} — {increaseAmountInvoice.vendorName}
-              </p>
-              <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-                <div>
-                  <span className="text-gray-400">Invoice Amount</span>
-                  <p className="font-bold text-gray-900">₹{Number(increaseAmountInvoice.amount).toLocaleString('en-IN')}</p>
-                </div>
-                <div>
-                  <span className="text-gray-400">Current Approved</span>
-                  <p className="font-bold text-emerald-700">₹{Number(increaseAmountInvoice.approvedAmount || increaseAmountInvoice.amount).toLocaleString('en-IN')}</p>
-                </div>
-              </div>
-            </div>
+            {(() => {
+              const cachedPay = paymentCache[increaseAmountInvoice.id];
+              const totalPaid = cachedPay?.totalPaid ?? 0;
+              const currentApproved = parseFloat(increaseAmountInvoice.approvedAmount || increaseAmountInvoice.amount) || 0;
+              const invoiceAmt = parseFloat(increaseAmountInvoice.amount) || 0;
+              const minAmount = Math.max(currentApproved, totalPaid);
+              const remainingOnInvoice = invoiceAmt - totalPaid;
+              return (
+                <>
+                  <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
+                    <p className="text-sm font-medium text-gray-900">
+                      #{increaseAmountInvoice.invoiceNumber} — {increaseAmountInvoice.vendorName}
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                      <div>
+                        <span className="text-gray-400">Invoice Amount</span>
+                        <p className="font-bold text-gray-900">₹{invoiceAmt.toLocaleString('en-IN')}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Current Approved</span>
+                        <p className="font-bold text-emerald-700">₹{currentApproved.toLocaleString('en-IN')}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Already Paid</span>
+                        <p className="font-bold text-violet-600">₹{totalPaid.toLocaleString('en-IN')}</p>
+                      </div>
+                    </div>
+                    {totalPaid > 0 && (
+                      <p className="text-xs text-amber-600 mt-2">
+                        ₹{remainingOnInvoice.toLocaleString('en-IN')} remaining on invoice
+                      </p>
+                    )}
+                  </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">
-                  New Approved Amount <span className="text-red-500">*</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min={parseFloat(increaseAmountInvoice.approvedAmount || '0') + 0.01}
-                    max={increaseAmountInvoice.amount}
-                    value={newApprovedAmount}
-                    onChange={(e) => setNewApprovedAmount(e.target.value)}
-                    className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 min-h-[44px]"
-                    aria-label="New approved amount"
-                  />
-                </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  Must be higher than ₹{Number(increaseAmountInvoice.approvedAmount || 0).toLocaleString('en-IN')} and up to ₹{Number(increaseAmountInvoice.amount).toLocaleString('en-IN')}
-                </p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Comments (optional)</label>
-                <textarea
-                  value={increaseComment}
-                  onChange={(e) => setIncreaseComment(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                  rows={2}
-                  placeholder="Reason for increasing approved amount…"
-                />
-              </div>
-            </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        New Approved Amount <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={minAmount + 0.01}
+                          max={increaseAmountInvoice.amount}
+                          value={newApprovedAmount}
+                          onChange={(e) => setNewApprovedAmount(e.target.value)}
+                          className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 min-h-[44px]"
+                          aria-label="New approved amount"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {totalPaid > 0
+                          ? `₹${totalPaid.toLocaleString('en-IN')} already paid · New cap must be above ₹${minAmount.toLocaleString('en-IN')} and up to ₹${invoiceAmt.toLocaleString('en-IN')}`
+                          : `Must be higher than ₹${currentApproved.toLocaleString('en-IN')} and up to ₹${invoiceAmt.toLocaleString('en-IN')}`
+                        }
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Comments (optional)</label>
+                      <textarea
+                        value={increaseComment}
+                        onChange={(e) => setIncreaseComment(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                        rows={2}
+                        placeholder="Reason for increasing approved amount…"
+                      />
+                    </div>
+                  </div>
 
-            <div className="flex gap-2 mt-5">
-              <button
-                onClick={() => setIncreaseAmountInvoice(null)}
-                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors min-h-[44px]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleIncreaseApprovedAmount}
-                disabled={increaseLoading || !newApprovedAmount || parseFloat(newApprovedAmount) <= parseFloat(increaseAmountInvoice.approvedAmount || '0')}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 text-white font-semibold text-sm hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-              >
-                {increaseLoading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Updating…
-                  </span>
-                ) : (
-                  'Update Amount'
-                )}
-              </button>
-            </div>
+                  <div className="flex gap-2 mt-5">
+                    <button
+                      onClick={() => setIncreaseAmountInvoice(null)}
+                      className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors min-h-[44px]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleIncreaseApprovedAmount}
+                      disabled={increaseLoading || !newApprovedAmount || parseFloat(newApprovedAmount) <= minAmount}
+                      className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 text-white font-semibold text-sm hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                    >
+                      {increaseLoading ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Updating…
+                        </span>
+                      ) : (
+                        'Update Amount'
+                      )}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

@@ -539,13 +539,14 @@ export interface Invoice {
   approvalComments: string; // Col V
   approvedDate: string;     // Col W  — set only when approved
   updatedAt: string;        // Col X  — SYSTEM
+  gstAmount: string;        // Col Y  — GST amount (optional, billing field stored after system col)
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:X',
+    range: 'Invoices!A2:Y',
   });
 
   const rows = response.data.values || [];
@@ -574,6 +575,7 @@ export async function getInvoices(): Promise<Invoice[]> {
     approvalComments: row[21] || '',
     approvedDate: row[22] || '',
     updatedAt: row[23] || '',
+    gstAmount: row[24] || '',
   }));
 }
 
@@ -588,7 +590,7 @@ export async function getInvoiceById(id: string): Promise<Invoice | null> {
 }
 
 export async function addInvoice(
-  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount'>
+  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount'> & { gstAmount?: string }
 ): Promise<Invoice> {
   const sheets = getSheets();
   const id = `INV${Date.now()}`;
@@ -596,7 +598,7 @@ export async function addInvoice(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:X',
+    range: 'Invoices!A:Y',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -627,11 +629,13 @@ export async function addInvoice(
         '',                                   // W: Approved Date
         // SYSTEM (X)
         now,                                  // X: Updated At
+        // GST (Y) — optional billing field stored after system col
+        invoice.gstAmount || '',              // Y: GST Amount
       ]],
     },
   });
 
-  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '' };
+  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: invoice.gstAmount || '' };
 }
 
 export async function updateInvoiceStatus(

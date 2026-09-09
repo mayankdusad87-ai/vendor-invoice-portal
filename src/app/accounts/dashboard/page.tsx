@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import StatusBadge from '@/components/ui/StatusBadge';
 import TypeBadge from '@/components/ui/TypeBadge';
 import PhotoViewer from '@/components/ui/PhotoViewer';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
@@ -35,6 +34,7 @@ interface Invoice {
   challanUrl?: string;
   challanName?: string;
   approvedAmount?: string;
+  gstAmount?: string;
 }
 
 interface Payment {
@@ -76,6 +76,26 @@ function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return name.slice(0, 2).toUpperCase();
+}
+
+/** Accounts-specific status labels (e.g. "approved" → "Pending Payment" from accounts perspective) */
+function AccountsStatusBadge({ status }: { status: InvoiceStatus }) {
+  const config: Record<string, { label: string; className: string }> = {
+    approved: { label: 'Pending Payment', className: 'bg-amber-50 text-amber-700 border-amber-200' },
+    partially_paid: { label: 'Partially Paid', className: 'bg-violet-50 text-violet-700 border-violet-200' },
+    paid: { label: 'Paid', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    rejected: { label: 'Rejected', className: 'bg-red-50 text-red-700 border-red-200' },
+  };
+  const c = config[status] || { label: status, className: 'bg-gray-50 text-gray-600 border-gray-200' };
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${c.className}`}>
+      {status === 'approved' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+      {status === 'partially_paid' && <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />}
+      {status === 'paid' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+      {status === 'rejected' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+      {c.label}
+    </span>
+  );
 }
 
 function statusBorderColor(status: InvoiceStatus): string {
@@ -411,6 +431,11 @@ function PaymentHistory({
           <p className="text-sm font-medium text-gray-900">
             #{invoice.invoiceNumber} — {invoice.vendorName}
           </p>
+          {invoice.approvedBy && (
+            <p className="text-xs text-gray-500 mt-1">
+              Approved by <span className="font-medium text-gray-700">{invoice.approvedBy}</span>
+            </p>
+          )}
           <div className={`grid ${payments.approvedAmount !== payments.invoiceAmount ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-2 mt-2`}>
             <div>
               <p className="text-xs text-gray-400">Invoice Amount</p>
@@ -1062,7 +1087,12 @@ export default function AccountsDashboard() {
                               </div>
                             </td>
                             <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">{formatCurrency(invoiceAmt)}</td>
+                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                              <span className="font-semibold text-gray-900">{formatCurrency(invoiceAmt)}</span>
+                              {inv.gstAmount && parseFloat(inv.gstAmount) > 0 && (
+                                <span className="block text-[10px] text-blue-600">+GST {formatCurrency(inv.gstAmount)}</span>
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-right whitespace-nowrap">
                               <span className={approvedAmt !== invoiceAmt ? 'text-emerald-700 font-semibold' : 'text-gray-600'}>
                                 {formatCurrency(approvedAmt)}
@@ -1087,7 +1117,7 @@ export default function AccountsDashboard() {
                               )}
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <StatusBadge status={inv.status} />
+                              <AccountsStatusBadge status={inv.status} />
                             </td>
                             <td className="px-4 py-3 text-center">
                               {hasAttachments ? (
@@ -1342,7 +1372,7 @@ export default function AccountsDashboard() {
                           <span className="text-sm text-gray-600">{inv.vendorName}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <StatusBadge status={inv.status} />
+                          <AccountsStatusBadge status={inv.status} />
                           <svg
                             className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                             fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"
@@ -1357,6 +1387,9 @@ export default function AccountsDashboard() {
                         <div>
                           <span className="text-gray-400">Invoice</span>
                           <p className="font-bold text-gray-900">{formatCurrency(invoiceAmt)}</p>
+                          {inv.gstAmount && parseFloat(inv.gstAmount) > 0 && (
+                            <p className="text-[10px] text-blue-600">+GST {formatCurrency(inv.gstAmount)}</p>
+                          )}
                         </div>
                         <div>
                           <span className="text-gray-400">Approved</span>

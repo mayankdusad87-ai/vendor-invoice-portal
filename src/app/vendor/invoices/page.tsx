@@ -58,6 +58,7 @@ interface Invoice {
   invoiceType: string;
   submittedBy: string;
   approvedAmount?: string;
+  gstAmount?: string;
 }
 
 export default function VendorInvoices() {
@@ -220,6 +221,11 @@ export default function VendorInvoices() {
                       <span className="font-semibold text-gray-900 text-base">
                         {formatCurrency(invoice.amount)}
                       </span>
+                      {invoice.gstAmount && parseFloat(invoice.gstAmount) > 0 && (
+                        <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                          +GST {formatCurrency(invoice.gstAmount)}
+                        </span>
+                      )}
                       {invoice.approvedAmount && parseFloat(invoice.approvedAmount) !== parseFloat(invoice.amount) && (
                         <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
                           Approved: {formatCurrency(invoice.approvedAmount)}
