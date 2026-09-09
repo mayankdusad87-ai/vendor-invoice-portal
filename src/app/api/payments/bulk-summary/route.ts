@@ -11,8 +11,8 @@ export async function GET(request: NextRequest) {
   const session = requireAuth(request);
   if (isAuthError(session)) return session;
 
-  // Only accounts and admin need this bulk view
-  if (session.type !== 'accounts' && session.type !== 'admin') {
+  // Accounts, admin, and approvers can use this bulk view
+  if (session.type !== 'accounts' && session.type !== 'admin' && session.type !== 'approver') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -43,8 +43,8 @@ export async function GET(request: NextRequest) {
     }> = {};
 
     for (const inv of allInvoices) {
-      // Accounts sees approved, partially_paid, paid, rejected
-      if (!['approved', 'partially_paid', 'paid', 'rejected'].includes(inv.status)) continue;
+      // Include invoices visible to accounts and approvers
+      if (!['submitted', 'under_review', 'approved', 'partially_paid', 'paid', 'rejected'].includes(inv.status)) continue;
 
       const invoiceAmount = parseFloat(inv.amount) || 0;
       const approvedAmount = inv.approvedAmount ? parseFloat(inv.approvedAmount) || invoiceAmount : invoiceAmount;

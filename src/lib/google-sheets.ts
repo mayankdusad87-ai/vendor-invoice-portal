@@ -18,6 +18,40 @@ function getSheets() {
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 
+// ==================== DATE HELPERS (IST) ====================
+
+/**
+ * Returns the current date and time in IST (UTC+5:30).
+ * Date format: dd/mm/yyyy
+ * Time format: HH:mm:ss
+ * Combined: dd/mm/yyyy, HH:mm:ss IST
+ */
+function getISTTimestamp(): { date: string; time: string; combined: string } {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const ist = new Date(now.getTime() + istOffset);
+
+  const dd = String(ist.getUTCDate()).padStart(2, '0');
+  const mm = String(ist.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = ist.getUTCFullYear();
+  const hh = String(ist.getUTCHours()).padStart(2, '0');
+  const min = String(ist.getUTCMinutes()).padStart(2, '0');
+  const ss = String(ist.getUTCSeconds()).padStart(2, '0');
+
+  const date = `${dd}/${mm}/${yyyy}`;
+  const time = `${hh}:${min}:${ss}`;
+  return { date, time, combined: `${date}, ${time} IST` };
+}
+
+/** Convert YYYY-MM-DD (from <input type="date">) to dd/mm/yyyy for Google Sheets */
+function toIndianDateFormat(dateStr: string): string {
+  if (!dateStr) return '';
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) return dateStr; // already dd/mm/yyyy
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+  return dateStr;
+}
+
 // ==================== VENDORS ====================
 
 export interface Vendor {
@@ -65,7 +99,7 @@ export async function getActiveVendors(): Promise<Vendor[]> {
 export async function addVendor(vendor: Omit<Vendor, 'id' | 'createdAt'>): Promise<Vendor> {
   const sheets = getSheets();
   const id = `V${Date.now()}`;
-  const createdAt = new Date().toISOString();
+  const createdAt = getISTTimestamp().combined;
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -194,7 +228,7 @@ export async function addVendorConfig(item: { value: string; type: 'vendor_type'
   await ensureVendorConfigSheet();
   const sheets = getSheets();
   const id = `VC${Date.now()}`;
-  const createdAt = new Date().toISOString();
+  const createdAt = getISTTimestamp().combined;
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -316,7 +350,7 @@ export async function getActiveEngineers(): Promise<Engineer[]> {
 export async function addEngineer(engineer: Omit<Engineer, 'id' | 'createdAt'>): Promise<Engineer> {
   const sheets = getSheets();
   const id = `ENG${Date.now()}`;
-  const createdAt = new Date().toISOString();
+  const createdAt = getISTTimestamp().combined;
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -398,7 +432,7 @@ export async function getActiveApprovers(): Promise<Approver[]> {
 export async function addApprover(approver: Omit<Approver, 'id' | 'createdAt'>): Promise<Approver> {
   const sheets = getSheets();
   const id = `A${Date.now()}`;
-  const createdAt = new Date().toISOString();
+  const createdAt = getISTTimestamp().combined;
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -475,7 +509,7 @@ export async function getActiveRejectionReasons(): Promise<RejectionReason[]> {
 export async function addRejectionReason(reason: Omit<RejectionReason, 'id' | 'createdAt'>): Promise<RejectionReason> {
   const sheets = getSheets();
   const id = `RR${Date.now()}`;
-  const createdAt = new Date().toISOString();
+  const createdAt = getISTTimestamp().combined;
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
     range: 'RejectionReasons!A:D',
@@ -594,7 +628,7 @@ export async function addInvoice(
 ): Promise<Invoice> {
   const sheets = getSheets();
   const id = `INV${Date.now()}`;
-  const now = new Date().toISOString();
+  const now = getISTTimestamp().combined;
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -606,7 +640,7 @@ export async function addInvoice(
         id,                                   // A: ID
         invoice.vendorName,                   // B: Vendor Name
         invoice.invoiceNumber,                // C: Invoice Number
-        invoice.invoiceDate,                  // D: Invoice Date
+        toIndianDateFormat(invoice.invoiceDate), // D: Invoice Date (dd/mm/yyyy)
         invoice.invoiceType || '',            // E: Invoice Type
         invoice.purpose,                      // F: Purpose
         invoice.amount,                       // G: Amount
@@ -655,7 +689,7 @@ export async function updateInvoiceStatus(
   const rowIndex = rows.findIndex((row) => row[0] === id);
   if (rowIndex === -1) return false;
 
-  const now = new Date().toISOString();
+  const now = getISTTimestamp().combined;
   const currentRow = rows[rowIndex];
 
   // Set approvedDate only when transitioning to approved
@@ -722,7 +756,7 @@ export async function resubmitInvoice(
   if (rowIndex === -1) return false;
 
   const currentRow = rows[rowIndex];
-  const now = new Date().toISOString();
+  const now = getISTTimestamp().combined;
 
   // Update the full row — keep original vendor name & ID, apply edits, reset status to submitted
   // NEW column order: A–R billing, S–W approver, X system
@@ -731,7 +765,7 @@ export async function resubmitInvoice(
     id,                                                    // A: ID
     currentRow[1],                                         // B: Vendor Name (stays same)
     updates.invoiceNumber ?? currentRow[2],                // C: Invoice Number
-    updates.invoiceDate ?? currentRow[3],                  // D: Invoice Date
+    updates.invoiceDate ? toIndianDateFormat(updates.invoiceDate) : currentRow[3], // D: Invoice Date
     currentRow[4] ?? '',                                   // E: Invoice Type (keep original)
     updates.purpose ?? currentRow[5],                      // F: Purpose
     updates.amount ?? currentRow[6],                       // G: Amount
@@ -863,7 +897,7 @@ export async function addAccountsMember(member: Omit<AccountsMember, 'id' | 'cre
   await ensureAccountsSheet();
   const sheets = getSheets();
   const id = `ACC${Date.now()}`;
-  const createdAt = new Date().toISOString();
+  const createdAt = getISTTimestamp().combined;
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -986,7 +1020,7 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
   await ensurePaymentsSheet();
   const sheets = getSheets();
   const id = `PAY${Date.now()}`;
-  const createdAt = new Date().toISOString();
+  const createdAt = getISTTimestamp().combined;
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -1000,7 +1034,7 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
         payment.invoiceNumber,
         payment.amount,
         payment.utrReference,
-        payment.paymentDate,
+        toIndianDateFormat(payment.paymentDate),
         payment.paidBy,
         payment.notes,
         payment.paymentStatus,

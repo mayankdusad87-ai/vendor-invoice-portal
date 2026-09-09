@@ -32,6 +32,16 @@ interface Invoice {
   poNumber?: string;
   challanUrl?: string;
   challanName?: string;
+  approvedDate?: string;
+}
+
+interface BulkSummary {
+  totalPaid: number;
+  remaining: number;
+  availableToPay: number;
+  isFullyPaid: boolean;
+  approvedCapReached: boolean;
+  paymentCount: number;
 }
 
 interface PaymentSummary {
@@ -107,14 +117,39 @@ function statusAriaLabel(status: InvoiceStatus): string {
   }
 }
 
+/** Parse date strings — handles ISO, dd/mm/yyyy, and dd/mm/yyyy, HH:mm:ss IST */
+function parseFlexDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const ddMatch = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (ddMatch) {
+    const [, dd, mm, yyyy] = ddMatch;
+    return new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDisplayDate(dateStr: string): string {
+  if (!dateStr) return '—';
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(dateStr)) return dateStr.split(',')[0].trim();
+  try {
+    return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch { return dateStr; }
+}
+
 export default function ApproverDashboard() {
   const { approverName, isReady, logout } = useApproverAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedVendor, setSelectedVendor] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'amount'>('date');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [initialFilterApplied, setInitialFilterApplied] = useState(false);
+
+  // Bulk payment summaries (loaded once for all invoices — for card-level progress)
+  const [bulkSummaries, setBulkSummaries] = useState<Record<string, BulkSummary>>({});
 
   // Toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -150,6 +185,7 @@ export default function ApproverDashboard() {
     if (!isReady) return;
     fetchInvoices();
     fetchRejectionReasons();
+    fetchBulkSummaries();
   }, [isReady]);
 
   // Auto-dismiss toast
@@ -163,11 +199,32 @@ export default function ApproverDashboard() {
     try {
       const res = await fetch('/api/invoices');
       const data = await res.json();
-      if (res.ok) setInvoices(data.invoices || []);
+      if (res.ok) {
+        const loaded = data.invoices || [];
+        setInvoices(loaded);
+        // Auto-filter to "pending" on first load if there are pending invoices
+        if (!initialFilterApplied) {
+          const hasPending = loaded.some((i: Invoice) => i.status === 'submitted' || i.status === 'under_review');
+          if (hasPending) setFilter('pending');
+          setInitialFilterApplied(true);
+        }
+      }
     } catch {
       console.error('Failed to fetch invoices');
     }
     setLoading(false);
+  };
+
+  const fetchBulkSummaries = async () => {
+    try {
+      const res = await fetch('/api/payments/bulk-summary');
+      if (res.ok) {
+        const data = await res.json();
+        setBulkSummaries(data.summaries || {});
+      }
+    } catch {
+      console.error('Failed to load bulk payment summaries');
+    }
   };
 
   const fetchRejectionReasons = async () => {
@@ -395,6 +452,12 @@ export default function ApproverDashboard() {
     };
   }, [invoices]);
 
+  // Derive unique vendor names
+  const vendorNames = useMemo(() => {
+    const names = new Set(invoices.map((i) => i.vendorName).filter(Boolean));
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [invoices]);
+
   // Filter + search + sort
   const filteredInvoices = useMemo(() => {
     let list = invoices.filter((inv) => {
@@ -404,6 +467,11 @@ export default function ApproverDashboard() {
       if (filter === 'in_payment') return inv.status === 'partially_paid' || inv.status === 'paid';
       return true;
     });
+
+    // Vendor filter
+    if (selectedVendor) {
+      list = list.filter((inv) => inv.vendorName === selectedVendor);
+    }
 
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
@@ -417,11 +485,13 @@ export default function ApproverDashboard() {
 
     list.sort((a, b) => {
       if (sortBy === 'amount') return (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0);
-      return new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime();
+      const da = parseFlexDate(a.submittedAt)?.getTime() || 0;
+      const db = parseFlexDate(b.submittedAt)?.getTime() || 0;
+      return db - da;
     });
 
     return list;
-  }, [invoices, filter, searchTerm, sortBy]);
+  }, [invoices, filter, selectedVendor, searchTerm, sortBy]);
 
   // Label for "Showing X invoices"
   const filterLabel = filter === 'pending' ? 'pending' : filter === 'approved' ? 'approved' : filter === 'rejected' ? 'rejected' : filter === 'in_payment' ? 'in payment' : 'all';
@@ -614,12 +684,26 @@ export default function ApproverDashboard() {
           </button>
         </div>
 
-        {/* ── List header: count + sort ── */}
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm text-gray-500">
-            Showing {filterLabel === 'all' ? 'all' : filterLabel}{' '}
-            <strong className="text-gray-700">{filteredInvoices.length}</strong> invoice{filteredInvoices.length !== 1 ? 's' : ''}
-          </p>
+        {/* ── Filter bar: vendor + count + sort ── */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 flex-1">
+            <select
+              value={selectedVendor}
+              onChange={(e) => { setSelectedVendor(e.target.value); setExpandedId(null); }}
+              className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[36px] max-w-xs"
+              aria-label="Filter by vendor"
+            >
+              <option value="">All Vendors</option>
+              {vendorNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <p className="text-sm text-gray-500">
+              Showing {filterLabel === 'all' ? 'all' : filterLabel}{' '}
+              <strong className="text-gray-700">{filteredInvoices.length}</strong> invoice{filteredInvoices.length !== 1 ? 's' : ''}
+              {selectedVendor && <> for <strong className="text-gray-700">{selectedVendor}</strong></>}
+            </p>
+          </div>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as 'date' | 'amount')}
@@ -727,7 +811,7 @@ export default function ApproverDashboard() {
                           </span>
                         )}
                         <span className="text-xs text-gray-400">
-                          {new Date(invoice.submittedAt || invoice.invoiceDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          {formatDisplayDate(invoice.submittedAt || invoice.invoiceDate)}
                         </span>
                         {invoice.submittedBy && (
                           <span className="text-xs text-gray-400 hidden sm:inline">
@@ -735,6 +819,32 @@ export default function ApproverDashboard() {
                           </span>
                         )}
                       </div>
+
+                      {/* Approved date — when this was sent to accounts */}
+                      {invoice.approvedDate && !isPending && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          <span className="text-emerald-600">✓</span> Sent to accounts on {formatDisplayDate(invoice.approvedDate)}
+                          {invoice.approvedBy && <> · Approved by <span className="text-gray-500">{invoice.approvedBy}</span></>}
+                        </p>
+                      )}
+
+                      {/* Mini payment progress bar on card (for invoices with payment data) */}
+                      {!isPending && bulkSummaries[invoice.id] && bulkSummaries[invoice.id].paymentCount > 0 && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden max-w-[160px]">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                              style={{ width: `${Math.min(100, (bulkSummaries[invoice.id].totalPaid / (parseFloat(invoice.amount) || 1)) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            ₹{bulkSummaries[invoice.id].totalPaid.toLocaleString('en-IN')} paid
+                            {bulkSummaries[invoice.id].isFullyPaid && (
+                              <span className="text-emerald-600 font-medium ml-1">✓ Complete</span>
+                            )}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Right side: hover actions for pending, or chevron */}
