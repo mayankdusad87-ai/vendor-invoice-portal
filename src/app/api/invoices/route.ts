@@ -221,9 +221,11 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Approved amount must be a positive number' }, { status: 400 });
       }
       const invoiceAmount = parseFloat(invoice.amount) || 0;
-      if (newApproved > invoiceAmount + 0.01) {
+      const gstAmount = parseFloat(invoice.gstAmount) || 0;
+      const totalInvoiceAmount = invoiceAmount + gstAmount;
+      if (newApproved > totalInvoiceAmount + 0.01) {
         return NextResponse.json(
-          { error: `Approved amount cannot exceed invoice amount (₹${invoiceAmount.toLocaleString('en-IN')})` },
+          { error: `Approved amount cannot exceed total invoice amount (₹${totalInvoiceAmount.toLocaleString('en-IN')})` },
           { status: 400 }
         );
       }
@@ -273,7 +275,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: `Invoice is already ${status}` }, { status: 400 });
     }
 
-    // Validate approved amount when approving
+    // Validate approved amount when approving (max = amount + GST)
     let approvedAmount: string | undefined;
     if (status === 'approved') {
       const rawAmount = body.approvedAmount;
@@ -285,9 +287,11 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Approved amount must be a positive number' }, { status: 400 });
       }
       const invoiceAmount = parseFloat(invoice.amount) || 0;
-      if (parsedAmount > invoiceAmount + 0.01) {
+      const gstAmount = parseFloat(invoice.gstAmount) || 0;
+      const totalInvoiceAmount = invoiceAmount + gstAmount;
+      if (parsedAmount > totalInvoiceAmount + 0.01) {
         return NextResponse.json(
-          { error: `Approved amount (₹${parsedAmount.toLocaleString('en-IN')}) cannot exceed invoice amount (₹${invoiceAmount.toLocaleString('en-IN')})` },
+          { error: `Approved amount (₹${parsedAmount.toLocaleString('en-IN')}) cannot exceed total invoice amount (₹${totalInvoiceAmount.toLocaleString('en-IN')})` },
           { status: 400 }
         );
       }

@@ -312,8 +312,13 @@ export default function ApproverDashboard() {
   const getComment = (id: string) => comments[id] || '';
   const getReason = (id: string) => selectedReasons[id] || '';
   const getError = (id: string) => actionError[id] || '';
-  const getApprovedAmount = (id: string, invoiceAmount: string) =>
-    approvedAmounts[id] !== undefined ? approvedAmounts[id] : invoiceAmount;
+  /** Default approved amount = amount + GST (total invoice amount) */
+  const getApprovedAmount = (id: string, invoiceAmount: string, gstAmount?: string) => {
+    if (approvedAmounts[id] !== undefined) return approvedAmounts[id];
+    const base = parseFloat(invoiceAmount) || 0;
+    const gst = parseFloat(gstAmount || '') || 0;
+    return String(base + gst);
+  };
 
   const setComment = (id: string, value: string) =>
     setComments((prev) => ({ ...prev, [id]: value }));
@@ -326,7 +331,7 @@ export default function ApproverDashboard() {
   const clearError = (id: string) =>
     setActionError((prev) => { const next = { ...prev }; delete next[id]; return next; });
 
-  const requestAction = (invoiceId: string, invoiceNumber: string, status: InvoiceStatus, invoiceAmount?: string) => {
+  const requestAction = (invoiceId: string, invoiceNumber: string, status: InvoiceStatus, invoiceAmount?: string, gstAmount?: string) => {
     clearError(invoiceId);
     const comment = getComment(invoiceId).trim();
     const reason = getReason(invoiceId);
@@ -336,15 +341,17 @@ export default function ApproverDashboard() {
       return;
     }
     if (status === 'approved' && invoiceAmount) {
-      const amt = getApprovedAmount(invoiceId, invoiceAmount);
+      const amt = getApprovedAmount(invoiceId, invoiceAmount, gstAmount);
       const parsed = parseFloat(amt);
-      const invAmt = parseFloat(invoiceAmount) || 0;
+      const baseAmt = parseFloat(invoiceAmount) || 0;
+      const gst = parseFloat(gstAmount || '') || 0;
+      const totalInvoiceAmt = baseAmt + gst;
       if (!amt || isNaN(parsed) || parsed <= 0) {
         setError(invoiceId, 'Please enter a valid approved amount');
         return;
       }
-      if (parsed > invAmt + 0.01) {
-        setError(invoiceId, `Approved amount cannot exceed invoice amount (₹${invAmt.toLocaleString('en-IN')})`);
+      if (parsed > totalInvoiceAmt + 0.01) {
+        setError(invoiceId, `Approved amount cannot exceed total invoice amount (₹${totalInvoiceAmt.toLocaleString('en-IN')})`);
         return;
       }
     }
@@ -360,7 +367,7 @@ export default function ApproverDashboard() {
     };
 
     const approvedAmt = status === 'approved' && invoiceAmount
-      ? getApprovedAmount(invoiceId, invoiceAmount)
+      ? getApprovedAmount(invoiceId, invoiceAmount, gstAmount)
       : undefined;
     const amtDisplay = approvedAmt ? ` for ₹${parseFloat(approvedAmt).toLocaleString('en-IN')}` : '';
 
@@ -385,9 +392,9 @@ export default function ApproverDashboard() {
       ? (reason ? `${reason}${comment ? ` — ${comment}` : ''}` : comment)
       : comment;
 
-    // Get approved amount for approval actions
+    // Get approved amount for approval actions (defaults to amount + GST)
     const approvedAmount = action === 'approved' && inv
-      ? getApprovedAmount(invoiceId, inv.amount)
+      ? getApprovedAmount(invoiceId, inv.amount, inv.gstAmount)
       : undefined;
 
     setActionLoading(invoiceId);
@@ -405,7 +412,16 @@ export default function ApproverDashboard() {
         setInvoices((prev) =>
           prev.map((i) =>
             i.id === invoiceId
-              ? { ...i, status: action, approvalComments, approvedBy: approverName }
+              ? {
+                  ...i,
+                  status: action,
+                  approvalComments,
+                  approvedBy: approverName,
+                  ...(action === 'approved' ? {
+                    approvedAmount: data.approvedAmount || approvedAmount || i.amount,
+                    approvedDate: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                  } : {}),
+                }
               : i
           )
         );
@@ -797,19 +813,40 @@ export default function ApproverDashboard() {
                       </div>
                       <p className="text-sm text-gray-500 mt-0.5 truncate">{invoice.purpose}</p>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className="text-base font-bold text-gray-900">
-                          ₹{Number(invoice.amount).toLocaleString('en-IN')}
-                        </span>
-                        {invoice.gstAmount && parseFloat(invoice.gstAmount) > 0 && (
-                          <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                            +GST ₹{Number(invoice.gstAmount).toLocaleString('en-IN')}
-                          </span>
-                        )}
-                        {invoice.approvedAmount && parseFloat(invoice.approvedAmount) !== parseFloat(invoice.amount) && (
-                          <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                            Approved: ₹{Number(invoice.approvedAmount).toLocaleString('en-IN')}
-                          </span>
-                        )}
+                        {(() => {
+                          const baseAmt = parseFloat(invoice.amount) || 0;
+                          const gst = parseFloat(invoice.gstAmount || '') || 0;
+                          const total = baseAmt + gst;
+                          return (
+                            <>
+                              {gst > 0 ? (
+                                <>
+                                  <span className="text-base font-bold text-gray-900">
+                                    ₹{total.toLocaleString('en-IN')}
+                                  </span>
+                                  <span className="text-[10px] text-gray-400">
+                                    (₹{baseAmt.toLocaleString('en-IN')} + GST ₹{gst.toLocaleString('en-IN')})
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-base font-bold text-gray-900">
+                                  ₹{baseAmt.toLocaleString('en-IN')}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
+                        {invoice.approvedAmount && (() => {
+                          const baseAmt = parseFloat(invoice.amount) || 0;
+                          const gst = parseFloat(invoice.gstAmount || '') || 0;
+                          const total = baseAmt + gst;
+                          const approved = parseFloat(invoice.approvedAmount) || 0;
+                          return approved !== total ? (
+                            <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                              Approved: ₹{approved.toLocaleString('en-IN')}
+                            </span>
+                          ) : null;
+                        })()}
                         <span className="text-xs text-gray-400">
                           {formatDisplayDate(invoice.submittedAt || invoice.invoiceDate)}
                         </span>
@@ -973,10 +1010,17 @@ export default function ApproverDashboard() {
                               <strong className="text-gray-700">{invoice.approvedBy}</strong>
                               {invoice.approvedAmount && (
                                 <span className="ml-2">
-                                  · Approved ₹{Number(invoice.approvedAmount).toLocaleString('en-IN')}
-                                  {parseFloat(invoice.approvedAmount) !== parseFloat(invoice.amount) && (
-                                    <span className="text-gray-400"> of ₹{Number(invoice.amount).toLocaleString('en-IN')}</span>
-                                  )}
+                                  · Approved <strong className="text-emerald-700">₹{Number(invoice.approvedAmount).toLocaleString('en-IN')}</strong>
+                                  {(() => {
+                                    const baseAmt = parseFloat(invoice.amount) || 0;
+                                    const gst = parseFloat(invoice.gstAmount || '') || 0;
+                                    const total = baseAmt + gst;
+                                    const approved = parseFloat(invoice.approvedAmount) || 0;
+                                    if (approved < total) {
+                                      return <span className="text-gray-400"> of ₹{total.toLocaleString('en-IN')}</span>;
+                                    }
+                                    return null;
+                                  })()}
                                 </span>
                               )}
                             </p>
@@ -1074,11 +1118,43 @@ export default function ApproverDashboard() {
                         {/* Action form for pending invoices */}
                         {isPending && (
                           <div className="space-y-3 bg-gray-50 rounded-lg p-4 border border-gray-100">
+                            {/* Invoice Amount Breakdown */}
+                            {(() => {
+                              const baseAmt = parseFloat(invoice.amount) || 0;
+                              const gst = parseFloat(invoice.gstAmount || '') || 0;
+                              const total = baseAmt + gst;
+                              return (
+                                <div className="rounded-lg bg-white border border-gray-200 p-3">
+                                  <p className="text-xs font-medium text-gray-500 mb-2">Invoice Amount Breakdown</p>
+                                  <div className="flex items-center gap-3 text-sm">
+                                    <div>
+                                      <p className="text-[10px] text-gray-400 uppercase">Amount</p>
+                                      <p className="font-semibold text-gray-900">₹{baseAmt.toLocaleString('en-IN')}</p>
+                                    </div>
+                                    {gst > 0 && (
+                                      <>
+                                        <span className="text-gray-300">+</span>
+                                        <div>
+                                          <p className="text-[10px] text-gray-400 uppercase">GST</p>
+                                          <p className="font-semibold text-blue-600">₹{gst.toLocaleString('en-IN')}</p>
+                                        </div>
+                                        <span className="text-gray-300">=</span>
+                                        <div>
+                                          <p className="text-[10px] text-gray-400 uppercase">Total</p>
+                                          <p className="font-bold text-gray-900">₹{total.toLocaleString('en-IN')}</p>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
                             {/* Approved Amount */}
                             <div>
                               <label className="block text-xs font-medium text-gray-500 mb-1">
                                 Approved Amount <span className="text-red-500">*</span>
-                                <span className="font-normal text-gray-400"> (required to approve)</span>
+                                <span className="font-normal text-gray-400"> (total incl. GST — required to approve)</span>
                               </label>
                               <div className="relative">
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
@@ -1086,21 +1162,23 @@ export default function ApproverDashboard() {
                                   type="number"
                                   step="0.01"
                                   min="0.01"
-                                  max={invoice.amount}
-                                  value={getApprovedAmount(invoice.id, invoice.amount)}
+                                  max={String((parseFloat(invoice.amount) || 0) + (parseFloat(invoice.gstAmount || '') || 0))}
+                                  value={getApprovedAmount(invoice.id, invoice.amount, invoice.gstAmount)}
                                   onChange={(e) => { setApprovedAmount(invoice.id, e.target.value); clearError(invoice.id); }}
                                   className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-h-[44px]"
                                   aria-label="Approved amount"
                                 />
                               </div>
                               {(() => {
-                                const approvedVal = parseFloat(getApprovedAmount(invoice.id, invoice.amount)) || 0;
-                                const invoiceVal = parseFloat(invoice.amount) || 0;
-                                if (approvedVal > 0 && approvedVal < invoiceVal) {
-                                  const diff = invoiceVal - approvedVal;
+                                const approvedVal = parseFloat(getApprovedAmount(invoice.id, invoice.amount, invoice.gstAmount)) || 0;
+                                const baseAmt = parseFloat(invoice.amount) || 0;
+                                const gst = parseFloat(invoice.gstAmount || '') || 0;
+                                const totalInvoiceAmt = baseAmt + gst;
+                                if (approvedVal > 0 && approvedVal < totalInvoiceAmt) {
+                                  const diff = totalInvoiceAmt - approvedVal;
                                   return (
                                     <p className="text-xs text-amber-600 mt-1">
-                                      ₹{diff.toLocaleString('en-IN')} less than invoice amount (₹{invoiceVal.toLocaleString('en-IN')})
+                                      ₹{diff.toLocaleString('en-IN')} less than total invoice amount (₹{totalInvoiceAmt.toLocaleString('en-IN')})
                                     </p>
                                   );
                                 }
@@ -1150,7 +1228,7 @@ export default function ApproverDashboard() {
 
                             <div className="flex gap-2">
                               <button
-                                onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'approved', invoice.amount)}
+                                onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'approved', invoice.amount, invoice.gstAmount)}
                                 disabled={actionLoading === invoice.id}
                                 className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                               >
@@ -1260,19 +1338,27 @@ export default function ApproverDashboard() {
               const totalPaid = cachedPay?.totalPaid ?? 0;
               const currentApproved = parseFloat(increaseAmountInvoice.approvedAmount || increaseAmountInvoice.amount) || 0;
               const invoiceAmt = parseFloat(increaseAmountInvoice.amount) || 0;
+              const gstAmt = parseFloat(increaseAmountInvoice.gstAmount || '') || 0;
+              const totalInvoiceAmt = invoiceAmt + gstAmt;
               const minAmount = Math.max(currentApproved, totalPaid);
-              const remainingOnInvoice = invoiceAmt - totalPaid;
+              const remainingOnInvoice = totalInvoiceAmt - totalPaid;
               return (
                 <>
                   <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
                     <p className="text-sm font-medium text-gray-900">
                       #{increaseAmountInvoice.invoiceNumber} — {increaseAmountInvoice.vendorName}
                     </p>
-                    <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                    <div className={`grid ${gstAmt > 0 ? 'grid-cols-4' : 'grid-cols-3'} gap-2 mt-2 text-xs`}>
                       <div>
-                        <span className="text-gray-400">Invoice Amount</span>
+                        <span className="text-gray-400">{gstAmt > 0 ? 'Amount' : 'Invoice Amount'}</span>
                         <p className="font-bold text-gray-900">₹{invoiceAmt.toLocaleString('en-IN')}</p>
                       </div>
+                      {gstAmt > 0 && (
+                        <div>
+                          <span className="text-gray-400">+ GST</span>
+                          <p className="font-bold text-blue-600">₹{gstAmt.toLocaleString('en-IN')}</p>
+                        </div>
+                      )}
                       <div>
                         <span className="text-gray-400">Current Approved</span>
                         <p className="font-bold text-emerald-700">₹{currentApproved.toLocaleString('en-IN')}</p>
@@ -1300,7 +1386,7 @@ export default function ApproverDashboard() {
                           type="number"
                           step="0.01"
                           min={minAmount + 0.01}
-                          max={increaseAmountInvoice.amount}
+                          max={String(totalInvoiceAmt)}
                           value={newApprovedAmount}
                           onChange={(e) => setNewApprovedAmount(e.target.value)}
                           className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 min-h-[44px]"
@@ -1309,8 +1395,8 @@ export default function ApproverDashboard() {
                       </div>
                       <p className="text-xs text-gray-400 mt-1">
                         {totalPaid > 0
-                          ? `₹${totalPaid.toLocaleString('en-IN')} already paid · New cap must be above ₹${minAmount.toLocaleString('en-IN')} and up to ₹${invoiceAmt.toLocaleString('en-IN')}`
-                          : `Must be higher than ₹${currentApproved.toLocaleString('en-IN')} and up to ₹${invoiceAmt.toLocaleString('en-IN')}`
+                          ? `₹${totalPaid.toLocaleString('en-IN')} already paid · New cap must be above ₹${minAmount.toLocaleString('en-IN')} and up to ₹${totalInvoiceAmt.toLocaleString('en-IN')}`
+                          : `Must be higher than ₹${currentApproved.toLocaleString('en-IN')} and up to ₹${totalInvoiceAmt.toLocaleString('en-IN')}`
                         }
                       </p>
                     </div>

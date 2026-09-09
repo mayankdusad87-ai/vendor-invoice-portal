@@ -19,7 +19,9 @@ export async function GET(request: NextRequest) {
     const payments = await getPaymentsByInvoiceId(invoiceId);
     const invoice = await getInvoiceById(invoiceId);
     const totalPaid = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-    const invoiceAmount = invoice ? parseFloat(invoice.amount) || 0 : 0;
+    const baseAmount = invoice ? parseFloat(invoice.amount) || 0 : 0;
+    const gstAmount = invoice ? parseFloat(invoice.gstAmount) || 0 : 0;
+    const invoiceAmount = baseAmount + gstAmount; // Total = Amount + GST
     // Approved amount is the payment cap (how much accounts is authorized to pay right now)
     const approvedAmount = invoice?.approvedAmount ? parseFloat(invoice.approvedAmount) || invoiceAmount : invoiceAmount;
     // Remaining on invoice = how much more needs to be paid to fully close the invoice
@@ -34,7 +36,7 @@ export async function GET(request: NextRequest) {
       approvedAmount,
       remaining: remainingOnInvoice,
       availableToPay,
-      // Fully paid = total payments cover the INVOICE amount (not just approved amount)
+      // Fully paid = total payments cover the total INVOICE amount (Amount + GST)
       isFullyPaid: totalPaid >= invoiceAmount,
       // Whether approved cap is exhausted (accounts can't pay more without higher approval)
       approvedCapReached: availableToPay <= 0 && totalPaid < invoiceAmount,
@@ -118,7 +120,9 @@ export async function POST(request: NextRequest) {
     // Check payment doesn't exceed remaining approved amount (the payment cap)
     const existingPayments = await getPaymentsByInvoiceId(invoiceId);
     const totalPaid = existingPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-    const invoiceAmount = parseFloat(invoice.amount) || 0;
+    const baseAmount = parseFloat(invoice.amount) || 0;
+    const gstAmount = parseFloat(invoice.gstAmount) || 0;
+    const invoiceAmount = baseAmount + gstAmount; // Total = Amount + GST
     const approvedAmount = invoice.approvedAmount ? parseFloat(invoice.approvedAmount) || invoiceAmount : invoiceAmount;
     const remainingApproved = approvedAmount - totalPaid; // Cap: how much more can be paid under current approval
 
@@ -143,7 +147,7 @@ export async function POST(request: NextRequest) {
     // Determine who paid
     const paidBy = session.type === 'accounts' ? session.accountsName : 'Admin';
 
-    // Determine new status based on total paid vs INVOICE amount (not approved amount)
+    // Determine new status based on total paid vs total INVOICE amount (Amount + GST)
     const newTotalPaid = totalPaid + paymentAmount;
     const newStatus = newTotalPaid >= invoiceAmount ? 'paid' : 'partially_paid';
 

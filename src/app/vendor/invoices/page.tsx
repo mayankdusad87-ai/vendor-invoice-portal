@@ -469,6 +469,7 @@ export default function VendorInvoices() {
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Amount</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">GST</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Total</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">Docs</th>
                       <th className="px-2 py-3" />
@@ -532,6 +533,18 @@ export default function VendorInvoices() {
                               ) : (
                                 <span className="text-gray-300">—</span>
                               )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {(() => {
+                                const base = parseFloat(invoice.amount) || 0;
+                                const gst = parseFloat(invoice.gstAmount || '') || 0;
+                                const total = base + gst;
+                                return gst > 0 ? (
+                                  <span className="text-sm font-bold text-gray-900">{formatCurrency(String(total))}</span>
+                                ) : (
+                                  <span className="text-sm text-gray-400">—</span>
+                                );
+                              })()}
                             </td>
                             <td className="px-4 py-3">
                               <StatusBadge status={invoice.status} />
@@ -622,12 +635,21 @@ export default function VendorInvoices() {
                       </div>
                       <p className="text-sm text-gray-500 mb-2 truncate">{invoice.purpose}</p>
                       <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                        <span className="font-bold text-gray-900 text-base">{formatCurrency(invoice.amount)}</span>
-                        {invoice.gstAmount && parseFloat(invoice.gstAmount) > 0 && (
-                          <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                            +GST {formatCurrency(invoice.gstAmount)}
-                          </span>
-                        )}
+                        {(() => {
+                          const base = parseFloat(invoice.amount) || 0;
+                          const gst = parseFloat(invoice.gstAmount || '') || 0;
+                          const total = base + gst;
+                          return gst > 0 ? (
+                            <>
+                              <span className="font-bold text-gray-900 text-base">{formatCurrency(String(total))}</span>
+                              <span className="text-[10px] text-gray-400">
+                                ({formatCurrency(invoice.amount)} + GST {formatCurrency(invoice.gstAmount!)})
+                              </span>
+                            </>
+                          ) : (
+                            <span className="font-bold text-gray-900 text-base">{formatCurrency(invoice.amount)}</span>
+                          );
+                        })()}
                         {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
                         <span>{formatDate(invoice.invoiceDate)}</span>
                       </div>

@@ -46,18 +46,20 @@ export async function GET(request: NextRequest) {
       // Include invoices visible to accounts and approvers
       if (!['submitted', 'under_review', 'approved', 'partially_paid', 'paid', 'rejected'].includes(inv.status)) continue;
 
-      const invoiceAmount = parseFloat(inv.amount) || 0;
-      const approvedAmount = inv.approvedAmount ? parseFloat(inv.approvedAmount) || invoiceAmount : invoiceAmount;
+      const baseAmount = parseFloat(inv.amount) || 0;
+      const gstAmount = parseFloat(inv.gstAmount) || 0;
+      const invoiceTotal = baseAmount + gstAmount; // Total = Amount + GST
+      const approvedAmount = inv.approvedAmount ? parseFloat(inv.approvedAmount) || invoiceTotal : invoiceTotal;
       const totalPaid = paymentsByInvoice[inv.id] || 0;
-      const remaining = Math.max(0, invoiceAmount - totalPaid);
+      const remaining = Math.max(0, invoiceTotal - totalPaid);
       const availableToPay = Math.max(0, approvedAmount - totalPaid);
 
       summaries[inv.id] = {
         totalPaid,
         remaining,
         availableToPay,
-        isFullyPaid: totalPaid >= invoiceAmount,
-        approvedCapReached: availableToPay <= 0 && totalPaid < invoiceAmount,
+        isFullyPaid: totalPaid >= invoiceTotal,
+        approvedCapReached: availableToPay <= 0 && totalPaid < invoiceTotal,
         paymentCount: paymentCountByInvoice[inv.id] || 0,
       };
     }

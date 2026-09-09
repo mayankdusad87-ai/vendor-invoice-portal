@@ -1088,10 +1088,20 @@ export default function AccountsDashboard() {
                             </td>
                             <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
                             <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <span className="font-semibold text-gray-900">{formatCurrency(invoiceAmt)}</span>
-                              {inv.gstAmount && parseFloat(inv.gstAmount) > 0 && (
-                                <span className="block text-[10px] text-blue-600">+GST {formatCurrency(inv.gstAmount)}</span>
-                              )}
+                              {(() => {
+                                const gst = parseFloat(inv.gstAmount || '') || 0;
+                                const total = invoiceAmt + gst;
+                                return gst > 0 ? (
+                                  <>
+                                    <span className="font-semibold text-gray-900">{formatCurrency(total)}</span>
+                                    <span className="block text-[10px] text-gray-400">
+                                      {formatCurrency(invoiceAmt)} + GST {formatCurrency(inv.gstAmount!)}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="font-semibold text-gray-900">{formatCurrency(invoiceAmt)}</span>
+                                );
+                              })()}
                             </td>
                             <td className="px-4 py-3 text-right whitespace-nowrap">
                               <span className={approvedAmt !== invoiceAmt ? 'text-emerald-700 font-semibold' : 'text-gray-600'}>
@@ -1386,10 +1396,18 @@ export default function AccountsDashboard() {
                       <div className="grid grid-cols-4 gap-2 text-xs">
                         <div>
                           <span className="text-gray-400">Invoice</span>
-                          <p className="font-bold text-gray-900">{formatCurrency(invoiceAmt)}</p>
-                          {inv.gstAmount && parseFloat(inv.gstAmount) > 0 && (
-                            <p className="text-[10px] text-blue-600">+GST {formatCurrency(inv.gstAmount)}</p>
-                          )}
+                          {(() => {
+                            const gst = parseFloat(inv.gstAmount || '') || 0;
+                            const total = invoiceAmt + gst;
+                            return gst > 0 ? (
+                              <>
+                                <p className="font-bold text-gray-900">{formatCurrency(total)}</p>
+                                <p className="text-[10px] text-gray-400">{formatCurrency(invoiceAmt)} + GST</p>
+                              </>
+                            ) : (
+                              <p className="font-bold text-gray-900">{formatCurrency(invoiceAmt)}</p>
+                            );
+                          })()}
                         </div>
                         <div>
                           <span className="text-gray-400">Approved</span>
