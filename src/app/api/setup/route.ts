@@ -15,8 +15,9 @@ export async function POST(request: NextRequest) {
 
   try {
     // Migrate invoice columns BEFORE setting headers — the migration detects
-    // old order by checking the current header at index 2 ("Invoice Date" = old).
-    // After migration, initializeSheetHeaders will force-update the header row.
+    // old order by checking headers (e.g. col H = "PO Number" = old 24/25-col format).
+    // It moves GST next to Amount & adds Total column. Then initializeSheetHeaders
+    // force-updates the header row to match the new 26-column layout (A–Z).
     const migratedInvoiceCols = await migrateInvoiceColumns();
 
     await initializeSheetHeaders();
