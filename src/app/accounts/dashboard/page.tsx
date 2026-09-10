@@ -47,17 +47,26 @@ interface Payment {
   paidBy: string;
   notes: string;
   createdAt: string;
+  basicAmount?: string;
+  gstAmount?: string;
+  paymentType?: string;
 }
 
 interface PaymentSummary {
   payments: Payment[];
   totalPaid: number;
   invoiceAmount: number;
+  invoiceBaseAmount?: number;
+  invoiceGSTAmount?: number;
   approvedAmount: number;
   remaining: number;
   availableToPay: number;
   isFullyPaid: boolean;
   approvedCapReached?: boolean;
+  totalBasicPaid?: number;
+  totalGSTPaid?: number;
+  basicRemaining?: number;
+  gstRemaining?: number;
 }
 
 interface BulkSummary {
@@ -162,7 +171,7 @@ function PaymentModal({
   invoice: Invoice;
   paymentSummary: PaymentSummary | null;
   onClose: () => void;
-  onSubmit: (data: { amount: string; utrReference: string; paymentDate: string; notes: string }) => void;
+  onSubmit: (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string }) => void;
   isSubmitting: boolean;
 }) {
   const [amount, setAmount] = useState('');
@@ -171,6 +180,13 @@ function PaymentModal({
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
+
+  // GST/Basic split
+  const invoiceGST = paymentSummary?.invoiceGSTAmount ?? (parseFloat(invoice.gstAmount || '') || 0);
+  const hasGST = invoiceGST > 0;
+  const [splitMode, setSplitMode] = useState<'combined' | 'split'>(hasGST ? 'split' : 'combined');
+  const [basicAmount, setBasicAmount] = useState('');
+  const [gstPayAmount, setGstPayAmount] = useState('');
 
   const invoiceRemaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
   const availableToPay = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
@@ -187,6 +203,19 @@ function PaymentModal({
     if (parsedAmt > availableToPay + 0.01) {
       setFormError(`Payment amount (₹${parsedAmt.toLocaleString('en-IN')}) exceeds available balance of ₹${availableToPay.toLocaleString('en-IN')}`);
       return;
+    }
+    // Validate GST/Basic split if enabled
+    if (splitMode === 'split') {
+      const basic = parseFloat(basicAmount) || 0;
+      const gst = parseFloat(gstPayAmount) || 0;
+      if (basic < 0 || gst < 0) {
+        setFormError('Basic and GST amounts cannot be negative');
+        return;
+      }
+      if (Math.abs((basic + gst) - parsedAmt) > 0.01) {
+        setFormError(`Basic (₹${basic.toLocaleString('en-IN')}) + GST (₹${gst.toLocaleString('en-IN')}) must equal total payment (₹${parsedAmt.toLocaleString('en-IN')})`);
+        return;
+      }
     }
     if (!utrReference.trim()) {
       setFormError('UTR / Reference number is required');
@@ -233,9 +262,14 @@ function PaymentModal({
             <p className="text-sm text-gray-600 mb-1">
               You are about to record a payment of
             </p>
-            <p className="text-2xl font-bold text-emerald-700 mb-2">
+            <p className="text-2xl font-bold text-emerald-700 mb-1">
               ₹{parseFloat(amount).toLocaleString('en-IN')}
             </p>
+            {splitMode === 'split' && (parseFloat(basicAmount) || 0) + (parseFloat(gstPayAmount) || 0) > 0 && (
+              <p className="text-xs text-gray-500 mb-1">
+                Basic: ₹{(parseFloat(basicAmount) || 0).toLocaleString('en-IN')} · GST: ₹{(parseFloat(gstPayAmount) || 0).toLocaleString('en-IN')}
+              </p>
+            )}
             <p className="text-sm text-gray-500 mb-1">
               for invoice <strong className="text-gray-900">#{invoice.invoiceNumber}</strong>
             </p>
@@ -256,7 +290,13 @@ function PaymentModal({
                 Go Back
               </button>
               <button
-                onClick={() => { setShowConfirm(false); onSubmit({ amount, utrReference, paymentDate, notes }); }}
+                onClick={() => {
+                  setShowConfirm(false);
+                  const splitData = splitMode === 'split'
+                    ? { basicAmount, gstAmount: gstPayAmount, paymentType: (parseFloat(basicAmount) || 0) > 0 && (parseFloat(gstPayAmount) || 0) > 0 ? 'combined' : (parseFloat(basicAmount) || 0) > 0 ? 'basic_only' : 'gst_only' }
+                    : {};
+                  onSubmit({ amount, utrReference, paymentDate, notes, ...splitData });
+                }}
                 disabled={isSubmitting}
                 className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 min-h-[44px]"
               >
@@ -340,6 +380,102 @@ function PaymentModal({
                   )}
                 </p>
               </div>
+
+              {/* GST / Basic Split (only shown when invoice has GST) */}
+              {hasGST && (
+                <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-600">Payment Split</span>
+                    <div className="flex rounded-md border border-gray-200 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setSplitMode('split')}
+                        className={`px-2.5 py-1 text-xs font-medium transition-colors ${splitMode === 'split' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        Basic + GST
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSplitMode('combined')}
+                        className={`px-2.5 py-1 text-xs font-medium transition-colors ${splitMode === 'combined' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        Combined
+                      </button>
+                    </div>
+                  </div>
+                  {splitMode === 'split' && (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Basic Amount</label>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₹</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={basicAmount}
+                              onChange={(e) => {
+                                setBasicAmount(e.target.value);
+                                setFormError('');
+                                // Auto-fill GST if total is set
+                                const parsedTotal = parseFloat(amount) || 0;
+                                const parsedBasic = parseFloat(e.target.value) || 0;
+                                if (parsedTotal > 0 && parsedBasic >= 0) {
+                                  setGstPayAmount(String(Math.max(0, +(parsedTotal - parsedBasic).toFixed(2))));
+                                }
+                              }}
+                              className="w-full pl-6 pr-2 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px]"
+                              placeholder="0.00"
+                            />
+                          </div>
+                          {paymentSummary?.basicRemaining !== undefined && (
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              Remaining: ₹{paymentSummary.basicRemaining.toLocaleString('en-IN')}
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">GST Amount</label>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₹</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={gstPayAmount}
+                              onChange={(e) => {
+                                setGstPayAmount(e.target.value);
+                                setFormError('');
+                                // Auto-fill basic if total is set
+                                const parsedTotal = parseFloat(amount) || 0;
+                                const parsedGst = parseFloat(e.target.value) || 0;
+                                if (parsedTotal > 0 && parsedGst >= 0) {
+                                  setBasicAmount(String(Math.max(0, +(parsedTotal - parsedGst).toFixed(2))));
+                                }
+                              }}
+                              className="w-full pl-6 pr-2 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px]"
+                              placeholder="0.00"
+                            />
+                          </div>
+                          {paymentSummary?.gstRemaining !== undefined && (
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              Remaining: ₹{paymentSummary.gstRemaining.toLocaleString('en-IN')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {/* Sum check */}
+                      {amount && (basicAmount || gstPayAmount) && (
+                        <p className={`text-xs ${Math.abs(((parseFloat(basicAmount) || 0) + (parseFloat(gstPayAmount) || 0)) - (parseFloat(amount) || 0)) < 0.02 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          Basic + GST = ₹{((parseFloat(basicAmount) || 0) + (parseFloat(gstPayAmount) || 0)).toLocaleString('en-IN')}
+                          {Math.abs(((parseFloat(basicAmount) || 0) + (parseFloat(gstPayAmount) || 0)) - (parseFloat(amount) || 0)) < 0.02 ? ' ✓' : ` ≠ ₹${(parseFloat(amount) || 0).toLocaleString('en-IN')}`}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1.5">
@@ -584,6 +720,30 @@ function PaymentHistory({
               style={{ width: `${Math.min(100, (payments.totalPaid / payments.invoiceAmount) * 100)}%` }}
             />
           </div>
+          {/* GST/Basic Breakdown */}
+          {(payments.invoiceGSTAmount ?? 0) > 0 && (
+            <div className="mt-3 pt-2 border-t border-gray-200">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Basic / GST Breakdown</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Basic Paid</span>
+                  <span className="font-medium text-gray-700">{formatCurrency(payments.totalBasicPaid ?? 0)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">GST Paid</span>
+                  <span className="font-medium text-gray-700">{formatCurrency(payments.totalGSTPaid ?? 0)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Basic Remaining</span>
+                  <span className="font-medium text-violet-600">{formatCurrency(payments.basicRemaining ?? 0)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">GST Remaining</span>
+                  <span className="font-medium text-violet-600">{formatCurrency(payments.gstRemaining ?? 0)}</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {payments.payments.length === 0 ? (
@@ -615,6 +775,16 @@ function PaymentHistory({
                     <span className="text-gray-400">Paid by: </span>
                     <span className="text-gray-700">{p.paidBy}</span>
                   </div>
+                  {(parseFloat(p.basicAmount || '') > 0 || parseFloat(p.gstAmount || '') > 0) && (
+                    <div className="col-span-2 flex gap-3 mt-0.5">
+                      {parseFloat(p.basicAmount || '') > 0 && (
+                        <span className="text-gray-500">Basic: <span className="font-medium text-gray-700">{formatCurrency(p.basicAmount!)}</span></span>
+                      )}
+                      {parseFloat(p.gstAmount || '') > 0 && (
+                        <span className="text-gray-500">GST: <span className="font-medium text-gray-700">{formatCurrency(p.gstAmount!)}</span></span>
+                      )}
+                    </div>
+                  )}
                   {p.notes && (
                     <div className="col-span-2">
                       <span className="text-gray-400">Notes: </span>
@@ -843,20 +1013,25 @@ export default function AccountsDashboard() {
 
   // Payment submission
   const handleRecordPayment = useCallback(
-    async (data: { amount: string; utrReference: string; paymentDate: string; notes: string }) => {
+    async (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string }) => {
       if (!paymentInvoice) return;
       setIsSubmitting(true);
       try {
+        const payload: Record<string, string> = {
+          invoiceId: paymentInvoice.id,
+          amount: data.amount,
+          utrReference: data.utrReference,
+          paymentDate: data.paymentDate,
+          notes: data.notes,
+        };
+        if (data.basicAmount) payload.basicAmount = data.basicAmount;
+        if (data.gstAmount) payload.gstAmount = data.gstAmount;
+        if (data.paymentType) payload.paymentType = data.paymentType;
+
         const res = await fetch('/api/payments', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            invoiceId: paymentInvoice.id,
-            amount: data.amount,
-            utrReference: data.utrReference,
-            paymentDate: data.paymentDate,
-            notes: data.notes,
-          }),
+          body: JSON.stringify(payload),
         });
         const result = await res.json();
         if (!res.ok) throw new Error(result.error || 'Failed to record payment');
@@ -1501,15 +1676,14 @@ export default function AccountsDashboard() {
                       {/* Header row */}
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
+                          {inv.project && (
+                            <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
+                              {inv.project}
+                            </span>
+                          )}
                           <span className="font-bold text-gray-900 text-sm">{inv.invoiceNumber}</span>
                           <span className="text-gray-400 text-xs">·</span>
                           <span className="text-sm text-gray-600">{inv.vendorName}</span>
-                          {inv.project && (
-                            <>
-                              <span className="text-gray-400 text-xs">·</span>
-                              <span className="text-xs text-indigo-600 font-medium">{inv.project}</span>
-                            </>
-                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <AccountsStatusBadge status={inv.status} />

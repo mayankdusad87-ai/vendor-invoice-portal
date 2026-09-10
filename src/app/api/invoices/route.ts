@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   getInvoices, getVendorInvoices, getInvoiceById, getActiveVendors,
   addInvoice, updateInvoiceStatus, resubmitInvoice,
+  addApprovalHistory, getApprovalHistory,
 } from '@/lib/google-sheets';
 import {
   requireAuth, requireEngineerOrVendor, requireAdminOrApprover,
@@ -240,6 +241,7 @@ export async function PUT(request: NextRequest) {
     const approvedBy = approverPayload?.approverName || (session.type === 'admin' ? 'Admin' : '');
 
     // ── Special action: increase approved amount on a partially_paid invoice ──
+    // ADDITIVE MODEL: the entered amount is ADDED to the current approved total
     if (body.action === 'increase_approved_amount') {
       if (invoice.status !== 'partially_paid' && invoice.status !== 'paid') {
         return NextResponse.json(
@@ -249,40 +251,52 @@ export async function PUT(request: NextRequest) {
       }
       const rawAmount = body.approvedAmount;
       if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
-        return NextResponse.json({ error: 'New approved amount is required' }, { status: 400 });
+        return NextResponse.json({ error: 'Additional approved amount is required' }, { status: 400 });
       }
-      const newApproved = parseFloat(rawAmount);
-      if (isNaN(newApproved) || newApproved <= 0) {
-        return NextResponse.json({ error: 'Approved amount must be a positive number' }, { status: 400 });
+      const additionalAmount = parseFloat(rawAmount);
+      if (isNaN(additionalAmount) || additionalAmount <= 0) {
+        return NextResponse.json({ error: 'Amount must be a positive number' }, { status: 400 });
       }
       const invoiceAmount = parseFloat(invoice.amount) || 0;
       const gstAmount = parseFloat(invoice.gstAmount) || 0;
       const totalInvoiceAmount = invoiceAmount + gstAmount;
-      if (newApproved > totalInvoiceAmount + 0.01) {
-        return NextResponse.json(
-          { error: `Approved amount cannot exceed total invoice amount (₹${totalInvoiceAmount.toLocaleString('en-IN')})` },
-          { status: 400 }
-        );
-      }
       const currentApproved = parseFloat(invoice.approvedAmount) || 0;
-      if (newApproved <= currentApproved + 0.01) {
+
+      // New cumulative total = current approved + additional amount entered
+      const newCumulativeApproved = currentApproved + additionalAmount;
+
+      if (newCumulativeApproved > totalInvoiceAmount + 0.01) {
+        const maxAdditional = totalInvoiceAmount - currentApproved;
         return NextResponse.json(
-          { error: `New amount must be higher than current approved amount (₹${currentApproved.toLocaleString('en-IN')})` },
+          { error: `Additional ₹${additionalAmount.toLocaleString('en-IN')} would exceed invoice total (₹${totalInvoiceAmount.toLocaleString('en-IN')}). Maximum additional: ₹${Math.max(0, maxAdditional).toLocaleString('en-IN')}` },
           { status: 400 }
         );
       }
 
-      // Keep status as partially_paid (accounts now has more room to pay)
+      // Log to ApprovalHistory
+      await addApprovalHistory({
+        invoiceId: id,
+        amount: String(additionalAmount),
+        cumulativeTotal: String(newCumulativeApproved),
+        approvedBy: approvedBy || invoice.approvedBy,
+        comments: approvalComments || '',
+      });
+
+      // Update invoice with new cumulative approved amount
       const success = await updateInvoiceStatus(
         id, 'partially_paid',
         approvalComments || invoice.approvalComments,
         approvedBy || invoice.approvedBy,
-        String(newApproved)
+        String(newCumulativeApproved)
       );
       if (!success) {
         return NextResponse.json({ error: 'Failed to update approved amount' }, { status: 500 });
       }
-      return NextResponse.json({ success: true, approvedAmount: String(newApproved) });
+      return NextResponse.json({
+        success: true,
+        approvedAmount: String(newCumulativeApproved),
+        additionalAmount: String(additionalAmount),
+      });
     }
 
     // ── Standard status change flow ──
@@ -336,6 +350,17 @@ export async function PUT(request: NextRequest) {
     const success = await updateInvoiceStatus(id, status as typeof invoice.status, approvalComments, approvedBy, approvedAmount);
     if (!success) {
       return NextResponse.json({ error: 'Failed to update invoice' }, { status: 500 });
+    }
+
+    // Log initial approval to ApprovalHistory for audit trail
+    if (status === 'approved' && approvedAmount) {
+      await addApprovalHistory({
+        invoiceId: id,
+        amount: approvedAmount,
+        cumulativeTotal: approvedAmount,
+        approvedBy,
+        comments: approvalComments || '',
+      });
     }
 
     return NextResponse.json({ success: true, approvedAmount });

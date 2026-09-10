@@ -22,20 +22,31 @@ export async function GET(request: NextRequest) {
     const baseAmount = invoice ? parseFloat(invoice.amount) || 0 : 0;
     const gstAmount = invoice ? parseFloat(invoice.gstAmount) || 0 : 0;
     const invoiceAmount = baseAmount + gstAmount; // Total = Amount + GST
-    // Approved amount is the payment cap (how much accounts is authorized to pay right now)
+    // Approved amount is the cumulative payment cap (sum of all approval tranches)
     const approvedAmount = invoice?.approvedAmount ? parseFloat(invoice.approvedAmount) || invoiceAmount : invoiceAmount;
     // Remaining on invoice = how much more needs to be paid to fully close the invoice
     const remainingOnInvoice = Math.max(0, invoiceAmount - totalPaid);
     // Available to pay now = how much more accounts can pay under the current approval cap
     const availableToPay = Math.max(0, approvedAmount - totalPaid);
 
+    // GST/Basic tracking — sum up basic and GST portions across all payments
+    const totalBasicPaid = payments.reduce((sum, p) => sum + (parseFloat(p.basicAmount) || 0), 0);
+    const totalGSTPaid = payments.reduce((sum, p) => sum + (parseFloat(p.gstAmount) || 0), 0);
+
     return NextResponse.json({
       payments,
       totalPaid,
       invoiceAmount,
+      invoiceBaseAmount: baseAmount,
+      invoiceGSTAmount: gstAmount,
       approvedAmount,
       remaining: remainingOnInvoice,
       availableToPay,
+      // GST/Basic breakdown
+      totalBasicPaid,
+      totalGSTPaid,
+      basicRemaining: Math.max(0, baseAmount - totalBasicPaid),
+      gstRemaining: Math.max(0, gstAmount - totalGSTPaid),
       // Fully paid = total payments cover the total INVOICE amount (Amount + GST)
       isFullyPaid: totalPaid >= invoiceAmount,
       // Whether approved cap is exhausted (accounts can't pay more without higher approval)
@@ -152,6 +163,31 @@ export async function POST(request: NextRequest) {
     // Determine who paid
     const paidBy = session.type === 'accounts' ? session.accountsName : 'Admin';
 
+    // Parse optional basic/GST split amounts
+    const basicAmountRaw = body.basicAmount !== undefined ? parseFloat(body.basicAmount) : NaN;
+    const gstAmountRaw = body.gstAmount !== undefined ? parseFloat(body.gstAmount) : NaN;
+    const paymentType = sanitizeString(body.paymentType, 20) || 'combined';
+
+    // Validate split amounts if provided
+    let basicAmount = '';
+    let gstAmountStr = '';
+    if (!isNaN(basicAmountRaw) || !isNaN(gstAmountRaw)) {
+      const basic = isNaN(basicAmountRaw) ? 0 : basicAmountRaw;
+      const gst = isNaN(gstAmountRaw) ? 0 : gstAmountRaw;
+      if (basic < 0 || gst < 0) {
+        return NextResponse.json({ error: 'Basic and GST amounts cannot be negative' }, { status: 400 });
+      }
+      // Basic + GST must equal the total payment amount
+      if (Math.abs((basic + gst) - paymentAmount) > 0.01) {
+        return NextResponse.json(
+          { error: `Basic (₹${basic.toLocaleString('en-IN')}) + GST (₹${gst.toLocaleString('en-IN')}) must equal total payment (₹${paymentAmount.toLocaleString('en-IN')})` },
+          { status: 400 }
+        );
+      }
+      basicAmount = String(basic);
+      gstAmountStr = String(gst);
+    }
+
     // Determine new status based on total paid vs total INVOICE amount (Amount + GST)
     const newTotalPaid = totalPaid + paymentAmount;
     const newStatus = newTotalPaid >= invoiceAmount ? 'paid' : 'partially_paid';
@@ -167,6 +203,9 @@ export async function POST(request: NextRequest) {
       paidBy,
       notes,
       paymentStatus: newStatus,
+      basicAmount,
+      gstAmount: gstAmountStr,
+      paymentType,
     });
 
     // Update invoice status on the Invoices sheet

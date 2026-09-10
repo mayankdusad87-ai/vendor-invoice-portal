@@ -197,6 +197,11 @@ export default function AdminInvoices() {
                   {/* Invoice Details */}
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
+                      {invoice.project && (
+                        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
+                          {invoice.project}
+                        </span>
+                      )}
                       <span className="font-bold text-[var(--text-primary)]">
                         {invoice.invoiceNumber}
                       </span>
@@ -204,14 +209,6 @@ export default function AdminInvoices() {
                       <span className="text-sm text-[var(--text-secondary)]">
                         {invoice.vendorName}
                       </span>
-                      {invoice.project && (
-                        <>
-                          <span className="text-sm text-[var(--text-muted)]">&bull;</span>
-                          <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
-                            {invoice.project}
-                          </span>
-                        </>
-                      )}
                       <span className="text-sm text-[var(--text-muted)]">&bull;</span>
                       <span className="text-sm text-[var(--text-muted)]">
                         {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}

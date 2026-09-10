@@ -961,6 +961,95 @@ export async function updateAccountsMember(id: string, updates: Partial<Accounts
   return true;
 }
 
+// ==================== APPROVAL HISTORY ====================
+
+export interface ApprovalHistoryEntry {
+  id: string;
+  invoiceId: string;
+  amount: string;           // This approval tranche amount
+  cumulativeTotal: string;  // Running sum of all approvals for this invoice
+  approvedBy: string;
+  comments: string;
+  createdAt: string;
+}
+
+async function ensureApprovalHistorySheet(): Promise<void> {
+  const sheets = getSheets();
+  try {
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'ApprovalHistory!A1:A1',
+    });
+  } catch {
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: 'ApprovalHistory' } } }],
+        },
+      });
+    } catch {
+      // Sheet might already exist — ignore
+    }
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'ApprovalHistory!A1:G1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Invoice ID', 'Amount', 'Cumulative Total', 'Approved By', 'Comments', 'Created At']],
+      },
+    });
+  }
+}
+
+export async function getApprovalHistory(invoiceId: string): Promise<ApprovalHistoryEntry[]> {
+  await ensureApprovalHistorySheet();
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'ApprovalHistory!A2:G',
+  });
+
+  const rows = response.data.values || [];
+  return rows
+    .map((row) => ({
+      id: row[0] || '',
+      invoiceId: row[1] || '',
+      amount: row[2] || '',
+      cumulativeTotal: row[3] || '',
+      approvedBy: row[4] || '',
+      comments: row[5] || '',
+      createdAt: row[6] || '',
+    }))
+    .filter((entry) => entry.invoiceId === invoiceId);
+}
+
+export async function addApprovalHistory(entry: Omit<ApprovalHistoryEntry, 'id' | 'createdAt'>): Promise<ApprovalHistoryEntry> {
+  await ensureApprovalHistorySheet();
+  const sheets = getSheets();
+  const id = `APR${Date.now()}`;
+  const createdAt = getISTTimestamp().combined;
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: 'ApprovalHistory!A:G',
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[
+        id,
+        entry.invoiceId,
+        entry.amount,
+        entry.cumulativeTotal,
+        entry.approvedBy,
+        entry.comments,
+        createdAt,
+      ]],
+    },
+  });
+
+  return { ...entry, id, createdAt };
+}
+
 // ==================== PAYMENTS ====================
 
 export interface Payment {
@@ -975,6 +1064,9 @@ export interface Payment {
   notes: string;
   paymentStatus: string; // 'partially_paid' or 'paid' at time of recording
   createdAt: string;
+  basicAmount: string;   // Portion applied to base amount
+  gstAmount: string;     // Portion applied to GST
+  paymentType: string;   // 'basic_only' | 'gst_only' | 'combined' | 'advance'
 }
 
 async function ensurePaymentsSheet(): Promise<void> {
@@ -997,10 +1089,12 @@ async function ensurePaymentsSheet(): Promise<void> {
     }
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Payments!A1:K1',
+      range: 'Payments!A1:N1',
       valueInputOption: 'RAW',
       requestBody: {
-        values: [['ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount', 'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At']],
+        values: [['ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount',
+          'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At',
+          'Basic Amount', 'GST Amount', 'Payment Type']],
       },
     });
   }
@@ -1011,7 +1105,7 @@ export async function getPayments(): Promise<Payment[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A2:K',
+    range: 'Payments!A2:N',
   });
 
   const rows = response.data.values || [];
@@ -1027,6 +1121,9 @@ export async function getPayments(): Promise<Payment[]> {
     notes: row[8] || '',
     paymentStatus: row[9] || '',
     createdAt: row[10] || '',
+    basicAmount: row[11] || '',
+    gstAmount: row[12] || '',
+    paymentType: row[13] || '',
   }));
 }
 
@@ -1043,7 +1140,7 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A:K',
+    range: 'Payments!A:N',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -1058,6 +1155,9 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
         payment.notes,
         payment.paymentStatus,
         createdAt,
+        payment.basicAmount || '',
+        payment.gstAmount || '',
+        payment.paymentType || 'combined',
       ]],
     },
   });
@@ -1436,6 +1536,9 @@ export async function initializeSheetHeaders(): Promise<void> {
   if (!existingSheets.includes('ProjectAccess')) {
     requests.push({ addSheet: { properties: { title: 'ProjectAccess' } } });
   }
+  if (!existingSheets.includes('ApprovalHistory')) {
+    requests.push({ addSheet: { properties: { title: 'ApprovalHistory' } } });
+  }
 
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
@@ -1567,15 +1670,16 @@ export async function initializeSheetHeaders(): Promise<void> {
     });
   }
 
-  // Always set correct headers for Payments tab (fixes stale/mismatched headers)
+  // Always set correct headers for Payments tab (with Basic/GST split columns)
   const expectedPaymentHeaders = [
     'ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount',
     'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At',
+    'Basic Amount', 'GST Amount', 'Payment Type',
   ];
 
   const paymentHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A1:K1',
+    range: 'Payments!A1:N1',
   });
 
   const currentPaymentHeaders = paymentHeaders.data.values?.[0] || [];
@@ -1583,10 +1687,31 @@ export async function initializeSheetHeaders(): Promise<void> {
       currentPaymentHeaders.some((h, i) => h !== expectedPaymentHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Payments!A1:K1',
+      range: 'Payments!A1:N1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedPaymentHeaders],
+      },
+    });
+  }
+
+  // Always set correct headers for ApprovalHistory tab
+  const expectedApprovalHeaders = [
+    'ID', 'Invoice ID', 'Amount', 'Cumulative Total', 'Approved By', 'Comments', 'Created At',
+  ];
+  const approvalHeaders = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'ApprovalHistory!A1:G1',
+  });
+  const currentApprovalHeaders = approvalHeaders.data.values?.[0] || [];
+  if (currentApprovalHeaders.length !== expectedApprovalHeaders.length ||
+      currentApprovalHeaders.some((h, i) => h !== expectedApprovalHeaders[i])) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'ApprovalHistory!A1:G1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [expectedApprovalHeaders],
       },
     });
   }
