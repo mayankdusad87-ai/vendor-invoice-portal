@@ -28,6 +28,11 @@ function SubmitInvoice() {
   // Vendors list for selection (billing engineer can submit for any vendor)
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
   const [selectedVendor, setSelectedVendor] = useState('');
+
+  // Projects the engineer has access to
+  const [engineerProjects, setEngineerProjects] = useState<string[]>([]);
+  const [selectedProject, setSelectedProject] = useState('');
+  const [allActiveProjects, setAllActiveProjects] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -75,6 +80,30 @@ function SubmitInvoice() {
       }
     };
     fetchVendors();
+
+    // Load engineer's project access and all active projects
+    const fetchProjectData = async () => {
+      try {
+        const [meRes, projRes] = await Promise.all([
+          fetch('/api/auth/me'),
+          fetch('/api/projects'),
+        ]);
+        const meData = await meRes.json();
+        const projData = await projRes.json();
+
+        const myProjects: string[] = meData.projects || [];
+        setEngineerProjects(myProjects);
+
+        const active = (projData.projects || []).filter((p: { status: string }) => p.status === 'active');
+        setAllActiveProjects(active);
+
+        // If engineer has project assignments, filter active projects to only theirs
+        // If no assignments, they can select any active project
+      } catch {
+        console.error('Failed to load project data');
+      }
+    };
+    fetchProjectData();
 
     // If resubmitting, load existing invoice data
     if (resubmitId && selectedVendor) {
@@ -197,6 +226,12 @@ function SubmitInvoice() {
     // ── Validate all fields ──
     if (!selectedVendor) {
       showError('Please select a vendor name');
+      return;
+    }
+
+    // Project is required if there are active projects
+    if (availableProjects.length > 0 && !selectedProject) {
+      showError('Please select a project');
       return;
     }
 
@@ -344,6 +379,7 @@ function SubmitInvoice() {
           body: JSON.stringify({
             id: resubmitId,
             vendorName: selectedVendor,
+            project: selectedProject,
             ...form,
             invoiceFileUrl,
             invoiceFileName,
@@ -369,6 +405,7 @@ function SubmitInvoice() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             vendorName: selectedVendor,
+            project: selectedProject,
             ...form,
             invoiceFileUrl,
             invoiceFileName,
@@ -395,6 +432,7 @@ function SubmitInvoice() {
 
       setSuccess(true);
       setForm({ invoiceDate: '', invoiceNumber: '', invoiceType: '', purpose: '', amount: '', gstAmount: '', remarks: '' });
+      setSelectedProject('');
       setInvoiceFile(null);
       setWorkPhotos([]);
       setMeasurementSheet(null);
@@ -435,6 +473,12 @@ function SubmitInvoice() {
   const existingPhotoCount = existingFiles.workPhotos
     ? existingFiles.workPhotos.split(',').filter(Boolean).length
     : 0;
+
+  // Compute available projects for the dropdown
+  // If engineer has project assignments, show only those; otherwise show all active projects
+  const availableProjects = engineerProjects.length > 0
+    ? allActiveProjects.filter((p) => engineerProjects.includes(p.name))
+    : allActiveProjects;
 
   if (!authReady) return null;
 
@@ -551,6 +595,32 @@ function SubmitInvoice() {
                   <p className="text-xs mt-1 text-blue-600">No vendors registered yet. Ask admin to add vendors.</p>
                 )}
               </div>
+
+              {/* Project Selection */}
+              {availableProjects.length > 0 && (
+                <div className="rounded-lg p-4 bg-indigo-50 border border-indigo-200">
+                  <label className="block text-sm font-semibold mb-2 text-indigo-700">
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                      </svg>
+                      Select Project *
+                    </span>
+                  </label>
+                  <select
+                    value={selectedProject}
+                    onChange={(e) => setSelectedProject(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[44px]"
+                    required
+                    aria-label="Select project"
+                  >
+                    <option value="">-- Select project --</option>
+                    {availableProjects.map((p) => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Basic Info */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

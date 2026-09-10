@@ -30,6 +30,7 @@ export interface EngineerToken {
   engineerName: string;
   engineerId: string;
   engineerEmail: string;
+  projects: string[];  // Project names this engineer has access to
 }
 
 export interface AccountsToken {
@@ -37,6 +38,7 @@ export interface AccountsToken {
   accountsName: string;
   accountsId: string;
   accountsEmail: string;
+  projects: string[];  // Project names this accounts member has access to
 }
 
 export interface AdminToken {

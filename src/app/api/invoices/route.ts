@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     if (isAuthError(session)) return session;
 
     // Engineer or vendor: can view invoices for a selected vendor name
-    // but must be authenticated first
+    // Filtered by project access — engineers only see invoices for their assigned projects
     if (session.type === 'engineer' || session.type === 'vendor') {
       const vendorNameParam = request.nextUrl.searchParams.get('vendorName');
 
@@ -29,9 +29,18 @@ export async function GET(request: NextRequest) {
       const check = rateLimit(key, { maxRequests: 30, windowMs: 60_000 });
       if (!check.allowed) return rateLimitResponse(check.retryAfterMs!);
 
-      // No vendor filter → return all invoices for the billing manager
+      // Get engineer's project access for filtering
+      const engineerProjects = session.type === 'engineer'
+        ? (session as import('@/lib/auth').EngineerToken).projects
+        : [];
+
+      // No vendor filter → return all invoices for the billing manager (filtered by project)
       if (!vendorNameParam) {
-        const invoices = await getInvoices();
+        let invoices = await getInvoices();
+        // Filter by project access if the engineer has assigned projects
+        if (engineerProjects.length > 0) {
+          invoices = invoices.filter((inv) => engineerProjects.includes(inv.project));
+        }
         invoices.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
         return NextResponse.json({ invoices });
       }
@@ -50,24 +59,34 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ invoices: [] }); // Return empty, don't reveal if vendor exists
       }
 
-      const invoices = await getVendorInvoices(matchedVendor.name);
+      let invoices = await getVendorInvoices(matchedVendor.name);
+      // Filter by project access
+      if (engineerProjects.length > 0) {
+        invoices = invoices.filter((inv) => engineerProjects.includes(inv.project));
+      }
       invoices.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
       return NextResponse.json({ invoices });
     }
 
-    // Admin/Approver: can view all invoices
+    // Admin/Approver: can view all invoices (approver is common across projects)
     if (session.type === 'admin' || session.type === 'approver') {
       const invoices = await getInvoices();
       invoices.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
       return NextResponse.json({ invoices });
     }
 
-    // Accounts team: can view approved, partially_paid, paid, and rejected invoices
+    // Accounts team: can view approved/partially_paid/paid/rejected invoices
+    // Filtered by project access — accounts only see invoices for their assigned projects
     if (session.type === 'accounts') {
+      const accountsProjects = (session as import('@/lib/auth').AccountsToken).projects;
       const invoices = await getInvoices();
-      const accountsVisible = invoices.filter(
+      let accountsVisible = invoices.filter(
         (inv) => ['approved', 'partially_paid', 'paid', 'rejected'].includes(inv.status)
       );
+      // Filter by project access if the accounts member has assigned projects
+      if (accountsProjects.length > 0) {
+        accountsVisible = accountsVisible.filter((inv) => accountsProjects.includes(inv.project));
+      }
       accountsVisible.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
       return NextResponse.json({ invoices: accountsVisible });
     }
@@ -96,6 +115,7 @@ export async function POST(request: NextRequest) {
     // The billing engineer selects which vendor to submit for from a dropdown,
     // but they must be authenticated first. The vendorName comes from the body
     // (selected vendor), NOT from the session (the billing engineer's own identity).
+    const project = sanitizeString(body.project, 100);
     const vendorName = sanitizeString(body.vendorName, 100);
     const invoiceDate = sanitizeDate(body.invoiceDate);
     const invoiceNumber = sanitizeString(body.invoiceNumber, 50);
@@ -123,6 +143,18 @@ export async function POST(request: NextRequest) {
         : '';
 
     // Validate required fields
+    if (!project) {
+      return NextResponse.json({ error: 'Project is required' }, { status: 400 });
+    }
+
+    // Verify engineer has access to this project
+    if (session.type === 'engineer') {
+      const engineerSession = session as import('@/lib/auth').EngineerToken;
+      if (engineerSession.projects.length > 0 && !engineerSession.projects.includes(project)) {
+        return NextResponse.json({ error: 'You do not have access to this project' }, { status: 403 });
+      }
+    }
+
     if (!vendorName) {
       return NextResponse.json({ error: 'Vendor name is required' }, { status: 400 });
     }
@@ -152,6 +184,7 @@ export async function POST(request: NextRequest) {
     }
 
     const invoice = await addInvoice({
+      project,
       vendorName: matchedVendor.name, // Use exact DB name
       invoiceDate,
       invoiceNumber,

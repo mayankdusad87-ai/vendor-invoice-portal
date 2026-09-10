@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getActiveAccountsMembers } from '@/lib/google-sheets';
+import { getActiveAccountsMembers, getUserProjects } from '@/lib/google-sheets';
 import { signToken, setAuthCookie } from '@/lib/auth';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
@@ -41,16 +41,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Fetch project access for this accounts member
+    const projects = await getUserProjects(member.id, 'accounts');
+
     const token = signToken({
       type: 'accounts',
       accountsName: member.name,
       accountsId: member.id,
       accountsEmail: member.email,
+      projects,
     });
 
     const response = NextResponse.json({
       success: true,
-      member: { id: member.id, name: member.name },
+      member: { id: member.id, name: member.name, projects },
     });
     setAuthCookie(response, token);
     return response;

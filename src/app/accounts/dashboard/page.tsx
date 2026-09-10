@@ -13,6 +13,7 @@ import type { InvoiceStatus } from '@/lib/constants';
 
 interface Invoice {
   id: string;
+  project?: string;
   vendorName: string;
   invoiceDate: string;
   invoiceNumber: string;
@@ -1155,6 +1156,7 @@ export default function AccountsDashboard() {
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice #</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vendor</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Project</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice Amt</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Approved</th>
@@ -1204,6 +1206,9 @@ export default function AccountsDashboard() {
                                 </div>
                                 <span className="text-gray-700 truncate max-w-[140px]">{inv.vendorName}</span>
                               </div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-sm">
+                              {inv.project || <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
                             <td className="px-4 py-3 text-right whitespace-nowrap">
@@ -1309,7 +1314,7 @@ export default function AccountsDashboard() {
                           {/* Expanded detail row */}
                           {isExpanded && (
                             <tr>
-                              <td colSpan={10} className="p-0">
+                              <td colSpan={11} className="p-0">
                                 <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100">
                                   {/* Detail grid */}
                                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs mb-4">
@@ -1499,6 +1504,12 @@ export default function AccountsDashboard() {
                           <span className="font-bold text-gray-900 text-sm">{inv.invoiceNumber}</span>
                           <span className="text-gray-400 text-xs">·</span>
                           <span className="text-sm text-gray-600">{inv.vendorName}</span>
+                          {inv.project && (
+                            <>
+                              <span className="text-gray-400 text-xs">·</span>
+                              <span className="text-xs text-indigo-600 font-medium">{inv.project}</span>
+                            </>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <AccountsStatusBadge status={inv.status} />

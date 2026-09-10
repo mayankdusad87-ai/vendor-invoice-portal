@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getActiveEngineers } from '@/lib/google-sheets';
+import { getActiveEngineers, getUserProjects } from '@/lib/google-sheets';
 import { signToken, setAuthCookie } from '@/lib/auth';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
@@ -43,17 +43,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Fetch project access for this engineer
+    const projects = await getUserProjects(engineer.id, 'engineer');
+
     const token = signToken({
       type: 'engineer',
       engineerName: engineer.name,
       engineerId: engineer.id,
       engineerEmail: engineer.email,
+      projects,
     });
 
     // Set HttpOnly cookie — the client never sees the JWT
     const response = NextResponse.json({
       success: true,
-      engineer: { id: engineer.id, name: engineer.name },
+      engineer: { id: engineer.id, name: engineer.name, projects },
     });
     setAuthCookie(response, token);
     return response;

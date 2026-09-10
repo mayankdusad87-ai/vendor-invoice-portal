@@ -11,6 +11,7 @@ import type { InvoiceStatus } from '@/lib/constants';
 
 interface Invoice {
   id: string;
+  project?: string;
   vendorName: string;
   invoiceDate: string;
   invoiceNumber: string;
@@ -203,6 +204,14 @@ export default function AdminInvoices() {
                       <span className="text-sm text-[var(--text-secondary)]">
                         {invoice.vendorName}
                       </span>
+                      {invoice.project && (
+                        <>
+                          <span className="text-sm text-[var(--text-muted)]">&bull;</span>
+                          <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
+                            {invoice.project}
+                          </span>
+                        </>
+                      )}
                       <span className="text-sm text-[var(--text-muted)]">&bull;</span>
                       <span className="text-sm text-[var(--text-muted)]">
                         {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}

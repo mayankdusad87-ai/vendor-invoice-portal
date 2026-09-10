@@ -10,6 +10,7 @@ import type { InvoiceStatus } from '@/lib/constants';
 
 interface Invoice {
   id: string;
+  project?: string;
   vendorName: string;
   invoiceDate: string;
   invoiceNumber: string;
@@ -831,6 +832,11 @@ export default function ApproverDashboard() {
                         <span className="font-bold text-gray-900 text-sm">{invoice.invoiceNumber}</span>
                         <span className="text-gray-400 text-xs">·</span>
                         <span className="text-sm text-gray-600">{invoice.vendorName}</span>
+                        {invoice.project && (
+                          <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
+                            {invoice.project}
+                          </span>
+                        )}
                         {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
                         <StatusBadge status={invoice.status} />
                       </div>

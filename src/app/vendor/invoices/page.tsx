@@ -15,6 +15,7 @@ import type { InvoiceStatus } from '@/lib/constants';
 
 interface Invoice {
   id: string;
+  project?: string;
   vendorName: string;
   invoiceDate: string;
   invoiceNumber: string;
@@ -465,6 +466,7 @@ export default function VendorInvoices() {
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vendor</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Project</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Amount</th>
@@ -514,6 +516,9 @@ export default function VendorInvoices() {
                                 </div>
                                 <span className="text-sm text-gray-700">{invoice.vendorName}</span>
                               </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                              {invoice.project || <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                               {formatDate(invoice.invoiceDate)}
@@ -572,7 +577,7 @@ export default function VendorInvoices() {
                           {/* Expanded row */}
                           {isExpanded && (
                             <tr>
-                              <td colSpan={9} className="px-4 py-4 bg-gray-50/50">
+                              <td colSpan={10} className="px-4 py-4 bg-gray-50/50">
                                 <ExpandedInvoiceDetail
                                   invoice={invoice}
                                   photoUrls={photoUrls}
@@ -622,6 +627,12 @@ export default function VendorInvoices() {
                           <span className="text-sm font-bold text-gray-900">{invoice.invoiceNumber}</span>
                           <span className="text-xs text-gray-400">·</span>
                           <span className="text-sm text-gray-600">{invoice.vendorName}</span>
+                          {invoice.project && (
+                            <>
+                              <span className="text-xs text-gray-400">·</span>
+                              <span className="text-xs text-indigo-600 font-medium">{invoice.project}</span>
+                            </>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <StatusBadge status={invoice.status} />

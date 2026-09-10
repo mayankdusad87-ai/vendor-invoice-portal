@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
       engineerName: session.engineerName,
       engineerId: session.engineerId,
       engineerEmail: session.engineerEmail,
+      projects: session.projects || [],
     });
   }
 
@@ -48,6 +49,7 @@ export async function GET(request: NextRequest) {
       accountsName: session.accountsName,
       accountsId: session.accountsId,
       accountsEmail: session.accountsEmail,
+      projects: session.projects || [],
     });
   }
 
