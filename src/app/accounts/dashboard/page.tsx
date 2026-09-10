@@ -76,6 +76,9 @@ interface BulkSummary {
   isFullyPaid: boolean;
   approvedCapReached: boolean;
   paymentCount: number;
+  hasNewAuthorization?: boolean;
+  newAuthorizationAmount?: string;
+  newAuthorizationBy?: string;
 }
 
 /* =====================================================================
@@ -1440,7 +1443,17 @@ export default function AccountsDashboard() {
                               )}
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <AccountsStatusBadge status={inv.status} />
+                              <div className="flex flex-col items-center gap-1">
+                                <AccountsStatusBadge status={inv.status} />
+                                {bulk?.hasNewAuthorization && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 animate-pulse">
+                                    <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                                    </svg>
+                                    New +₹{parseFloat(bulk.newAuthorizationAmount || '0').toLocaleString('en-IN')}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-center">
                               {hasAttachments ? (
@@ -1709,6 +1722,17 @@ export default function AccountsDashboard() {
                           </svg>
                         </div>
                       </div>
+
+                      {/* New Authorization badge (mobile) */}
+                      {bulk?.hasNewAuthorization && (
+                        <div className="mb-2 p-2 rounded-lg bg-blue-50 border border-blue-200 flex items-center gap-2">
+                          <span className="flex-shrink-0 w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                          <p className="text-xs text-blue-700 font-medium">
+                            New authorization: <strong>+₹{parseFloat(bulk.newAuthorizationAmount || '0').toLocaleString('en-IN')}</strong>
+                            {bulk.newAuthorizationBy && <span className="text-blue-500"> by {bulk.newAuthorizationBy}</span>}
+                          </p>
+                        </div>
+                      )}
 
                       {/* Key amounts — always visible */}
                       <div className="grid grid-cols-4 gap-2 text-xs">

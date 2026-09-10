@@ -1050,6 +1050,27 @@ export async function addApprovalHistory(entry: Omit<ApprovalHistoryEntry, 'id' 
   return { ...entry, id, createdAt };
 }
 
+/** Get ALL approval history entries (no invoice filter). Used by bulk-summary. */
+export async function getAllApprovalHistory(): Promise<ApprovalHistoryEntry[]> {
+  await ensureApprovalHistorySheet();
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'ApprovalHistory!A2:G',
+  });
+
+  const rows = response.data.values || [];
+  return rows.map((row) => ({
+    id: row[0] || '',
+    invoiceId: row[1] || '',
+    amount: row[2] || '',
+    cumulativeTotal: row[3] || '',
+    approvedBy: row[4] || '',
+    comments: row[5] || '',
+    createdAt: row[6] || '',
+  }));
+}
+
 // ==================== PAYMENTS ====================
 
 export interface Payment {
