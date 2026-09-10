@@ -369,16 +369,30 @@ function PaymentModal({
                     max={availableToPay}
                     value={amount}
                     onChange={(e) => { setAmount(e.target.value); setFormError(''); }}
-                    className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                    className={`w-full pl-7 pr-3 py-2.5 rounded-lg border text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 min-h-[44px] ${
+                      amount && (parseFloat(amount) > availableToPay + 0.01 || parseFloat(amount) > invoiceRemaining + 0.01)
+                        ? 'border-red-400 bg-red-50 focus:ring-red-500 focus:border-red-500'
+                        : 'border-gray-200 bg-gray-50 focus:ring-blue-500 focus:border-blue-500'
+                    }`}
                     placeholder="Enter payment amount"
                   />
                 </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  Invoice remaining: {formatCurrency(invoiceRemaining)}
-                  {availableToPay !== invoiceRemaining && (
-                    <span className="text-amber-500"> · Available now: {formatCurrency(availableToPay)}</span>
-                  )}
-                </p>
+                {amount && parseFloat(amount) > availableToPay + 0.01 ? (
+                  <p className="text-xs text-red-500 mt-1 font-medium">
+                    ⚠ Amount exceeds available balance of {formatCurrency(availableToPay)}
+                  </p>
+                ) : amount && parseFloat(amount) > invoiceRemaining + 0.01 ? (
+                  <p className="text-xs text-red-500 mt-1 font-medium">
+                    ⚠ Amount exceeds invoice remaining of {formatCurrency(invoiceRemaining)}
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Max payable: {formatCurrency(Math.min(availableToPay, invoiceRemaining))}
+                    {availableToPay !== invoiceRemaining && (
+                      <span className="text-amber-500"> · Available now: {formatCurrency(availableToPay)}</span>
+                    )}
+                  </p>
+                )}
               </div>
 
               {/* GST / Basic Split (only shown when invoice has GST) */}
@@ -530,7 +544,7 @@ function PaymentModal({
               </button>
               <button
                 onClick={validateAndConfirm}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !amount || (parseFloat(amount) || 0) > Math.min(availableToPay, invoiceRemaining) + 0.01 || (parseFloat(amount) || 0) <= 0}
                 className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
               >
                 {isSubmitting ? (
