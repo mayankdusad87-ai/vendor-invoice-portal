@@ -282,10 +282,18 @@ export async function PUT(request: NextRequest) {
         comments: approvalComments || '',
       });
 
-      // Update invoice with new cumulative approved amount
+      // Build approval comments that include tranche detail for the Invoices sheet
+      const trancheNote = `+₹${additionalAmount.toLocaleString('en-IN')} authorized (total: ₹${newCumulativeApproved.toLocaleString('en-IN')})`;
+      const userComment = approvalComments ? `${approvalComments} | ${trancheNote}` : trancheNote;
+      const existingComments = invoice.approvalComments || '';
+      const updatedComments = existingComments
+        ? `${existingComments}\n${userComment}`
+        : userComment;
+
+      // Update invoice with new cumulative approved amount and appended comments
       const success = await updateInvoiceStatus(
         id, 'partially_paid',
-        approvalComments || invoice.approvalComments,
+        updatedComments,
         approvedBy || invoice.approvedBy,
         String(newCumulativeApproved)
       );
