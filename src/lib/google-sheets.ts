@@ -1702,6 +1702,30 @@ export async function updateProject(id: string, updates: { name?: string; status
     requestBody: { values: [updatedRow] },
   });
 
+  // Cascade project name change to ProjectAccess entries
+  if (updates.name && updates.name !== currentRow[1]) {
+    try {
+      const paResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'ProjectAccess!A2:G',
+      });
+      const paRows = paResponse.data.values || [];
+      for (let i = 0; i < paRows.length; i++) {
+        if (paRows[i][1] === id) {
+          // Update project name (col C = index 2) in this row
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: `ProjectAccess!C${i + 2}`,
+            valueInputOption: 'RAW',
+            requestBody: { values: [[updates.name]] },
+          });
+        }
+      }
+    } catch {
+      // ProjectAccess sheet may not exist yet — ignore
+    }
+  }
+
   return true;
 }
 
@@ -1820,9 +1844,11 @@ export async function setUserProjectAccess(
     }
   }
 
-  // Add new assignments that don't exist yet
+  // Add new assignments or update stale project names
+  const sheets = getSheets();
   for (const proj of projectAssignments) {
-    if (!userAccess.find((a) => a.projectId === proj.projectId)) {
+    const existing = userAccess.find((a) => a.projectId === proj.projectId);
+    if (!existing) {
       await addProjectAccess({
         projectId: proj.projectId,
         projectName: proj.projectName,
@@ -1830,6 +1856,26 @@ export async function setUserProjectAccess(
         userId,
         userName,
       });
+    } else if (existing.projectName !== proj.projectName) {
+      // Project was renamed — update the name in the existing row
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'ProjectAccess!A2:G',
+        });
+        const rows = response.data.values || [];
+        const rowIndex = rows.findIndex((row) => row[0] === existing.id);
+        if (rowIndex !== -1) {
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: `ProjectAccess!C${rowIndex + 2}`,
+            valueInputOption: 'RAW',
+            requestBody: { values: [[proj.projectName]] },
+          });
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 }

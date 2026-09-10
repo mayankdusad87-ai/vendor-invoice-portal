@@ -219,7 +219,7 @@ export default function AdminProjects() {
                       <span className="badge badge-active">Active</span>
                     </div>
                     <p className="text-xs text-[var(--text-muted)] mt-1">
-                      Created: {new Date(project.createdAt).toLocaleDateString('en-IN')}
+                      Created: {project.createdAt.split(',')[0] || project.createdAt}
                     </p>
                   </div>
                   <div className="flex gap-2">
