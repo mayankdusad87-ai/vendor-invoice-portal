@@ -5,6 +5,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import TypeBadge from '@/components/ui/TypeBadge';
 import PhotoViewer from '@/components/ui/PhotoViewer';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
+import PaymentLifecycle from '@/components/ui/PaymentLifecycle';
 import { useApproverAuth } from '@/hooks/useApproverAuth';
 import type { InvoiceStatus } from '@/lib/constants';
 
@@ -1202,93 +1203,30 @@ export default function ApproverDashboard() {
                           </div>
                         )}
 
-                        {/* Payment progress for partially_paid / paid invoices */}
+                        {/* Payment Lifecycle — structured tranche + payment view */}
                         {isPaymentPhase && (
-                          <div className="mb-4 rounded-lg p-4 bg-violet-50/50 border border-violet-100">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-semibold text-gray-900">Payment Progress</span>
-                              <StatusBadge status={invoice.status} />
-                            </div>
-                            {cachedPayment ? (
-                              <>
-                                <div className="grid grid-cols-3 gap-3 text-xs mb-3">
-                                  <div>
-                                    <p className="text-gray-400">Invoice</p>
-                                    <p className="font-bold text-gray-900">₹{cachedPayment.invoiceAmount.toLocaleString('en-IN')}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-gray-400">Paid</p>
-                                    <p className="font-bold text-emerald-600">₹{cachedPayment.totalPaid.toLocaleString('en-IN')}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-gray-400">Remaining</p>
-                                    <p className={`font-bold ${cachedPayment.remaining === 0 ? 'text-emerald-600' : 'text-violet-600'}`}>
-                                      ₹{cachedPayment.remaining.toLocaleString('en-IN')}
-                                    </p>
-                                  </div>
-                                </div>
-                                {/* Progress bar based on invoice amount */}
-                                <div className="h-2 rounded-full bg-gray-200 overflow-hidden mb-2">
-                                  <div
-                                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-                                    style={{ width: `${Math.min(100, (cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}%` }}
-                                  />
-                                </div>
-                                <div className="flex items-center justify-between text-xs text-gray-400">
-                                  <span>{cachedPayment.payments.length} payment{cachedPayment.payments.length !== 1 ? 's' : ''}</span>
-                                  <span>{Math.round((cachedPayment.totalPaid / cachedPayment.invoiceAmount) * 100)}% of invoice</span>
-                                </div>
-                                {/* Show approved cap info */}
-                                {cachedPayment.approvedAmount < cachedPayment.invoiceAmount && (
-                                  <div className="mt-2 pt-2 border-t border-violet-100">
-                                    <div className="flex items-center justify-between text-xs">
-                                      <span className="text-gray-500">
-                                        Approved cap: ₹{cachedPayment.approvedAmount.toLocaleString('en-IN')}
-                                        <span className="text-gray-400"> of ₹{cachedPayment.invoiceAmount.toLocaleString('en-IN')}</span>
-                                      </span>
-                                      {cachedPayment.approvedCapReached && invoice.status === 'partially_paid' && (
-                                        <span className="text-amber-600 font-medium">Cap reached</span>
-                                      )}
-                                    </div>
-                                    {/* Increase Approved Amount button */}
-                                    {invoice.status === 'partially_paid' && (
-                                      <button
-                                        onClick={() => {
-                                          setIncreaseAmountInvoice(invoice);
-                                          setNewApprovedAmount('');
-                                        }}
-                                        className="mt-2 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors min-h-[44px]"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                        </svg>
-                                        Authorize Additional Payment
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
-                              </>
-                            ) : paymentLoadErrors[invoice.id] ? (
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-red-500">Failed to load payment data</span>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); fetchPaymentSummary(invoice.id); }}
-                                  className="text-xs px-2.5 py-1 rounded-lg bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 font-medium transition-colors"
-                                >
-                                  Retry
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2 text-sm text-gray-400">
-                                <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-violet-500 rounded-full animate-spin" />
-                                Loading payment data…
-                              </div>
+                          <div className="mb-4 space-y-3">
+                            <PaymentLifecycle invoiceId={invoice.id} role="approver" />
+                            {/* Authorize Additional Payment button (kept outside lifecycle component) */}
+                            {invoice.status === 'partially_paid' && (
+                              <button
+                                onClick={() => {
+                                  setIncreaseAmountInvoice(invoice);
+                                  setNewApprovedAmount('');
+                                }}
+                                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors min-h-[44px]"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                                Authorize Additional Payment
+                              </button>
                             )}
                           </div>
                         )}
 
-                        {/* Approval History Timeline */}
-                        {(invoice.status === 'approved' || isPaymentPhase) && approvalHistoryCache[invoice.id] && approvalHistoryCache[invoice.id].length > 0 && (
+                        {/* Approval History Timeline — only for approved (pre-payment) invoices */}
+                        {invoice.status === 'approved' && !isPaymentPhase && approvalHistoryCache[invoice.id] && approvalHistoryCache[invoice.id].length > 0 && (
                           <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
                             <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Authorization History</h4>
                             <div className="relative">
