@@ -43,6 +43,9 @@ interface Invoice {
 
 interface BulkSummary {
   totalPaid: number;
+  totalTDS: number;
+  totalRetention: number;
+  totalConsumed: number;
   remaining: number;
   availableToPay: number;
   isFullyPaid: boolean;
@@ -53,6 +56,9 @@ interface BulkSummary {
 interface PaymentSummary {
   payments: { id: string; amount: string; utrReference: string; paymentDate: string; paidBy: string; notes: string; createdAt: string }[];
   totalPaid: number;
+  totalTDS?: number;
+  totalRetention?: number;
+  totalConsumed?: number;
   invoiceAmount: number;
   approvedAmount: number;
   remaining: number;
@@ -1573,12 +1579,17 @@ export default function ApproverDashboard() {
             {(() => {
               const cachedPay = paymentCache[increaseAmountInvoice.id];
               const totalPaid = cachedPay?.totalPaid ?? 0;
+              const totalTDS = cachedPay?.totalTDS ?? 0;
+              const totalRetention = cachedPay?.totalRetention ?? 0;
+              // Gross consumed = net to vendor + TDS + retention — all consume from approved cap
+              const totalConsumed = cachedPay?.totalConsumed ?? totalPaid;
+              const hasDeductions = totalTDS > 0 || totalRetention > 0;
               const currentApproved = parseFloat(increaseAmountInvoice.approvedAmount || increaseAmountInvoice.amount) || 0;
               const invoiceAmt = parseFloat(increaseAmountInvoice.amount) || 0;
               const gstAmt = parseFloat(increaseAmountInvoice.gstAmount || '') || 0;
               const totalInvoiceAmt = invoiceAmt + gstAmt;
               const maxAdditional = Math.max(0, totalInvoiceAmt - currentApproved);
-              const remainingOnInvoice = totalInvoiceAmt - totalPaid;
+              const remainingOnInvoice = totalInvoiceAmt - totalConsumed;
               const additionalVal = parseFloat(newApprovedAmount) || 0;
               const newCumulative = currentApproved + additionalVal;
               return (
@@ -1598,12 +1609,19 @@ export default function ApproverDashboard() {
                         <p className="font-bold text-emerald-700">₹{currentApproved.toLocaleString('en-IN')}</p>
                       </div>
                       <div>
-                        <span className="text-gray-400">Already Paid</span>
-                        <p className="font-bold text-violet-600">₹{totalPaid.toLocaleString('en-IN')}</p>
+                        <span className="text-gray-400">Consumed (Gross)</span>
+                        <p className="font-bold text-violet-600">₹{totalConsumed.toLocaleString('en-IN')}</p>
+                        {hasDeductions && (
+                          <p className="text-[10px] text-gray-400">
+                            ₹{totalPaid.toLocaleString('en-IN')} paid
+                            {totalTDS > 0 && ` + ₹${totalTDS.toLocaleString('en-IN')} TDS`}
+                            {totalRetention > 0 && ` + ₹${totalRetention.toLocaleString('en-IN')} retention`}
+                          </p>
+                        )}
                       </div>
                       <div>
                         <span className="text-gray-400">Remaining on Invoice</span>
-                        <p className="font-bold text-amber-600">₹{remainingOnInvoice.toLocaleString('en-IN')}</p>
+                        <p className="font-bold text-amber-600">₹{Math.max(0, remainingOnInvoice).toLocaleString('en-IN')}</p>
                       </div>
                     </div>
                   </div>
@@ -1636,7 +1654,7 @@ export default function ApproverDashboard() {
                             New total authorized: ₹{currentApproved.toLocaleString('en-IN')} + ₹{additionalVal.toLocaleString('en-IN')} = <strong>₹{newCumulative.toLocaleString('en-IN')}</strong>
                           </p>
                           <p className="text-xs text-emerald-600 mt-0.5">
-                            Accounts can pay ₹{Math.max(0, newCumulative - totalPaid).toLocaleString('en-IN')} after this
+                            Accounts can pay ₹{Math.max(0, newCumulative - totalConsumed).toLocaleString('en-IN')} after this
                           </p>
                         </div>
                       )}

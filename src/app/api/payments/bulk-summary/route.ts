@@ -25,12 +25,21 @@ export async function GET(request: NextRequest) {
     ]);
 
     // Group payments by invoice ID — track totals and latest timestamp
-    const paymentsByInvoice: Record<string, number> = {};
+    const paymentsByInvoice: Record<string, number> = {};          // net to vendor
+    const consumedByInvoice: Record<string, number> = {};          // gross = net + TDS + retention
+    const tdsByInvoice: Record<string, number> = {};
+    const retentionByInvoice: Record<string, number> = {};
     const paymentCountByInvoice: Record<string, number> = {};
     const latestPaymentAt: Record<string, string> = {};
     for (const p of allPayments) {
-      const amt = parseFloat(p.amount) || 0;
-      paymentsByInvoice[p.invoiceId] = (paymentsByInvoice[p.invoiceId] || 0) + amt;
+      const net = parseFloat(p.amount) || 0;
+      const tds = parseFloat(p.tdsAmount) || 0;
+      const ret = parseFloat(p.retentionAmount) || 0;
+      const gross = net + tds + ret;
+      paymentsByInvoice[p.invoiceId] = (paymentsByInvoice[p.invoiceId] || 0) + net;
+      consumedByInvoice[p.invoiceId] = (consumedByInvoice[p.invoiceId] || 0) + gross;
+      tdsByInvoice[p.invoiceId] = (tdsByInvoice[p.invoiceId] || 0) + tds;
+      retentionByInvoice[p.invoiceId] = (retentionByInvoice[p.invoiceId] || 0) + ret;
       paymentCountByInvoice[p.invoiceId] = (paymentCountByInvoice[p.invoiceId] || 0) + 1;
       // Track latest payment timestamp
       if (!latestPaymentAt[p.invoiceId] || p.createdAt > latestPaymentAt[p.invoiceId]) {
@@ -55,6 +64,9 @@ export async function GET(request: NextRequest) {
     // Build summary for each invoice the accounts team would see
     const summaries: Record<string, {
       totalPaid: number;
+      totalTDS: number;
+      totalRetention: number;
+      totalConsumed: number;
       remaining: number;
       availableToPay: number;
       isFullyPaid: boolean;
@@ -74,8 +86,12 @@ export async function GET(request: NextRequest) {
       const invoiceTotal = baseAmount + gstAmount; // Total = Amount + GST
       const approvedAmount = inv.approvedAmount ? parseFloat(inv.approvedAmount) || invoiceTotal : invoiceTotal;
       const totalPaid = paymentsByInvoice[inv.id] || 0;
+      const totalTDS = tdsByInvoice[inv.id] || 0;
+      const totalRetention = retentionByInvoice[inv.id] || 0;
+      const totalConsumed = consumedByInvoice[inv.id] || 0;
       const remaining = Math.max(0, invoiceTotal - totalPaid);
-      const availableToPay = Math.max(0, approvedAmount - totalPaid);
+      // Available to pay uses gross consumed — TDS + retention also consume from approved cap
+      const availableToPay = Math.max(0, approvedAmount - totalConsumed);
       const paymentCount = paymentCountByInvoice[inv.id] || 0;
 
       // Detect new authorization: a new approval tranche was added AFTER the last payment
@@ -89,6 +105,9 @@ export async function GET(request: NextRequest) {
 
       summaries[inv.id] = {
         totalPaid,
+        totalTDS,
+        totalRetention,
+        totalConsumed,
         remaining,
         availableToPay,
         isFullyPaid: totalPaid >= invoiceTotal,

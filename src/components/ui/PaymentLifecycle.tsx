@@ -123,9 +123,11 @@ interface PaymentLifecycleProps {
   invoiceId: string;
   /** Which role is viewing — affects emphasis */
   role: 'approver' | 'accounts';
+  /** Callback when accounts wants to release retained amount — receives the retention amount to pre-fill */
+  onReleaseRetention?: (retentionAmount: number) => void;
 }
 
-export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecycleProps) {
+export default function PaymentLifecycle({ invoiceId, role, onReleaseRetention }: PaymentLifecycleProps) {
   const [data, setData] = useState<LifecycleData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -259,6 +261,21 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
               <p className="text-gray-400">Remaining</p>
               <p className="font-semibold text-blue-700">{formatCurrency(summary.pendingPayment)}</p>
             </div>
+          </div>
+        )}
+
+        {/* Retention Release button — only for accounts when retention is held */}
+        {hasDeductions && (summary.totalRetention || 0) > 0 && role === 'accounts' && onReleaseRetention && (
+          <div className="mt-2 pt-2 border-t border-gray-200/50">
+            <button
+              onClick={() => onReleaseRetention(summary.totalRetention || 0)}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold hover:bg-amber-100 transition-colors min-h-[44px]"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Release Retention — {formatCurrency(summary.totalRetention || 0)}
+            </button>
           </div>
         )}
 

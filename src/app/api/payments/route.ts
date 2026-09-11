@@ -19,6 +19,11 @@ export async function GET(request: NextRequest) {
     const payments = await getPaymentsByInvoiceId(invoiceId);
     const invoice = await getInvoiceById(invoiceId);
     const totalPaid = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const totalTDS = payments.reduce((sum, p) => sum + (parseFloat(p.tdsAmount) || 0), 0);
+    const totalRetention = payments.reduce((sum, p) => sum + (parseFloat(p.retentionAmount) || 0), 0);
+    // Gross consumed = net to vendor + TDS + retention — all consume from approved cap
+    const totalConsumed = totalPaid + totalTDS + totalRetention;
+
     const baseAmount = invoice ? parseFloat(invoice.amount) || 0 : 0;
     const gstAmount = invoice ? parseFloat(invoice.gstAmount) || 0 : 0;
     const invoiceAmount = baseAmount + gstAmount; // Total = Amount + GST
@@ -27,7 +32,8 @@ export async function GET(request: NextRequest) {
     // Remaining on invoice = how much more needs to be paid to fully close the invoice
     const remainingOnInvoice = Math.max(0, invoiceAmount - totalPaid);
     // Available to pay now = how much more accounts can pay under the current approval cap
-    const availableToPay = Math.max(0, approvedAmount - totalPaid);
+    // Uses totalConsumed (gross) because TDS + retention also consume from the approved cap
+    const availableToPay = Math.max(0, approvedAmount - totalConsumed);
 
     // GST/Basic tracking — sum up basic and GST portions across all payments
     const totalBasicPaid = payments.reduce((sum, p) => sum + (parseFloat(p.basicAmount) || 0), 0);
@@ -36,6 +42,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       payments,
       totalPaid,
+      totalTDS,
+      totalRetention,
+      totalConsumed,
       invoiceAmount,
       invoiceBaseAmount: baseAmount,
       invoiceGSTAmount: gstAmount,
@@ -191,6 +200,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'TDS and retention amounts cannot be negative' }, { status: 400 });
     }
 
+    // Parse payment type early — needed for retention release cap logic
+    const paymentType = sanitizeString(body.paymentType, 20) || 'combined';
+    const isRetentionRelease = paymentType === 'retention_release';
+
     // Gross = net to vendor + TDS + retention (total consumed from approved cap)
     const grossAmount = paymentAmount + tdsAmount + retentionAmount;
 
@@ -201,11 +214,19 @@ export async function POST(request: NextRequest) {
       return sum + (parseFloat(p.amount) || 0) + (parseFloat(p.tdsAmount) || 0) + (parseFloat(p.retentionAmount) || 0);
     }, 0);
     const totalPaid = existingPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const totalRetentionHeld = existingPayments.reduce((sum, p) => sum + (parseFloat(p.retentionAmount) || 0), 0);
     const baseAmount = parseFloat(invoice.amount) || 0;
     const gstAmount = parseFloat(invoice.gstAmount) || 0;
     const invoiceAmount = baseAmount + gstAmount; // Total = Amount + GST
     const approvedAmount = invoice.approvedAmount ? parseFloat(invoice.approvedAmount) || invoiceAmount : invoiceAmount;
-    const remainingApproved = approvedAmount - totalConsumed; // Cap: how much gross can still be consumed
+
+    // For retention release: the retention was already consumed from the cap when it
+    // was first deducted. Releasing it to the vendor doesn't require new authorization.
+    // Cap = approvedAmount - (totalPaid + totalTDS) — excludes retention from consumed.
+    const effectiveConsumed = isRetentionRelease
+      ? totalConsumed - totalRetentionHeld  // Retention doesn't count against cap for releases
+      : totalConsumed;
+    const remainingApproved = approvedAmount - effectiveConsumed; // Cap: how much can still be consumed
 
     if (remainingApproved <= 0) {
       const remainingInvoice = invoiceAmount - totalPaid;
@@ -214,6 +235,14 @@ export async function POST(request: NextRequest) {
       }
       return NextResponse.json(
         { error: `Approved amount (₹${approvedAmount.toLocaleString('en-IN')}) fully consumed. ₹${remainingInvoice.toLocaleString('en-IN')} remains on invoice — approver must increase approved amount to continue.` },
+        { status: 400 }
+      );
+    }
+
+    // For retention release, cap the payment at the total retention held
+    if (isRetentionRelease && paymentAmount > totalRetentionHeld + 0.01) {
+      return NextResponse.json(
+        { error: `Retention release amount (₹${paymentAmount.toLocaleString('en-IN')}) exceeds total retention held (₹${totalRetentionHeld.toLocaleString('en-IN')})` },
         { status: 400 }
       );
     }
@@ -234,7 +263,7 @@ export async function POST(request: NextRequest) {
     // Parse optional basic/GST split amounts
     const basicAmountRaw = body.basicAmount !== undefined ? parseFloat(body.basicAmount) : NaN;
     const gstAmountRaw = body.gstAmount !== undefined ? parseFloat(body.gstAmount) : NaN;
-    const paymentType = sanitizeString(body.paymentType, 20) || 'combined';
+    // paymentType already parsed above (needed early for retention release cap logic)
 
     // Validate split amounts if provided
     let basicAmount = '';

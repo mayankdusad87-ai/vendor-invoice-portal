@@ -56,6 +56,9 @@ interface Payment {
 interface PaymentSummary {
   payments: Payment[];
   totalPaid: number;
+  totalTDS?: number;
+  totalRetention?: number;
+  totalConsumed?: number;
   invoiceAmount: number;
   invoiceBaseAmount?: number;
   invoiceGSTAmount?: number;
@@ -72,6 +75,9 @@ interface PaymentSummary {
 
 interface BulkSummary {
   totalPaid: number;
+  totalTDS: number;
+  totalRetention: number;
+  totalConsumed: number;
   remaining: number;
   availableToPay: number;
   isFullyPaid: boolean;
@@ -172,17 +178,21 @@ function PaymentModal({
   onClose,
   onSubmit,
   isSubmitting,
+  prefillRetentionRelease = 0,
 }: {
   invoice: Invoice;
   paymentSummary: PaymentSummary | null;
   onClose: () => void;
   onSubmit: (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string; tdsAmount?: string; retentionAmount?: string }) => void;
   isSubmitting: boolean;
+  /** When > 0, pre-fills the amount with this retention value and marks it as a retention release */
+  prefillRetentionRelease?: number;
 }) {
-  const [amount, setAmount] = useState('');
+  const isRetentionRelease = prefillRetentionRelease > 0;
+  const [amount, setAmount] = useState(isRetentionRelease ? prefillRetentionRelease.toString() : '');
   const [utrReference, setUtrReference] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(isRetentionRelease ? 'Retention Release' : '');
   const [formError, setFormError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -201,7 +211,11 @@ function PaymentModal({
   const retentionNum = parseFloat(retentionInput) || 0;
 
   const invoiceRemaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
-  const availableToPay = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
+  // For retention release: the retained amount was already consumed from the cap,
+  // so it's available to release without new authorization
+  const baseAvailable = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
+  const retentionHeld = paymentSummary?.totalRetention ?? 0;
+  const availableToPay = isRetentionRelease ? Math.max(baseAvailable, retentionHeld) : baseAvailable;
 
   // Gross = net to vendor + TDS + retention; must fit within approved cap
   const parsedAmount = parseFloat(amount) || 0;
@@ -334,7 +348,9 @@ function PaymentModal({
                     ...(tdsNum > 0 ? { tdsAmount: String(tdsNum) } : {}),
                     ...(retentionNum > 0 ? { retentionAmount: String(retentionNum) } : {}),
                   };
-                  onSubmit({ amount, utrReference, paymentDate, notes, ...splitData, ...deductionData });
+                  // Flag retention release so API doesn't double-count against cap
+                  const retentionReleaseData = isRetentionRelease ? { paymentType: 'retention_release' } : {};
+                  onSubmit({ amount, utrReference, paymentDate, notes, ...splitData, ...deductionData, ...retentionReleaseData });
                 }}
                 disabled={isSubmitting}
                 className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 min-h-[44px]"
@@ -346,9 +362,20 @@ function PaymentModal({
         ) : (
           <>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
+              <h3 className="text-lg font-bold text-gray-900">
+                {isRetentionRelease ? '🔓 Release Retention' : 'Record Payment'}
+              </h3>
               <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
             </div>
+
+            {isRetentionRelease && (
+              <div className="mb-4 flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs">
+                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <span>Releasing retained amount of <strong>₹{prefillRetentionRelease.toLocaleString('en-IN')}</strong> back to vendor. Adjust amount if partial release is needed.</span>
+              </div>
+            )}
 
             {/* Invoice summary */}
             <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
@@ -800,10 +827,12 @@ function RejectModal({
 function PaymentHistory({
   invoice,
   onClose,
+  onReleaseRetention,
 }: {
   invoice: Invoice;
   payments: PaymentSummary | null; // kept for call-site compatibility
   onClose: () => void;
+  onReleaseRetention?: (retentionAmount: number) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -831,7 +860,7 @@ function PaymentHistory({
         </div>
 
         {/* Full lifecycle component — shows tranches, payments, timeline */}
-        <PaymentLifecycle invoiceId={invoice.id} role="accounts" />
+        <PaymentLifecycle invoiceId={invoice.id} role="accounts" onReleaseRetention={onReleaseRetention} />
       </div>
     </div>
   );
@@ -926,6 +955,7 @@ export default function AccountsDashboard() {
 
   // Modals
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null);
+  const [retentionReleaseAmount, setRetentionReleaseAmount] = useState<number>(0); // pre-fill for retention release
   const [rejectInvoice, setRejectInvoice] = useState<Invoice | null>(null);
   const [historyInvoice, setHistoryInvoice] = useState<Invoice | null>(null);
   const [fileViewer, setFileViewer] = useState<{ title: string; url: string; fileName?: string } | null>(null);
@@ -1162,11 +1192,21 @@ export default function AccountsDashboard() {
 
   // Open payment modal (pre-fetch payment data)
   const openPaymentModal = useCallback(
-    async (inv: Invoice) => {
+    async (inv: Invoice, prefillRetention?: number) => {
+      setRetentionReleaseAmount(prefillRetention || 0);
       setPaymentInvoice(inv);
       await fetchPaymentSummary(inv.id);
     },
     [fetchPaymentSummary]
+  );
+
+  // Handle retention release — close history modal, open payment modal with retention pre-fill
+  const handleReleaseRetention = useCallback(
+    (inv: Invoice) => (retentionAmount: number) => {
+      setHistoryInvoice(null); // close history if open
+      openPaymentModal(inv, retentionAmount);
+    },
+    [openPaymentModal]
   );
 
   // Open history modal
@@ -1930,7 +1970,7 @@ export default function AccountsDashboard() {
                           {/* Payment Lifecycle — tranche-correlated view */}
                           {(inv.status === 'approved' || inv.status === 'partially_paid' || inv.status === 'paid') && (
                             <div className="mb-4">
-                              <PaymentLifecycle invoiceId={inv.id} role="accounts" />
+                              <PaymentLifecycle invoiceId={inv.id} role="accounts" onReleaseRetention={handleReleaseRetention(inv)} />
                             </div>
                           )}
 
@@ -2012,9 +2052,10 @@ export default function AccountsDashboard() {
         <PaymentModal
           invoice={paymentInvoice}
           paymentSummary={paymentCache[paymentInvoice.id] || null}
-          onClose={() => setPaymentInvoice(null)}
+          onClose={() => { setPaymentInvoice(null); setRetentionReleaseAmount(0); }}
           onSubmit={handleRecordPayment}
           isSubmitting={isSubmitting}
+          prefillRetentionRelease={retentionReleaseAmount}
         />
       )}
       {rejectInvoice && (
@@ -2031,6 +2072,7 @@ export default function AccountsDashboard() {
           invoice={historyInvoice}
           payments={paymentCache[historyInvoice.id] || null}
           onClose={() => setHistoryInvoice(null)}
+          onReleaseRetention={handleReleaseRetention(historyInvoice)}
         />
       )}
       {fileViewer && (
