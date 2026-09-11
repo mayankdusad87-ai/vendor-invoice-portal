@@ -108,7 +108,7 @@ function getInitials(name: string): string {
    MAIN PAGE — TABLE LAYOUT
    ===================================================================== */
 
-type FilterTab = 'all' | 'pending' | 'approved' | 'in_payment' | 'rejected';
+type FilterTab = 'all' | 'pending' | 'approved' | 'in_payment' | 'rejected' | 'action_needed';
 
 export default function VendorInvoices() {
   const { engineerName: loggedInName, isReady, logout } = useEngineerAuth();
@@ -149,6 +149,8 @@ export default function VendorInvoices() {
     const approved = invoices.filter((i) => i.status === 'approved');
     const inPayment = invoices.filter((i) => i.status === 'partially_paid' || i.status === 'paid');
     const rejected = invoices.filter((i) => i.status === 'rejected');
+    const correctionRequired = invoices.filter((i) => i.status === 'correction_required');
+    const actionNeeded = [...rejected, ...correctionRequired];
     const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
     return {
       total: invoices.length,
@@ -161,6 +163,8 @@ export default function VendorInvoices() {
       inPaymentAmount: sumAmount(inPayment),
       rejectedCount: rejected.length,
       rejectedAmount: sumAmount(rejected),
+      actionNeededCount: actionNeeded.length,
+      actionNeededAmount: sumAmount(actionNeeded),
     };
   }, [invoices]);
 
@@ -173,6 +177,7 @@ export default function VendorInvoices() {
     else if (activeTab === 'approved') list = list.filter((i) => i.status === 'approved');
     else if (activeTab === 'in_payment') list = list.filter((i) => i.status === 'partially_paid' || i.status === 'paid');
     else if (activeTab === 'rejected') list = list.filter((i) => i.status === 'rejected');
+    else if (activeTab === 'action_needed') list = list.filter((i) => i.status === 'rejected' || i.status === 'correction_required');
 
     // Vendor filter
     if (selectedVendor) list = list.filter((i) => i.vendorName === selectedVendor);
@@ -363,29 +368,29 @@ export default function VendorInvoices() {
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-violet-500" />
           </button>
 
-          {/* Rejected — highlighted with red pulse */}
+          {/* Action Needed — rejected + correction_required */}
           <button
-            onClick={() => { setActiveTab('rejected'); setExpandedId(null); }}
+            onClick={() => { setActiveTab('action_needed'); setExpandedId(null); }}
             className={`bg-white rounded-xl p-4 text-left transition-all border relative overflow-hidden hover:shadow-md ${
-              activeTab === 'rejected' ? 'ring-2 ring-red-500 ring-offset-1' : ''
-            } ${stats.rejectedCount > 0 ? 'border-red-300 shadow-sm' : 'border-gray-200'}`}
-            aria-label={`Rejected: ${stats.rejectedCount}`}
+              activeTab === 'action_needed' ? 'ring-2 ring-red-500 ring-offset-1' : ''
+            } ${stats.actionNeededCount > 0 ? 'border-red-300 shadow-sm' : 'border-gray-200'}`}
+            aria-label={`Action needed: ${stats.actionNeededCount}`}
           >
             <div className="flex items-start justify-between">
-              <p className={`text-xs font-medium ${stats.rejectedCount > 0 ? 'text-red-600' : 'text-gray-500'}`}>
-                Rejected
+              <p className={`text-xs font-medium ${stats.actionNeededCount > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                Action Needed
               </p>
-              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${stats.rejectedCount > 0 ? 'bg-red-100' : 'bg-red-50'}`}>
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${stats.actionNeededCount > 0 ? 'bg-red-100' : 'bg-red-50'}`}>
                 <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                 </svg>
               </div>
             </div>
-            <p className="text-2xl font-bold text-red-600 mt-1">{stats.rejectedCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">worth ₹{stats.rejectedAmount.toLocaleString('en-IN')}</p>
+            <p className="text-2xl font-bold text-red-600 mt-1">{stats.actionNeededCount}</p>
+            <p className="text-xs text-gray-400 mt-0.5">worth ₹{stats.actionNeededAmount.toLocaleString('en-IN')}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-red-500" />
-            {/* Animated pulse indicator when there are rejected invoices */}
-            {stats.rejectedCount > 0 && (
+            {/* Animated pulse indicator when there are items needing action */}
+            {stats.actionNeededCount > 0 && (
               <span className="absolute top-2.5 right-2.5 flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
@@ -431,10 +436,10 @@ export default function VendorInvoices() {
           <LoadingSkeleton variant="card" count={3} />
         ) : filteredInvoices.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm text-center py-16 px-6">
-            {activeTab === 'rejected' && !searchQuery ? (
+            {(activeTab === 'rejected' || activeTab === 'action_needed') && !searchQuery ? (
               <>
                 <div className="text-4xl mb-3">🎉</div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">No rejected invoices!</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">No action needed!</h3>
                 <p className="text-gray-500 text-sm">All your invoices are in good shape.</p>
               </>
             ) : (
@@ -484,7 +489,7 @@ export default function VendorInvoices() {
                       const hasInvoiceFile = !!invoice.invoiceFileUrl;
                       const hasMeasurement = !!invoice.measurementSheetUrl;
                       const docCount = (hasInvoiceFile ? 1 : 0) + (hasMeasurement ? 1 : 0) + photoUrls.length;
-                      const isRejected = invoice.status === 'rejected';
+                      const isRejected = invoice.status === 'rejected' || invoice.status === 'correction_required';
 
                       return (
                         <React.Fragment key={invoice.id}>
@@ -843,12 +848,16 @@ function ExpandedInvoiceDetail({
               <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
+            ) : invoice.status === 'correction_required' ? (
+              <svg className="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
             ) : (
               <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             )}
-            {invoice.status === 'rejected' ? 'Rejected' : 'Approved'} by{' '}
+            {invoice.status === 'rejected' ? 'Rejected' : invoice.status === 'correction_required' ? 'Correction Required' : 'Approved'} by{' '}
             <strong>{invoice.approvedBy}</strong>
             {invoice.approvedAmount && (
               <span className="ml-2">
@@ -865,8 +874,8 @@ function ExpandedInvoiceDetail({
         </div>
       )}
 
-      {/* Resubmit button for rejected invoices */}
-      {invoice.status === 'rejected' && (
+      {/* Resubmit button for rejected / correction_required invoices */}
+      {(invoice.status === 'rejected' || invoice.status === 'correction_required') && (
         <div className="pt-2">
           <Link
             href={`/vendor/submit?resubmit=${invoice.id}`}

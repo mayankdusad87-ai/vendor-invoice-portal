@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 
     for (const inv of allInvoices) {
       // Include invoices visible to accounts and approvers
-      if (!['submitted', 'under_review', 'approved', 'partially_paid', 'paid', 'rejected'].includes(inv.status)) continue;
+      if (!['submitted', 'under_review', 'approved', 'partially_paid', 'paid', 'rejected', 'accounts_query', 'correction_required'].includes(inv.status)) continue;
 
       const baseAmount = parseFloat(inv.amount) || 0;
       const gstAmount = parseFloat(inv.gstAmount) || 0;

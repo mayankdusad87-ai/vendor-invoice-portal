@@ -117,7 +117,7 @@ function SubmitInvoice() {
       const data = await res.json();
       const invoice = (data.invoices || []).find((inv: { id: string }) => inv.id === invoiceId);
 
-      if (invoice && invoice.status === 'rejected') {
+      if (invoice && (invoice.status === 'rejected' || invoice.status === 'correction_required')) {
         setIsResubmit(true);
         setForm({
           invoiceDate: invoice.invoiceDate,
@@ -547,15 +547,15 @@ function SubmitInvoice() {
                 : 'Select vendor, fill in details, and upload evidence'}
             </p>
 
-            {/* Rejection reason banner */}
+            {/* Rejection/correction reason banner */}
             {isResubmit && rejectionInfo && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-5 flex items-start gap-2 text-red-700 text-sm">
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-5 flex items-start gap-2 text-orange-800 text-sm">
                 <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
                 <div>
                   <p className="font-semibold mb-1">
-                    Rejection Reason (by {rejectionInfo.by}):
+                    Correction Required (by {rejectionInfo.by}):
                   </p>
                   <p className="italic">
                     &ldquo;{rejectionInfo.comments || 'No comments provided'}&rdquo;

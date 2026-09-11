@@ -34,6 +34,10 @@ interface Invoice {
   challanUrl?: string;
   challanName?: string;
   approvedDate?: string;
+  accountsQueryBy?: string;
+  accountsQueryReason?: string;
+  accountsQueryAt?: string;
+  previousStatus?: string;
 }
 
 interface BulkSummary {
@@ -101,6 +105,8 @@ function statusBorderColor(status: InvoiceStatus): string {
     case 'partially_paid': return 'border-l-violet-500';
     case 'paid': return 'border-l-emerald-400';
     case 'rejected': return 'border-l-red-500';
+    case 'accounts_query': return 'border-l-orange-500';
+    case 'correction_required': return 'border-l-rose-500';
     default: return 'border-l-gray-300';
   }
 }
@@ -114,6 +120,8 @@ function statusAriaLabel(status: InvoiceStatus): string {
     case 'partially_paid': return 'Partially paid invoice';
     case 'paid': return 'Fully paid invoice';
     case 'rejected': return 'Rejected invoice';
+    case 'accounts_query': return 'Accounts query raised';
+    case 'correction_required': return 'Correction required';
     default: return 'Invoice';
   }
 }
@@ -188,6 +196,11 @@ export default function ApproverDashboard() {
     message: string;
   } | null>(null);
 
+  // Accounts query resolution state
+  const [queryResolutionComments, setQueryResolutionComments] = useState<Record<string, string>>({});
+  const [queryResolutionLoading, setQueryResolutionLoading] = useState<string | null>(null);
+  const [queryResolutionError, setQueryResolutionError] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (!isReady) return;
     fetchInvoices();
@@ -209,10 +222,12 @@ export default function ApproverDashboard() {
       if (res.ok) {
         const loaded = data.invoices || [];
         setInvoices(loaded);
-        // Auto-filter to "pending" on first load if there are pending invoices
+        // Auto-filter to accounts queries (urgent) or pending on first load
         if (!initialFilterApplied) {
+          const hasAccountsQuery = loaded.some((i: Invoice) => i.status === 'accounts_query');
           const hasPending = loaded.some((i: Invoice) => i.status === 'submitted' || i.status === 'under_review');
-          if (hasPending) setFilter('pending');
+          if (hasAccountsQuery) setFilter('accounts_query');
+          else if (hasPending) setFilter('pending');
           setInitialFilterApplied(true);
         }
       }
@@ -492,12 +507,70 @@ export default function ApproverDashboard() {
     setActionLoading(null);
   }, [confirmDialog, comments, selectedReasons, approvedAmounts, approverName, invoices]);
 
+  // Handle accounts query resolution (accept or disagree)
+  const handleResolveQuery = useCallback(async (invoiceId: string, resolution: 'accept' | 'disagree') => {
+    const comment = (queryResolutionComments[invoiceId] || '').trim();
+    if (!comment || comment.length < 3) {
+      setQueryResolutionError((prev) => ({ ...prev, [invoiceId]: 'Please add a comment (at least 3 characters)' }));
+      return;
+    }
+
+    const actionLabel = resolution === 'accept' ? 'accept the query and send for correction' : 'disagree and re-approve';
+    if (!window.confirm(`Are you sure you want to ${actionLabel}?`)) return;
+
+    setQueryResolutionLoading(invoiceId);
+    setQueryResolutionError((prev) => { const n = { ...prev }; delete n[invoiceId]; return n; });
+
+    try {
+      const res = await fetch('/api/invoices', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: invoiceId,
+          action: 'resolve_accounts_query',
+          resolution,
+          approvalComments: comment,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        const inv = invoices.find((i) => i.id === invoiceId);
+        const newStatus = data.newStatus as InvoiceStatus;
+        setInvoices((prev) =>
+          prev.map((i) =>
+            i.id === invoiceId
+              ? { ...i, status: newStatus, approvalComments: `${i.approvalComments || ''}\n[${resolution === 'accept' ? 'Query Accepted' : 'Query Disagreed'} by ${approverName}] ${comment}`.trim() }
+              : i
+          )
+        );
+        setQueryResolutionComments((prev) => { const n = { ...prev }; delete n[invoiceId]; return n; });
+        setExpandedId(null);
+        // Clear cached approval history so it reloads with the new entry
+        setApprovalHistoryCache((prev) => { const n = { ...prev }; delete n[invoiceId]; return n; });
+        setToast({
+          message: resolution === 'accept'
+            ? `Invoice ${inv?.invoiceNumber || invoiceId} sent for correction`
+            : `Invoice ${inv?.invoiceNumber || invoiceId} re-approved`,
+          type: 'success',
+        });
+      } else {
+        setQueryResolutionError((prev) => ({ ...prev, [invoiceId]: data.error || 'Failed to resolve query' }));
+      }
+    } catch {
+      setQueryResolutionError((prev) => ({ ...prev, [invoiceId]: 'Network error. Please try again.' }));
+    }
+    setQueryResolutionLoading(null);
+  }, [queryResolutionComments, invoices, approverName]);
+
   // Stats
   const stats = useMemo(() => {
     const pending = invoices.filter((i) => i.status === 'submitted' || i.status === 'under_review');
     const approved = invoices.filter((i) => i.status === 'approved');
     const rejected = invoices.filter((i) => i.status === 'rejected');
     const inPayment = invoices.filter((i) => i.status === 'partially_paid' || i.status === 'paid');
+    const accountsQuery = invoices.filter((i) => i.status === 'accounts_query');
+    const correctionRequired = invoices.filter((i) => i.status === 'correction_required');
     const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
     return {
       total: invoices.length,
@@ -510,6 +583,10 @@ export default function ApproverDashboard() {
       rejectedAmount: sumAmount(rejected),
       inPaymentCount: inPayment.length,
       inPaymentAmount: sumAmount(inPayment),
+      accountsQueryCount: accountsQuery.length,
+      accountsQueryAmount: sumAmount(accountsQuery),
+      correctionCount: correctionRequired.length,
+      correctionAmount: sumAmount(correctionRequired),
     };
   }, [invoices]);
 
@@ -526,6 +603,8 @@ export default function ApproverDashboard() {
       if (filter === 'approved') return inv.status === 'approved';
       if (filter === 'rejected') return inv.status === 'rejected';
       if (filter === 'in_payment') return inv.status === 'partially_paid' || inv.status === 'paid';
+      if (filter === 'accounts_query') return inv.status === 'accounts_query';
+      if (filter === 'correction') return inv.status === 'correction_required';
       return true;
     });
 
@@ -555,7 +634,7 @@ export default function ApproverDashboard() {
   }, [invoices, filter, selectedVendor, searchTerm, sortBy]);
 
   // Label for "Showing X invoices"
-  const filterLabel = filter === 'pending' ? 'pending' : filter === 'approved' ? 'approved' : filter === 'rejected' ? 'rejected' : filter === 'in_payment' ? 'in payment' : 'all';
+  const filterLabel = filter === 'pending' ? 'pending' : filter === 'approved' ? 'approved' : filter === 'rejected' ? 'rejected' : filter === 'in_payment' ? 'in payment' : filter === 'accounts_query' ? 'accounts queries' : filter === 'correction' ? 'correction required' : 'all';
 
   if (!isReady) return null;
 
@@ -638,7 +717,7 @@ export default function ApproverDashboard() {
 
       <main className="max-w-5xl mx-auto px-4 py-5 fade-in">
         {/* ── Stat Cards — white with colored bottom borders ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
           {/* Total */}
           <button
             onClick={() => setFilter('all')}
@@ -743,6 +822,29 @@ export default function ApproverDashboard() {
             <p className="text-xs text-gray-400 mt-0.5">worth ₹{stats.rejectedAmount.toLocaleString('en-IN')}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-red-500" />
           </button>
+
+          {/* Accounts Queries */}
+          <button
+            onClick={() => setFilter('accounts_query')}
+            className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
+              filter === 'accounts_query' ? 'ring-2 ring-orange-500 ring-offset-1' : ''
+            }`}
+            aria-label={`Accounts queries: ${stats.accountsQueryCount}`}
+          >
+            <div className="flex items-start justify-between">
+              <p className="text-xs font-medium text-gray-500">Queries</p>
+              <div className="w-7 h-7 rounded-lg bg-orange-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+                </svg>
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-orange-600 mt-1">{stats.accountsQueryCount}</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {stats.correctionCount > 0 ? `+ ${stats.correctionCount} correction` : `worth ₹${stats.accountsQueryAmount.toLocaleString('en-IN')}`}
+            </p>
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-orange-500" />
+          </button>
         </div>
 
         {/* ── Filter bar: vendor + count + sort ── */}
@@ -808,6 +910,7 @@ export default function ApproverDashboard() {
               const measurementIsImage = isImageUrl(invoice.measurementSheetUrl, invoice.measurementSheetName);
               const measurementPreview = !measurementIsImage ? getPreviewUrl(invoice.measurementSheetUrl) : null;
               const isPending = invoice.status === 'submitted' || invoice.status === 'under_review';
+              const isAccountsQuery = invoice.status === 'accounts_query';
               const isPaymentPhase = invoice.status === 'partially_paid' || invoice.status === 'paid';
               const cachedPayment = paymentCache[invoice.id];
 
@@ -959,6 +1062,18 @@ export default function ApproverDashboard() {
                             title="Expand to reject"
                           >
                             ✕ Reject
+                          </button>
+                        </div>
+                      )}
+
+                      {isAccountsQuery && !isExpanded && (
+                        <div className="hidden lg:flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setExpandedId(invoice.id); }}
+                            className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors border border-orange-200"
+                            title="Expand to resolve query"
+                          >
+                            ? Resolve Query
                           </button>
                         </div>
                       )}
@@ -1352,6 +1467,91 @@ export default function ApproverDashboard() {
                                 className="inline-flex items-center justify-center gap-1 bg-amber-500 text-white px-3 py-2.5 rounded-lg font-semibold text-sm hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                               >
                                 Review
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Accounts Query resolution form */}
+                        {isAccountsQuery && (
+                          <div className="space-y-3 bg-orange-50 rounded-lg p-4 border border-orange-200">
+                            {/* Query details */}
+                            <div className="rounded-lg bg-white border border-orange-200 p-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                                </svg>
+                                <p className="text-sm font-semibold text-orange-800">Accounts Query Raised</p>
+                              </div>
+                              <div className="space-y-1.5 text-sm">
+                                <div className="flex items-start gap-2">
+                                  <span className="text-gray-500 whitespace-nowrap min-w-[70px]">Raised by:</span>
+                                  <span className="font-medium text-gray-900">{invoice.accountsQueryBy || '—'}</span>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                  <span className="text-gray-500 whitespace-nowrap min-w-[70px]">Reason:</span>
+                                  <span className="font-medium text-gray-900">{invoice.accountsQueryReason || '—'}</span>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                  <span className="text-gray-500 whitespace-nowrap min-w-[70px]">Date:</span>
+                                  <span className="text-gray-600">{invoice.accountsQueryAt ? formatDisplayDate(invoice.accountsQueryAt) : '—'}</span>
+                                </div>
+                                {invoice.previousStatus && (
+                                  <div className="flex items-start gap-2">
+                                    <span className="text-gray-500 whitespace-nowrap min-w-[70px]">Was:</span>
+                                    <StatusBadge status={invoice.previousStatus as InvoiceStatus} />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Resolution comment */}
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Your Response <span className="text-red-500">*</span>
+                                <span className="font-normal text-gray-400"> (required for both actions)</span>
+                              </label>
+                              <textarea
+                                value={queryResolutionComments[invoice.id] || ''}
+                                onChange={(e) => {
+                                  setQueryResolutionComments((prev) => ({ ...prev, [invoice.id]: e.target.value }));
+                                  setQueryResolutionError((prev) => { const n = { ...prev }; delete n[invoice.id]; return n; });
+                                }}
+                                className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                rows={2}
+                                placeholder="Explain your decision..."
+                              />
+                            </div>
+
+                            {queryResolutionError[invoice.id] && (
+                              <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-100 text-red-700 text-sm">
+                                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                                </svg>
+                                {queryResolutionError[invoice.id]}
+                              </div>
+                            )}
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleResolveQuery(invoice.id, 'accept')}
+                                disabled={queryResolutionLoading === invoice.id}
+                                className="flex-1 inline-flex items-center justify-center gap-2 bg-orange-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Accept &amp; Send for Correction
+                              </button>
+                              <button
+                                onClick={() => handleResolveQuery(invoice.id, 'disagree')}
+                                disabled={queryResolutionLoading === invoice.id}
+                                className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+                                </svg>
+                                Disagree &amp; Re-approve
                               </button>
                             </div>
                           </div>

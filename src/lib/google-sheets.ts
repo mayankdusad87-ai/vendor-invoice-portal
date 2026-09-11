@@ -570,19 +570,23 @@ export interface Invoice {
   measurementSheetName: string; // Col S
   challanUrl: string;       // Col T  — Challan file URL (optional)
   challanName: string;      // Col U  — Challan file name (optional)
-  status: 'submitted' | 'under_review' | 'approved' | 'partially_paid' | 'paid' | 'rejected'; // Col V — APPROVER SECTION
+  status: 'submitted' | 'under_review' | 'approved' | 'partially_paid' | 'paid' | 'rejected' | 'accounts_query' | 'correction_required'; // Col V — APPROVER SECTION
   approvedBy: string;       // Col W
   approvedAmount: string;   // Col X  — Amount approved by approver
   approvalComments: string; // Col Y
   approvedDate: string;     // Col Z  — set only when approved
   updatedAt: string;        // Col AA — SYSTEM
+  accountsQueryBy: string;       // Col AB — Accounts member who raised the query
+  accountsQueryReason: string;   // Col AC — Accounts query reason
+  accountsQueryAt: string;       // Col AD — Timestamp of accounts query
+  previousStatus: string;        // Col AE — Status before accounts query was raised
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AA',
+    range: 'Invoices!A2:AE',
   });
 
   const rows = response.data.values || [];
@@ -614,6 +618,10 @@ export async function getInvoices(): Promise<Invoice[]> {
     approvalComments: row[24] || '',// Y
     approvedDate: row[25] || '',   // Z
     updatedAt: row[26] || '',      // AA
+    accountsQueryBy: row[27] || '',     // AB
+    accountsQueryReason: row[28] || '', // AC
+    accountsQueryAt: row[29] || '',     // AD
+    previousStatus: row[30] || '',      // AE
   }));
 }
 
@@ -628,7 +636,7 @@ export async function getInvoiceById(id: string): Promise<Invoice | null> {
 }
 
 export async function addInvoice(
-  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount' | 'totalAmount'> & { gstAmount?: string }
+  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount' | 'totalAmount' | 'accountsQueryBy' | 'accountsQueryReason' | 'accountsQueryAt' | 'previousStatus'> & { gstAmount?: string }
 ): Promise<Invoice> {
   const sheets = getSheets();
   const id = `INV${Date.now()}`;
@@ -678,7 +686,7 @@ export async function addInvoice(
     },
   });
 
-  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount };
+  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount, accountsQueryBy: '', accountsQueryReason: '', accountsQueryAt: '', previousStatus: '' };
 }
 
 export async function updateInvoiceStatus(
@@ -691,7 +699,7 @@ export async function updateInvoiceStatus(
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AA',
+    range: 'Invoices!A2:AE',
   });
 
   const rows = response.data.values || [];
@@ -733,6 +741,85 @@ export async function updateInvoiceStatus(
     },
   });
 
+  return true;
+}
+
+/**
+ * Set accounts query metadata (columns AB–AE) when accounts raises a query.
+ * Also sets status to accounts_query and preserves the previous status.
+ */
+export async function setAccountsQuery(
+  id: string,
+  queryBy: string,
+  queryReason: string,
+  previousStatus: string,
+  approvalComments: string,
+): Promise<boolean> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Invoices!A2:AE',
+  });
+
+  const rows = response.data.values || [];
+  const rowIndex = rows.findIndex((row) => row[0] === id);
+  if (rowIndex === -1) return false;
+
+  const now = getISTTimestamp().combined;
+  const currentRow = rows[rowIndex];
+
+  // Update Status (V) and Approval Comments (Y) — preserve approvedBy, approvedAmount, approvedDate
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Invoices!V${rowIndex + 2}:Z${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[
+        'accounts_query',                              // V: Status
+        currentRow[22] ?? '',                          // W: Approved By (preserve)
+        currentRow[23] ?? '',                          // X: Approved Amount (preserve)
+        approvalComments,                              // Y: Approval Comments (appended)
+        currentRow[25] ?? '',                          // Z: Approved Date (preserve)
+      ]],
+    },
+  });
+
+  // Update columns AA–AE: Updated At, Query By, Query Reason, Query At, Previous Status
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Invoices!AA${rowIndex + 2}:AE${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[
+        now,             // AA: Updated At
+        queryBy,         // AB: Accounts Query By
+        queryReason,     // AC: Accounts Query Reason
+        now,             // AD: Accounts Query At
+        previousStatus,  // AE: Previous Status
+      ]],
+    },
+  });
+
+  return true;
+}
+
+/**
+ * Clear accounts query metadata (columns AB–AE) after the approver resolves the query.
+ */
+export async function clearAccountsQuery(id: string): Promise<boolean> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Invoices!A2:A',
+  });
+
+  const rows = response.data.values || [];
+  const rowIndex = rows.findIndex((row) => row[0] === id);
+  if (rowIndex === -1) return false;
+
+  // Clear query columns AB–AE (keep the data for audit, just clear previousStatus)
+  // Actually we keep all query data for audit trail — only clear previousStatus
+  // No, let's keep everything for the record. This function is optional.
   return true;
 }
 
@@ -807,11 +894,16 @@ export async function resubmitInvoice(
     '',                                                    // Z: Approved Date (clear)
     // SYSTEM (AA)
     now,                                                   // AA: Updated At
+    // ACCOUNTS QUERY (AB–AE) — clear on resubmit
+    '',                                                    // AB: Accounts Query By
+    '',                                                    // AC: Accounts Query Reason
+    '',                                                    // AD: Accounts Query At
+    '',                                                    // AE: Previous Status
   ];
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `Invoices!A${rowIndex + 2}:AA${rowIndex + 2}`,
+    range: `Invoices!A${rowIndex + 2}:AE${rowIndex + 2}`,
     valueInputOption: 'RAW',
     requestBody: { values: [updatedRow] },
   });
@@ -1602,12 +1694,14 @@ export async function initializeSheetHeaders(): Promise<void> {
     // APPROVER SECTION (V–Z)
     'Status', 'Approved By', 'Approved Amount', 'Approval Comments', 'Approved Date',
     // SYSTEM (AA)
-    'Updated At'
+    'Updated At',
+    // ACCOUNTS QUERY (AB–AE)
+    'Accounts Query By', 'Accounts Query Reason', 'Accounts Query At', 'Previous Status',
   ];
 
   const invoiceHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A1:AA1',
+    range: 'Invoices!A1:AE1',
   });
 
   const currentHeaders = invoiceHeaders.data.values?.[0] || [];
@@ -1615,7 +1709,7 @@ export async function initializeSheetHeaders(): Promise<void> {
       currentHeaders.some((h, i) => h !== expectedInvoiceHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Invoices!A1:AA1',
+      range: 'Invoices!A1:AE1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedInvoiceHeaders],

@@ -93,19 +93,18 @@ function getInitials(name: string): string {
 
 /** Accounts-specific status labels (e.g. "approved" → "Pending Payment" from accounts perspective) */
 function AccountsStatusBadge({ status }: { status: InvoiceStatus }) {
-  const config: Record<string, { label: string; className: string }> = {
-    approved: { label: 'Pending Payment', className: 'bg-amber-50 text-amber-700 border-amber-200' },
-    partially_paid: { label: 'Partially Paid', className: 'bg-violet-50 text-violet-700 border-violet-200' },
-    paid: { label: 'Paid', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    rejected: { label: 'Rejected', className: 'bg-red-50 text-red-700 border-red-200' },
+  const config: Record<string, { label: string; className: string; dotClass: string }> = {
+    approved: { label: 'Pending Payment', className: 'bg-amber-50 text-amber-700 border-amber-200', dotClass: 'bg-amber-500' },
+    partially_paid: { label: 'Partially Paid', className: 'bg-violet-50 text-violet-700 border-violet-200', dotClass: 'bg-violet-500' },
+    paid: { label: 'Paid', className: 'bg-emerald-50 text-emerald-700 border-emerald-200', dotClass: 'bg-emerald-500' },
+    rejected: { label: 'Rejected', className: 'bg-red-50 text-red-700 border-red-200', dotClass: 'bg-red-500' },
+    accounts_query: { label: 'Query Raised', className: 'bg-orange-50 text-orange-700 border-orange-200', dotClass: 'bg-orange-500' },
+    correction_required: { label: 'Correction Required', className: 'bg-rose-50 text-rose-700 border-rose-200', dotClass: 'bg-rose-500' },
   };
-  const c = config[status] || { label: status, className: 'bg-gray-50 text-gray-600 border-gray-200' };
+  const c = config[status] || { label: status, className: 'bg-gray-50 text-gray-600 border-gray-200', dotClass: 'bg-gray-500' };
   return (
     <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${c.className}`}>
-      {status === 'approved' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
-      {status === 'partially_paid' && <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />}
-      {status === 'paid' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
-      {status === 'rejected' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dotClass}`} />
       {c.label}
     </span>
   );
@@ -117,6 +116,8 @@ function statusBorderColor(status: InvoiceStatus): string {
     case 'partially_paid': return 'border-l-violet-500';
     case 'paid': return 'border-l-emerald-400';
     case 'rejected': return 'border-l-red-500';
+    case 'accounts_query': return 'border-l-orange-500';
+    case 'correction_required': return 'border-l-rose-500';
     default: return 'border-l-gray-300';
   }
 }
@@ -607,15 +608,15 @@ function RejectModal({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Reject Invoice"
+        aria-label="Raise Query on Invoice"
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-red-600">Reject Invoice</h3>
+          <h3 className="text-lg font-bold text-orange-600">Raise Query</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
         </div>
 
         <p className="text-sm text-gray-600 mb-3">
-          This will reject <strong className="text-gray-900">#{invoice.invoiceNumber}</strong> from {invoice.vendorName} back to the approver for correction.
+          This will raise a query on <strong className="text-gray-900">#{invoice.invoiceNumber}</strong> from {invoice.vendorName}. The approver will review your concern and either accept it (sending for correction) or disagree and re-approve.
         </p>
 
         {rejectionReasons.length > 0 && (
@@ -627,7 +628,7 @@ function RejectModal({
                 onClick={() => { setReason(r.reason); setRejectError(''); }}
                 className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${
                   reason === r.reason
-                    ? 'bg-red-50 border-red-200 text-red-700'
+                    ? 'bg-orange-50 border-orange-200 text-orange-700'
                     : 'bg-gray-50 border-gray-200 text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -640,7 +641,7 @@ function RejectModal({
         <textarea
           value={reason}
           onChange={(e) => { setReason(e.target.value); setRejectError(''); }}
-          className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+          className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
           rows={3}
           placeholder="Describe the issue with this invoice (min 5 characters)…"
         />
@@ -661,9 +662,9 @@ function RejectModal({
           <button
             onClick={handleRejectSubmit}
             disabled={isSubmitting || !reason.trim()}
-            className="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+            className="flex-1 px-4 py-2.5 rounded-lg bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
           >
-            {isSubmitting ? 'Rejecting…' : 'Reject Invoice'}
+            {isSubmitting ? 'Raising Query…' : 'Raise Query'}
           </button>
         </div>
       </div>
@@ -869,7 +870,7 @@ function FileViewerModal({
    MAIN DASHBOARD — TABLE LAYOUT
    ===================================================================== */
 
-type FilterTab = 'all' | 'approved' | 'partially_paid' | 'paid' | 'rejected';
+type FilterTab = 'all' | 'approved' | 'partially_paid' | 'paid' | 'rejected' | 'accounts_query';
 
 export default function AccountsDashboard() {
   const { accountsName, isReady, logout } = useAccountsAuth();
@@ -1088,13 +1089,13 @@ export default function AccountsDashboard() {
           body: JSON.stringify({ invoiceId: rejectInvoice.id, reason }),
         });
         const result = await res.json();
-        if (!res.ok) throw new Error(result.error || 'Failed to reject');
+        if (!res.ok) throw new Error(result.error || 'Failed to raise query');
 
-        setToast({ message: 'Invoice rejected — sent back to approver', type: 'error' });
+        setToast({ message: 'Query raised — sent to approver for review', type: 'success' });
         setRejectInvoice(null);
         fetchInvoices();
       } catch (err) {
-        setToast({ message: err instanceof Error ? err.message : 'Failed to reject invoice', type: 'error' });
+        setToast({ message: err instanceof Error ? err.message : 'Failed to raise query', type: 'error' });
       } finally {
         setIsSubmitting(false);
       }
@@ -1492,10 +1493,10 @@ export default function AccountsDashboard() {
                                 {canReject && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setRejectInvoice(inv); }}
-                                    className="px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-colors"
-                                    title="Reject"
+                                    className="px-2 py-1 rounded text-xs font-medium bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200 transition-colors"
+                                    title="Raise Query"
                                   >
-                                    ✕
+                                    ?
                                   </button>
                                 )}
                                 {(inv.status === 'partially_paid' || inv.status === 'paid') && (
@@ -1642,9 +1643,9 @@ export default function AccountsDashboard() {
                                     {canReject && (
                                       <button
                                         onClick={() => setRejectInvoice(inv)}
-                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors min-h-[44px]"
+                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700 transition-colors min-h-[44px]"
                                       >
-                                        Reject
+                                        Raise Query
                                       </button>
                                     )}
                                     {(inv.status === 'partially_paid' || inv.status === 'paid') && (

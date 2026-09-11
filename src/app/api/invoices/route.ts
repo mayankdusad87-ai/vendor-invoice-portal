@@ -76,13 +76,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ invoices });
     }
 
-    // Accounts team: can view approved/partially_paid/paid/rejected invoices
+    // Accounts team: can view approved/partially_paid/paid/rejected/accounts_query/correction_required invoices
     // Filtered by project access — accounts only see invoices for their assigned projects
     if (session.type === 'accounts') {
       const accountsProjects = (session as import('@/lib/auth').AccountsToken).projects;
       const invoices = await getInvoices();
       let accountsVisible = invoices.filter(
-        (inv) => ['approved', 'partially_paid', 'paid', 'rejected'].includes(inv.status)
+        (inv) => ['approved', 'partially_paid', 'paid', 'rejected', 'accounts_query', 'correction_required'].includes(inv.status)
       );
       // Filter by project access if the accounts member has assigned projects
       if (accountsProjects.length > 0) {
@@ -307,6 +307,85 @@ export async function PUT(request: NextRequest) {
       });
     }
 
+    // ── Resolve accounts query — approver accepts or disagrees ──
+    if (body.action === 'resolve_accounts_query') {
+      if (invoice.status !== 'accounts_query') {
+        return NextResponse.json(
+          { error: 'Invoice is not in accounts_query status' },
+          { status: 400 }
+        );
+      }
+
+      const resolution = sanitizeString(body.resolution, 30); // 'accept' or 'disagree'
+      const responseComment = sanitizeString(body.approvalComments, 500);
+
+      if (!resolution || !['accept', 'disagree'].includes(resolution)) {
+        return NextResponse.json({ error: 'Resolution must be "accept" or "disagree"' }, { status: 400 });
+      }
+      if (!responseComment || responseComment.length < 3) {
+        return NextResponse.json({ error: 'A comment/reason is required (min 3 characters)' }, { status: 400 });
+      }
+
+      if (resolution === 'accept') {
+        // Approver accepts the accounts query → send for correction
+        const trailNote = `[Query Accepted by ${approvedBy}] ${responseComment}`;
+        const existingComments = invoice.approvalComments || '';
+        const updatedComments = existingComments
+          ? `${existingComments}\n${trailNote}`
+          : trailNote;
+
+        const success = await updateInvoiceStatus(
+          id,
+          'correction_required',
+          updatedComments,
+          approvedBy,
+        );
+        if (!success) {
+          return NextResponse.json({ error: 'Failed to accept query' }, { status: 500 });
+        }
+
+        // Log to ApprovalHistory
+        await addApprovalHistory({
+          invoiceId: id,
+          amount: '0',
+          cumulativeTotal: invoice.approvedAmount || '0',
+          approvedBy,
+          comments: `[QUERY_ACCEPTED] ${responseComment}`,
+        });
+
+        return NextResponse.json({ success: true, newStatus: 'correction_required' });
+      } else {
+        // Approver disagrees with accounts query → re-approve (restore previous status)
+        const previousStatus = (invoice.previousStatus || 'approved') as typeof invoice.status;
+        const trailNote = `[Query Disagreed by ${approvedBy}] ${responseComment}`;
+        const existingComments = invoice.approvalComments || '';
+        const updatedComments = existingComments
+          ? `${existingComments}\n${trailNote}`
+          : trailNote;
+
+        const success = await updateInvoiceStatus(
+          id,
+          previousStatus,
+          updatedComments,
+          approvedBy,
+        );
+        if (!success) {
+          return NextResponse.json({ error: 'Failed to re-approve' }, { status: 500 });
+        }
+
+        // Log to ApprovalHistory
+        await addApprovalHistory({
+          invoiceId: id,
+          amount: '0',
+          cumulativeTotal: invoice.approvedAmount || '0',
+          approvedBy,
+          comments: `[QUERY_DISAGREED] ${responseComment}`,
+        });
+
+        return NextResponse.json({ success: true, newStatus: previousStatus });
+      }
+    }
+
     // ── Standard status change flow ──
     if (!status) {
       return NextResponse.json({ error: 'Status is required' }, { status: 400 });
@@ -407,8 +486,8 @@ export async function PATCH(request: NextRequest) {
     if (invoice.vendorName.toLowerCase() !== vendorName.toLowerCase()) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
-    if (invoice.status !== 'rejected') {
-      return NextResponse.json({ error: 'Only rejected invoices can be resubmitted' }, { status: 400 });
+    if (invoice.status !== 'rejected' && invoice.status !== 'correction_required') {
+      return NextResponse.json({ error: 'Only rejected or correction-required invoices can be resubmitted' }, { status: 400 });
     }
 
     // Sanitize update fields

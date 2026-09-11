@@ -5,6 +5,8 @@ export const INVOICE_STATUSES = {
   partially_paid: { label: 'Partially Paid', badgeClass: 'badge badge-partially-paid', icon: '◑' },
   paid: { label: 'Paid', badgeClass: 'badge badge-paid', icon: '✓✓' },
   rejected: { label: 'Rejected', badgeClass: 'badge badge-rejected', icon: '✕' },
+  accounts_query: { label: 'Accounts Query', badgeClass: 'badge badge-accounts-query', icon: '?' },
+  correction_required: { label: 'Correction Required', badgeClass: 'badge badge-correction-required', icon: '⟲' },
 } as const;
 
 export type InvoiceStatus = keyof typeof INVOICE_STATUSES;
