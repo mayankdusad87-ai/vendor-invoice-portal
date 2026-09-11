@@ -888,13 +888,13 @@ export async function resubmitInvoice(
     updates.challanName ?? currentRow[20] ?? '',           // U: Challan Name
     // APPROVER SECTION (V–Z)
     'submitted',                                           // V: Status (reset)
-    '',                                                    // W: Approved By (clear)
-    '',                                                    // X: Approved Amount (clear)
-    '',                                                    // Y: Approval Comments (clear)
-    '',                                                    // Z: Approved Date (clear)
+    '',                                                    // W: Approved By (clear for fresh review)
+    '',                                                    // X: Approved Amount (clear for fresh review)
+    currentRow[24] ?? '',                                  // Y: Approval Comments (preserve audit trail)
+    '',                                                    // Z: Approved Date (clear for fresh review)
     // SYSTEM (AA)
     now,                                                   // AA: Updated At
-    // ACCOUNTS QUERY (AB–AE) — clear on resubmit
+    // ACCOUNTS QUERY (AB–AE) — clear current query state (history lives in ApprovalHistory + comments)
     '',                                                    // AB: Accounts Query By
     '',                                                    // AC: Accounts Query Reason
     '',                                                    // AD: Accounts Query At

@@ -515,7 +515,7 @@ export default function ApproverDashboard() {
       return;
     }
 
-    const actionLabel = resolution === 'accept' ? 'accept the query and send for correction' : 'disagree and re-approve';
+    const actionLabel = resolution === 'accept' ? 'accept the query and send for correction' : 'disagree and send back to accounts';
     if (!window.confirm(`Are you sure you want to ${actionLabel}?`)) return;
 
     setQueryResolutionLoading(invoiceId);
@@ -551,7 +551,7 @@ export default function ApproverDashboard() {
         setToast({
           message: resolution === 'accept'
             ? `Invoice ${inv?.invoiceNumber || invoiceId} sent for correction`
-            : `Invoice ${inv?.invoiceNumber || invoiceId} re-approved`,
+            : `Invoice ${inv?.invoiceNumber || invoiceId} sent back to accounts`,
           type: 'success',
         });
       } else {
@@ -1551,7 +1551,7 @@ export default function ApproverDashboard() {
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
                                 </svg>
-                                Disagree &amp; Re-approve
+                                Disagree &amp; Send Back to Accounts
                               </button>
                             </div>
                           </div>
