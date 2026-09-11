@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
-import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus } from '@/lib/google-sheets';
+import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus, addApprovalHistory, ConflictError } from '@/lib/google-sheets';
 import { sanitizeString, sanitizeDate, rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 /**
@@ -208,8 +208,24 @@ export async function POST(request: NextRequest) {
       paymentType,
     });
 
-    // Update invoice status on the Invoices sheet
-    await updateInvoiceStatus(invoiceId, newStatus, undefined, undefined);
+    // Update invoice status on the Invoices sheet (with concurrency check)
+    await updateInvoiceStatus(
+      invoiceId,
+      newStatus,
+      undefined,
+      undefined,
+      undefined,
+      invoice.updatedAt, // optimistic concurrency
+    );
+
+    // Log payment to ApprovalHistory for audit trail
+    await addApprovalHistory({
+      invoiceId,
+      amount: String(paymentAmount),
+      cumulativeTotal: String(newTotalPaid),
+      approvedBy: `Accounts: ${paidBy}`,
+      comments: `[PAYMENT] ₹${paymentAmount.toLocaleString('en-IN')} paid (UTR: ${utrReference})${newStatus === 'paid' ? ' — Invoice fully paid' : ''} (${invoice.status} → ${newStatus})`,
+    });
 
     return NextResponse.json({
       success: true,
@@ -222,6 +238,9 @@ export async function POST(request: NextRequest) {
       approvedAmount,
     });
   } catch (error) {
+    if (error instanceof ConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error('Failed to record payment:', error);
     return NextResponse.json({ error: 'Failed to record payment' }, { status: 500 });
   }

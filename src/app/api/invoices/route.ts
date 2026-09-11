@@ -3,16 +3,24 @@ import {
   getInvoices, getVendorInvoices, getInvoiceById, getActiveVendors,
   addInvoice, updateInvoiceStatus, resubmitInvoice,
   addApprovalHistory, getApprovalHistory,
+  ConflictError,
 } from '@/lib/google-sheets';
 import {
   requireAuth, requireEngineerOrVendor, requireAdminOrApprover,
   isAuthError,
 } from '@/lib/auth';
-import type { ApproverToken } from '@/lib/auth';
+import type { ApproverToken, EngineerToken } from '@/lib/auth';
 import {
   rateLimit, getRateLimitKey, rateLimitResponse,
   sanitizeString, sanitizeAmount, sanitizeDate,
 } from '@/lib/security';
+
+// ── State-transition rules (standard approval flow only) ──
+// Other flows (resolve_accounts_query, increase_approved_amount) have their own guards.
+const ALLOWED_STANDARD_TRANSITIONS: Record<string, string[]> = {
+  submitted:    ['under_review', 'approved', 'rejected'],
+  under_review: ['approved', 'rejected'],
+};
 
 // GET /api/invoices — get invoices (authenticated)
 export async function GET(request: NextRequest) {
@@ -291,11 +299,13 @@ export async function PUT(request: NextRequest) {
         : userComment;
 
       // Update invoice with new cumulative approved amount and appended comments
+      // Pass expectedUpdatedAt for optimistic concurrency
       const success = await updateInvoiceStatus(
         id, 'partially_paid',
         updatedComments,
         approvedBy || invoice.approvedBy,
-        String(newCumulativeApproved)
+        String(newCumulativeApproved),
+        invoice.updatedAt,
       );
       if (!success) {
         return NextResponse.json({ error: 'Failed to update approved amount' }, { status: 500 });
@@ -339,6 +349,8 @@ export async function PUT(request: NextRequest) {
           'correction_required',
           updatedComments,
           approvedBy,
+          undefined,
+          invoice.updatedAt, // optimistic concurrency
         );
         if (!success) {
           return NextResponse.json({ error: 'Failed to accept query' }, { status: 500 });
@@ -350,12 +362,12 @@ export async function PUT(request: NextRequest) {
           amount: '0',
           cumulativeTotal: invoice.approvedAmount || '0',
           approvedBy,
-          comments: `[QUERY_ACCEPTED] ${responseComment}`,
+          comments: `[QUERY_ACCEPTED] ${responseComment} (accounts_query → correction_required)`,
         });
 
         return NextResponse.json({ success: true, newStatus: 'correction_required' });
       } else {
-        // Approver disagrees with accounts query → re-approve (restore previous status)
+        // Approver disagrees with accounts query → restore previous status
         const previousStatus = (invoice.previousStatus || 'approved') as typeof invoice.status;
         const trailNote = `[Query Disagreed by ${approvedBy}] ${responseComment}`;
         const existingComments = invoice.approvalComments || '';
@@ -368,9 +380,11 @@ export async function PUT(request: NextRequest) {
           previousStatus,
           updatedComments,
           approvedBy,
+          undefined,
+          invoice.updatedAt, // optimistic concurrency
         );
         if (!success) {
-          return NextResponse.json({ error: 'Failed to re-approve' }, { status: 500 });
+          return NextResponse.json({ error: 'Failed to restore status' }, { status: 500 });
         }
 
         // Log to ApprovalHistory
@@ -379,7 +393,7 @@ export async function PUT(request: NextRequest) {
           amount: '0',
           cumulativeTotal: invoice.approvedAmount || '0',
           approvedBy,
-          comments: `[QUERY_DISAGREED] ${responseComment}`,
+          comments: `[QUERY_DISAGREED] ${responseComment} (accounts_query → ${previousStatus})`,
         });
 
         return NextResponse.json({ success: true, newStatus: previousStatus });
@@ -396,6 +410,17 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
     }
 
+    // ── STATE TRANSITION VALIDATION ──
+    // Only allow transitions defined in the state machine.
+    // The backend determines what's valid — the frontend cannot dictate arbitrary status.
+    const allowedNext = ALLOWED_STANDARD_TRANSITIONS[invoice.status];
+    if (!allowedNext || !allowedNext.includes(status)) {
+      return NextResponse.json(
+        { error: `Cannot change status from "${invoice.status}" to "${status}"` },
+        { status: 400 }
+      );
+    }
+
     // Require comments/reason for approve and reject
     if ((status === 'approved' || status === 'rejected') && !approvalComments) {
       return NextResponse.json(
@@ -404,11 +429,6 @@ export async function PUT(request: NextRequest) {
             : 'Rejection reason is required' },
         { status: 400 }
       );
-    }
-
-    // Prevent re-approving or re-rejecting an invoice already in that status
-    if (invoice.status === status && (status === 'approved' || status === 'rejected')) {
-      return NextResponse.json({ error: `Invoice is already ${status}` }, { status: 400 });
     }
 
     // Validate approved amount when approving (max = amount + GST)
@@ -434,24 +454,43 @@ export async function PUT(request: NextRequest) {
       approvedAmount = String(parsedAmount);
     }
 
-    const success = await updateInvoiceStatus(id, status as typeof invoice.status, approvalComments, approvedBy, approvedAmount);
+    const success = await updateInvoiceStatus(
+      id,
+      status as typeof invoice.status,
+      approvalComments,
+      approvedBy,
+      approvedAmount,
+      invoice.updatedAt, // optimistic concurrency
+    );
     if (!success) {
       return NextResponse.json({ error: 'Failed to update invoice' }, { status: 500 });
     }
 
-    // Log initial approval to ApprovalHistory for audit trail
+    // Log to ApprovalHistory for audit trail
     if (status === 'approved' && approvedAmount) {
       await addApprovalHistory({
         invoiceId: id,
         amount: approvedAmount,
         cumulativeTotal: approvedAmount,
         approvedBy,
-        comments: approvalComments || '',
+        comments: `${approvalComments || ''} (${invoice.status} → approved)`,
+      });
+    }
+    if (status === 'rejected') {
+      await addApprovalHistory({
+        invoiceId: id,
+        amount: '0',
+        cumulativeTotal: invoice.approvedAmount || '0',
+        approvedBy,
+        comments: `[REJECTED] ${approvalComments || ''} (${invoice.status} → rejected)`,
       });
     }
 
     return NextResponse.json({ success: true, approvedAmount });
   } catch (error) {
+    if (error instanceof ConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error('Update invoice error:', error);
     return NextResponse.json({ error: 'Failed to update invoice' }, { status: 500 });
   }
@@ -478,19 +517,36 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Invoice ID and vendor name are required' }, { status: 400 });
     }
 
-    // Verify the invoice exists, belongs to this vendor, and is rejected
+    // Verify the invoice exists
     const invoice = await getInvoiceById(id);
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
     }
+
+    // Data-integrity check: supplied vendorName must match the invoice's vendor
     if (invoice.vendorName.toLowerCase() !== vendorName.toLowerCase()) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      return NextResponse.json({ error: 'Vendor name does not match this invoice' }, { status: 400 });
     }
+
+    // Project access check for engineers
+    if (session.type === 'engineer') {
+      const engineerSession = session as EngineerToken;
+      if (engineerSession.projects.length > 0 && invoice.project && !engineerSession.projects.includes(invoice.project)) {
+        return NextResponse.json({ error: 'You do not have access to this project' }, { status: 403 });
+      }
+    }
+
+    // State validation: only rejected or correction_required invoices can be resubmitted
     if (invoice.status !== 'rejected' && invoice.status !== 'correction_required') {
       return NextResponse.json({ error: 'Only rejected or correction-required invoices can be resubmitted' }, { status: 400 });
     }
 
-    // Sanitize update fields
+    // Derive submitter identity from session — never from client
+    const resubmittedBy = session.type === 'engineer'
+      ? (session as EngineerToken).engineerName
+      : (session as import('@/lib/auth').VendorToken).vendorName;
+
+    // Sanitize update fields and resubmit with concurrency check
     const success = await resubmitInvoice(id, {
       invoiceDate: sanitizeDate(body.invoiceDate) || undefined,
       invoiceNumber: sanitizeString(body.invoiceNumber, 50) || undefined,
@@ -502,14 +558,26 @@ export async function PATCH(request: NextRequest) {
       workPhotos: sanitizeString(body.workPhotos, 5000),
       measurementSheetUrl: sanitizeString(body.measurementSheetUrl, 2000),
       measurementSheetName: sanitizeString(body.measurementSheetName, 200),
-    });
+    }, invoice.updatedAt); // optimistic concurrency
 
     if (!success) {
       return NextResponse.json({ error: 'Failed to resubmit' }, { status: 500 });
     }
 
+    // Log resubmission to ApprovalHistory for audit trail
+    await addApprovalHistory({
+      invoiceId: id,
+      amount: '0',
+      cumulativeTotal: invoice.approvedAmount || '0',
+      approvedBy: `Engineer: ${resubmittedBy}`,
+      comments: `[RESUBMITTED] Invoice corrected and resubmitted (${invoice.status} → submitted)`,
+    });
+
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof ConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error('Resubmit invoice error:', error);
     return NextResponse.json({ error: 'Failed to resubmit invoice' }, { status: 500 });
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAccounts, isAuthError } from '@/lib/auth';
-import { getInvoiceById, setAccountsQuery, addApprovalHistory } from '@/lib/google-sheets';
+import { getInvoiceById, setAccountsQuery, addApprovalHistory, ConflictError } from '@/lib/google-sheets';
 import { sanitizeString, rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 /**
@@ -60,13 +60,14 @@ export async function POST(request: NextRequest) {
       ? `${existingComments}\n${queryNote}`
       : queryNote;
 
-    // Set status to accounts_query with full metadata
+    // Set status to accounts_query with full metadata (with concurrency check)
     const success = await setAccountsQuery(
       invoiceId,
       session.accountsName,
       reason,
       invoice.status,    // preserve previous status for re-approval
       updatedComments,
+      invoice.updatedAt, // optimistic concurrency
     );
 
     if (!success) {
@@ -79,11 +80,14 @@ export async function POST(request: NextRequest) {
       amount: '0',
       cumulativeTotal: invoice.approvedAmount || '0',
       approvedBy: `Accounts: ${session.accountsName}`,
-      comments: `[ACCOUNTS_QUERY] ${reason}`,
+      comments: `[ACCOUNTS_QUERY] ${reason} (${invoice.status} → accounts_query)`,
     });
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof ConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error('Accounts query error:', error);
     return NextResponse.json({ error: 'Failed to raise query' }, { status: 500 });
   }

@@ -1,5 +1,18 @@
 import { google } from 'googleapis';
 
+// ==================== CONCURRENCY ERROR ====================
+
+/**
+ * Thrown when an invoice was modified between the time it was read and the
+ * time a write is attempted.  The API layer catches this and returns HTTP 409.
+ */
+export class ConflictError extends Error {
+  constructor(message = 'This invoice was modified by another user. Please refresh and try again.') {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
+
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 
 function getAuth() {
@@ -694,7 +707,8 @@ export async function updateInvoiceStatus(
   status: Invoice['status'],
   approvalComments?: string,
   approvedBy?: string,
-  approvedAmount?: string
+  approvedAmount?: string,
+  expectedUpdatedAt?: string,
 ): Promise<boolean> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
@@ -708,6 +722,11 @@ export async function updateInvoiceStatus(
 
   const now = getISTTimestamp().combined;
   const currentRow = rows[rowIndex];
+
+  // Optimistic concurrency — reject if the invoice was modified since the caller read it
+  if (expectedUpdatedAt && currentRow[26] && currentRow[26] !== expectedUpdatedAt) {
+    throw new ConflictError();
+  }
 
   // Set approvedDate only when transitioning to approved
   const isApprovalAction = status === 'approved';
@@ -754,6 +773,7 @@ export async function setAccountsQuery(
   queryReason: string,
   previousStatus: string,
   approvalComments: string,
+  expectedUpdatedAt?: string,
 ): Promise<boolean> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
@@ -767,6 +787,17 @@ export async function setAccountsQuery(
 
   const now = getISTTimestamp().combined;
   const currentRow = rows[rowIndex];
+
+  // Optimistic concurrency — reject if the invoice was modified since the caller read it
+  if (expectedUpdatedAt && currentRow[26] && currentRow[26] !== expectedUpdatedAt) {
+    throw new ConflictError();
+  }
+
+  // Re-validate status hasn't changed (close TOCTOU gap)
+  const currentStatus = currentRow[21] || '';
+  if (currentStatus !== previousStatus && currentStatus !== 'approved' && currentStatus !== 'partially_paid') {
+    throw new ConflictError(`Invoice status changed to "${currentStatus}" — cannot raise query.`);
+  }
 
   // Update Status (V) and Approval Comments (Y) — preserve approvedBy, approvedAmount, approvedDate
   await sheets.spreadsheets.values.update({
@@ -839,12 +870,13 @@ export async function resubmitInvoice(
     poNumber?: string;
     challanUrl?: string;
     challanName?: string;
-  }
+  },
+  expectedUpdatedAt?: string,
 ): Promise<boolean> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AA',
+    range: 'Invoices!A2:AE',
   });
 
   const rows = response.data.values || [];
@@ -853,6 +885,17 @@ export async function resubmitInvoice(
 
   const currentRow = rows[rowIndex];
   const now = getISTTimestamp().combined;
+
+  // Optimistic concurrency — reject if the invoice was modified since the caller read it
+  if (expectedUpdatedAt && currentRow[26] && currentRow[26] !== expectedUpdatedAt) {
+    throw new ConflictError();
+  }
+
+  // Re-validate status — must still be rejected or correction_required
+  const currentStatus = currentRow[21] || '';
+  if (currentStatus !== 'rejected' && currentStatus !== 'correction_required') {
+    throw new ConflictError(`Invoice status changed to "${currentStatus}" — cannot resubmit.`);
+  }
 
   // Recompute total after potential amount change
   const newAmount = updates.amount ?? currentRow[7];
