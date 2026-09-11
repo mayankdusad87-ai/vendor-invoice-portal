@@ -244,7 +244,7 @@ export default function PaymentLifecycle({ invoiceId, role, onReleaseRetention }
 
         {/* Deduction summary row */}
         {hasDeductions && (
-          <div className="mt-2 pt-2 border-t border-gray-200/50 grid grid-cols-4 gap-2 text-[10px]">
+          <div className="mt-2 pt-2 border-t border-gray-200/50 grid grid-cols-3 gap-2 text-[10px]">
             <div>
               <p className="text-gray-400">Total TDS</p>
               <p className="font-semibold text-red-600">{formatCurrency(summary.totalTDS || 0)}</p>
@@ -252,10 +252,6 @@ export default function PaymentLifecycle({ invoiceId, role, onReleaseRetention }
             <div>
               <p className="text-gray-400">Total Retention</p>
               <p className="font-semibold text-amber-600">{formatCurrency(summary.totalRetention || 0)}</p>
-            </div>
-            <div>
-              <p className="text-gray-400">Total Consumed</p>
-              <p className="font-semibold text-gray-700">{formatCurrency(summary.totalConsumed || 0)}</p>
             </div>
             <div>
               <p className="text-gray-400">Remaining</p>

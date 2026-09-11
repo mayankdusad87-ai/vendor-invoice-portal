@@ -189,6 +189,34 @@ export async function GET(request: NextRequest) {
       status: 'fully_paid' | 'partially_paid' | 'pending';
     }
 
+    // Fallback: if no approval events found in ApprovalHistory but the invoice
+    // has an approvedAmount (e.g. initial approval predates the ApprovalHistory
+    // feature), synthesize a single tranche from the invoice data.
+    if (approvalEvents.length === 0 && invoice.approvedAmount) {
+      const approvedAmt = parseFloat(invoice.approvedAmount) || 0;
+      if (approvedAmt > 0) {
+        approvalEvents.push({
+          date: invoice.submittedAt || '',
+          approvedBy: invoice.approvedBy || '',
+          trancheAmount: approvedAmt,
+          cumulativeApproved: approvedAmt,
+          comments: invoice.approvalComments || `(${invoice.status})`,
+          historyId: 'synthetic',
+        });
+        // Also add to timeline if not already there
+        const hasApprovalInTimeline = timeline.some(e => e.type === 'approval');
+        if (!hasApprovalInTimeline) {
+          timeline.push({
+            type: 'approval',
+            date: invoice.submittedAt || '',
+            actor: invoice.approvedBy || '',
+            amount: approvedAmt,
+            details: invoice.approvalComments || '',
+          });
+        }
+      }
+    }
+
     // Sort payments by creation date
     const sortedPayments = [...payments].sort((a, b) =>
       (a.createdAt || '').localeCompare(b.createdAt || '')
