@@ -790,6 +790,20 @@ export default function AccountsDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'amount' | 'vendor'>('date');
 
+  // Vendor outstanding summary
+  const [vendorSummary, setVendorSummary] = useState<Array<{
+    vendorName: string;
+    invoiceCount: number;
+    totalApproved: number;
+    totalTDS: number;
+    totalRetentionHeld: number;
+    totalRetentionReleased: number;
+    totalPaid: number;
+    outstanding: number;
+  }>>([]);
+  const [vendorSummaryOpen, setVendorSummaryOpen] = useState(false);
+  const [vendorSummaryLoading, setVendorSummaryLoading] = useState(false);
+
   // Modals
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null);
   const [rejectInvoice, setRejectInvoice] = useState<Invoice | null>(null);
@@ -861,6 +875,20 @@ export default function AccountsDashboard() {
       if (res.ok) setRejectionReasons(data.reasons || []);
     } catch {
       console.error('Failed to fetch rejection reasons');
+    }
+  }, []);
+
+  const fetchVendorSummary = useCallback(async () => {
+    setVendorSummaryLoading(true);
+    try {
+      const res = await fetch('/api/deductions/vendor-summary');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setVendorSummary(data.vendors || []);
+    } catch {
+      console.error('Failed to load vendor summary');
+    } finally {
+      setVendorSummaryLoading(false);
     }
   }, []);
 
@@ -1198,6 +1226,100 @@ export default function AccountsDashboard() {
             <p className="text-xs text-gray-400 mt-0.5">worth {formatCurrency(stats.outstandingAmount)}</p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500" />
           </button>
+        </div>
+
+        {/* ── Vendor Outstanding Summary ── */}
+        <div className="mb-5">
+          <button
+            onClick={() => {
+              const next = !vendorSummaryOpen;
+              setVendorSummaryOpen(next);
+              if (next && vendorSummary.length === 0) fetchVendorSummary();
+            }}
+            className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-colors group"
+          >
+            <svg className={`w-4 h-4 transition-transform ${vendorSummaryOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Vendor Outstanding Summary
+            {vendorSummary.length > 0 && (
+              <span className="text-xs font-normal text-gray-400">({vendorSummary.length} vendor{vendorSummary.length !== 1 ? 's' : ''})</span>
+            )}
+          </button>
+
+          {vendorSummaryOpen && (
+            <div className="mt-3 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              {vendorSummaryLoading ? (
+                <div className="p-6 text-center text-sm text-gray-400">
+                  <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin mr-2" />
+                  Loading vendor summary…
+                </div>
+              ) : vendorSummary.length === 0 ? (
+                <div className="p-6 text-center text-sm text-gray-500">
+                  No vendors with outstanding amounts or held retention.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Vendor</th>
+                        <th className="text-center px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Invoices</th>
+                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Approved</th>
+                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">TDS</th>
+                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Retention Held</th>
+                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Paid</th>
+                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Outstanding</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {vendorSummary.map((v) => (
+                        <tr key={v.vendorName} className="hover:bg-gray-50/50">
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-700 flex-shrink-0">
+                                {getInitials(v.vendorName)}
+                              </div>
+                              <span className="font-medium text-gray-800 text-xs">{v.vendorName}</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs text-gray-600">{v.invoiceCount}</td>
+                          <td className="px-3 py-2.5 text-right text-xs font-semibold text-emerald-700">{formatCurrency(v.totalApproved)}</td>
+                          <td className="px-3 py-2.5 text-right text-xs text-red-600">{v.totalTDS > 0 ? `-${formatCurrency(v.totalTDS)}` : '—'}</td>
+                          <td className="px-3 py-2.5 text-right text-xs text-amber-600">
+                            {v.totalRetentionHeld > 0 ? `-${formatCurrency(v.totalRetentionHeld)}` : '—'}
+                            {v.totalRetentionReleased > 0 && (
+                              <span className="block text-[9px] text-teal-600">({formatCurrency(v.totalRetentionReleased)} released)</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-xs font-semibold text-violet-700">{formatCurrency(v.totalPaid)}</td>
+                          <td className="px-3 py-2.5 text-right">
+                            <span className={`text-xs font-bold ${v.outstanding > 0 ? 'text-blue-700' : 'text-emerald-600'}`}>
+                              {formatCurrency(Math.max(0, v.outstanding))}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-gray-50 border-t border-gray-200 font-semibold text-xs">
+                        <td className="px-4 py-2.5 text-gray-700">Total</td>
+                        <td className="px-3 py-2.5 text-center text-gray-600">{vendorSummary.reduce((s, v) => s + v.invoiceCount, 0)}</td>
+                        <td className="px-3 py-2.5 text-right text-emerald-700">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalApproved, 0))}</td>
+                        <td className="px-3 py-2.5 text-right text-red-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalTDS, 0))}</td>
+                        <td className="px-3 py-2.5 text-right text-amber-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalRetentionHeld, 0))}</td>
+                        <td className="px-3 py-2.5 text-right text-violet-700">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalPaid, 0))}</td>
+                        <td className="px-3 py-2.5 text-right text-blue-700">{formatCurrency(vendorSummary.reduce((s, v) => s + Math.max(0, v.outstanding), 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── List header: count + sort ── */}

@@ -39,7 +39,7 @@ const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
  * Time format: HH:mm:ss
  * Combined: dd/mm/yyyy, HH:mm:ss IST
  */
-function getISTTimestamp(): { date: string; time: string; combined: string } {
+export function getISTTimestamp(): { date: string; time: string; combined: string } {
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000;
   const ist = new Date(now.getTime() + istOffset);
@@ -1206,6 +1206,166 @@ export async function getAllApprovalHistory(): Promise<ApprovalHistoryEntry[]> {
   }));
 }
 
+// ==================== DEDUCTIONS ====================
+
+export interface DeductionEntry {
+  id: string;
+  invoiceId: string;
+  approvalHistoryId: string;  // Links to the specific tranche approval event
+  trancheNumber: string;
+  tdsAmount: string;
+  retentionAmount: string;
+  retentionStatus: 'held' | 'released';
+  releasedAt: string;
+  releasedBy: string;
+  createdAt: string;
+  updatedBy: string;
+}
+
+async function ensureDeductionsSheet(): Promise<void> {
+  const sheets = getSheets();
+  try {
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'Deductions!A1:A1',
+    });
+  } catch {
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: 'Deductions' } } }],
+        },
+      });
+    } catch {
+      // Sheet might already exist — ignore
+    }
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'Deductions!A1:K1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Invoice ID', 'Approval History ID', 'Tranche Number', 'TDS Amount', 'Retention Amount', 'Retention Status', 'Released At', 'Released By', 'Created At', 'Updated By']],
+      },
+    });
+  }
+}
+
+export async function getDeductions(invoiceId: string): Promise<DeductionEntry[]> {
+  await ensureDeductionsSheet();
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Deductions!A2:K',
+  });
+
+  const rows = response.data.values || [];
+  return rows
+    .map((row) => ({
+      id: row[0] || '',
+      invoiceId: row[1] || '',
+      approvalHistoryId: row[2] || '',
+      trancheNumber: row[3] || '',
+      tdsAmount: row[4] || '0',
+      retentionAmount: row[5] || '0',
+      retentionStatus: (row[6] as DeductionEntry['retentionStatus']) || 'held',
+      releasedAt: row[7] || '',
+      releasedBy: row[8] || '',
+      createdAt: row[9] || '',
+      updatedBy: row[10] || '',
+    }))
+    .filter((entry) => entry.invoiceId === invoiceId);
+}
+
+export async function getAllDeductions(): Promise<DeductionEntry[]> {
+  await ensureDeductionsSheet();
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Deductions!A2:K',
+  });
+
+  const rows = response.data.values || [];
+  return rows.map((row) => ({
+    id: row[0] || '',
+    invoiceId: row[1] || '',
+    approvalHistoryId: row[2] || '',
+    trancheNumber: row[3] || '',
+    tdsAmount: row[4] || '0',
+    retentionAmount: row[5] || '0',
+    retentionStatus: (row[6] as DeductionEntry['retentionStatus']) || 'held',
+    releasedAt: row[7] || '',
+    releasedBy: row[8] || '',
+    createdAt: row[9] || '',
+    updatedBy: row[10] || '',
+  }));
+}
+
+export async function addDeduction(entry: Omit<DeductionEntry, 'id' | 'createdAt'>): Promise<DeductionEntry> {
+  await ensureDeductionsSheet();
+  const sheets = getSheets();
+  const id = `DED${Date.now()}`;
+  const createdAt = getISTTimestamp().combined;
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: 'Deductions!A:K',
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[
+        id,
+        entry.invoiceId,
+        entry.approvalHistoryId,
+        entry.trancheNumber,
+        entry.tdsAmount,
+        entry.retentionAmount,
+        entry.retentionStatus || 'held',
+        entry.releasedAt || '',
+        entry.releasedBy || '',
+        createdAt,
+        entry.updatedBy,
+      ]],
+    },
+  });
+
+  return { ...entry, id, createdAt };
+}
+
+export async function updateDeduction(
+  id: string,
+  updates: Partial<Pick<DeductionEntry, 'tdsAmount' | 'retentionAmount' | 'retentionStatus' | 'releasedAt' | 'releasedBy' | 'updatedBy'>>
+): Promise<boolean> {
+  await ensureDeductionsSheet();
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Deductions!A2:K',
+  });
+
+  const rows = response.data.values || [];
+  const rowIndex = rows.findIndex((row) => row[0] === id);
+  if (rowIndex === -1) return false;
+
+  const row = rows[rowIndex];
+  // Apply updates to the row
+  if (updates.tdsAmount !== undefined) row[4] = updates.tdsAmount;
+  if (updates.retentionAmount !== undefined) row[5] = updates.retentionAmount;
+  if (updates.retentionStatus !== undefined) row[6] = updates.retentionStatus;
+  if (updates.releasedAt !== undefined) row[7] = updates.releasedAt;
+  if (updates.releasedBy !== undefined) row[8] = updates.releasedBy;
+  if (updates.updatedBy !== undefined) row[10] = updates.updatedBy;
+
+  const sheetRow = rowIndex + 2; // +1 for header, +1 for 1-based index
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Deductions!A${sheetRow}:K${sheetRow}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [row] },
+  });
+
+  return true;
+}
+
 // ==================== PAYMENTS ====================
 
 export interface Payment {
@@ -1718,6 +1878,9 @@ export async function initializeSheetHeaders(): Promise<void> {
   if (!existingSheets.includes('ApprovalHistory')) {
     requests.push({ addSheet: { properties: { title: 'ApprovalHistory' } } });
   }
+  if (!existingSheets.includes('Deductions')) {
+    requests.push({ addSheet: { properties: { title: 'Deductions' } } });
+  }
 
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
@@ -1893,6 +2056,28 @@ export async function initializeSheetHeaders(): Promise<void> {
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedApprovalHeaders],
+      },
+    });
+  }
+
+  // Always set correct headers for Deductions tab
+  const expectedDeductionHeaders = [
+    'ID', 'Invoice ID', 'Approval History ID', 'Tranche Number', 'TDS Amount',
+    'Retention Amount', 'Retention Status', 'Released At', 'Released By', 'Created At', 'Updated By',
+  ];
+  const deductionHeaders = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Deductions!A1:K1',
+  });
+  const currentDeductionHeaders = deductionHeaders.data.values?.[0] || [];
+  if (currentDeductionHeaders.length !== expectedDeductionHeaders.length ||
+      currentDeductionHeaders.some((h, i) => h !== expectedDeductionHeaders[i])) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'Deductions!A1:K1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [expectedDeductionHeaders],
       },
     });
   }

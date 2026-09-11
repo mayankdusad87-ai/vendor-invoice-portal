@@ -16,6 +16,17 @@ interface TranchePayment {
   paymentType: string;
 }
 
+interface TrancheDeduction {
+  deductionId: string;
+  tdsAmount: number;
+  retentionAmount: number;
+  retentionStatus: 'held' | 'released';
+  releasedAt: string;
+  releasedBy: string;
+  netPayable: number;
+  totalDeducted: number;
+}
+
 interface Tranche {
   trancheNumber: number;
   approvedAmount: number;
@@ -23,6 +34,8 @@ interface Tranche {
   approvedBy: string;
   approvedDate: string;
   approvalComments: string;
+  historyId: string;
+  deduction: TrancheDeduction | null;
   payments: TranchePayment[];
   totalPaid: number;
   pendingAmount: number;
@@ -49,6 +62,13 @@ interface LifecycleSummary {
   remainingOnInvoice: number;
   trancheCount: number;
   paymentCount: number;
+  // Deduction summary
+  totalTDS?: number;
+  totalRetention?: number;
+  totalRetentionHeld?: number;
+  totalRetentionReleased?: number;
+  totalDeducted?: number;
+  netPayable?: number;
 }
 
 interface LifecycleData {
@@ -107,11 +127,238 @@ function eventLabel(type: TimelineEvent['type']) {
   }
 }
 
+/* ───────── Deduction Form Modal ───────── */
+
+interface DeductionFormProps {
+  invoiceId: string;
+  tranche: Tranche;
+  onSaved: () => void;
+  onClose: () => void;
+}
+
+function DeductionForm({ invoiceId, tranche, onSaved, onClose }: DeductionFormProps) {
+  const [tds, setTds] = useState(tranche.deduction?.tdsAmount?.toString() || '');
+  const [retention, setRetention] = useState(tranche.deduction?.retentionAmount?.toString() || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const tdsNum = parseFloat(tds) || 0;
+  const retentionNum = parseFloat(retention) || 0;
+  const netPayable = Math.max(0, tranche.approvedAmount - tdsNum - retentionNum);
+
+  const handleSave = async () => {
+    if (tdsNum < 0 || retentionNum < 0) {
+      setError('Amounts cannot be negative');
+      return;
+    }
+    if (tdsNum + retentionNum > tranche.approvedAmount) {
+      setError('TDS + Retention cannot exceed approved amount');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/deductions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceId,
+          approvalHistoryId: tranche.historyId,
+          trancheNumber: tranche.trancheNumber,
+          tdsAmount: tdsNum,
+          retentionAmount: retentionNum,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to save deduction');
+      }
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 ml-2 rounded-lg border border-orange-200 bg-orange-50/50 p-3">
+      <div className="flex items-center justify-between mb-3">
+        <h5 className="text-xs font-bold text-orange-800 flex items-center gap-1.5">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+          </svg>
+          Deductions — Tranche {tranche.trancheNumber}
+        </h5>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm">✕</button>
+      </div>
+
+      <div className="text-[11px] text-gray-600 mb-3">
+        Approved: <strong className="text-emerald-700">{formatCurrency(tranche.approvedAmount)}</strong>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label className="block text-[10px] font-semibold text-gray-600 mb-1">TDS (Tax Deducted at Source)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={tds}
+            onChange={(e) => setTds(e.target.value)}
+            className="w-full text-xs px-2.5 py-1.5 rounded-md border border-gray-300 focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none"
+            placeholder="₹ 0.00"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-semibold text-gray-600 mb-1">Retention Amount (On Hold)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={retention}
+            onChange={(e) => setRetention(e.target.value)}
+            className="w-full text-xs px-2.5 py-1.5 rounded-md border border-gray-300 focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none"
+            placeholder="₹ 0.00"
+          />
+        </div>
+      </div>
+
+      {/* Calculated summary */}
+      <div className="rounded-md bg-white border border-gray-200 p-2.5 mb-3">
+        <div className="grid grid-cols-3 gap-2 text-[11px]">
+          <div>
+            <p className="text-gray-400">TDS</p>
+            <p className="font-bold text-red-600">-{formatCurrency(tdsNum)}</p>
+          </div>
+          <div>
+            <p className="text-gray-400">Retention</p>
+            <p className="font-bold text-amber-600">-{formatCurrency(retentionNum)}</p>
+          </div>
+          <div>
+            <p className="text-gray-400">Net Payable</p>
+            <p className="font-bold text-emerald-700">{formatCurrency(netPayable)}</p>
+          </div>
+        </div>
+      </div>
+
+      {error && <p className="text-[11px] text-red-600 mb-2">{error}</p>}
+
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={onClose}
+          className="text-[11px] px-3 py-1.5 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="text-[11px] px-3 py-1.5 rounded-md bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 font-medium"
+        >
+          {saving ? 'Saving…' : tranche.deduction ? 'Update Deductions' : 'Save Deductions'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ───────── Release Retention Confirmation ───────── */
+
+interface ReleaseRetentionProps {
+  invoiceId: string;
+  tranche: Tranche;
+  onReleased: () => void;
+}
+
+function ReleaseRetentionButton({ invoiceId, tranche, onReleased }: ReleaseRetentionProps) {
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState('Defect liability period complete');
+  const [releasing, setReleasing] = useState(false);
+  const [error, setError] = useState('');
+
+  if (!tranche.deduction || tranche.deduction.retentionStatus !== 'held' || tranche.deduction.retentionAmount <= 0) {
+    return null;
+  }
+
+  const handleRelease = async () => {
+    setReleasing(true);
+    setError('');
+    try {
+      const res = await fetch('/api/deductions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deductionId: tranche.deduction!.deductionId,
+          action: 'release_retention',
+          invoiceId,
+          trancheNumber: tranche.trancheNumber,
+          retentionAmount: tranche.deduction!.retentionAmount,
+          reason,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to release');
+      }
+      setConfirming(false);
+      onReleased();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to release');
+    } finally {
+      setReleasing(false);
+    }
+  };
+
+  if (!confirming) {
+    return (
+      <button
+        onClick={() => setConfirming(true)}
+        className="text-[10px] px-2 py-1 rounded-md border border-teal-300 text-teal-700 hover:bg-teal-50 font-medium flex items-center gap-1"
+      >
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+        </svg>
+        Release {formatCurrency(tranche.deduction.retentionAmount)}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-teal-200 bg-teal-50/50 p-2.5">
+      <p className="text-[11px] font-semibold text-teal-800 mb-2">
+        Release retention of {formatCurrency(tranche.deduction.retentionAmount)} for Tranche {tranche.trancheNumber}?
+      </p>
+      <div className="mb-2">
+        <label className="block text-[10px] font-medium text-gray-600 mb-1">Reason</label>
+        <input
+          type="text"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="w-full text-xs px-2 py-1.5 rounded-md border border-gray-300 focus:border-teal-400 focus:ring-1 focus:ring-teal-200 outline-none"
+        />
+      </div>
+      {error && <p className="text-[11px] text-red-600 mb-2">{error}</p>}
+      <div className="flex gap-2 justify-end">
+        <button onClick={() => setConfirming(false)} className="text-[10px] px-2.5 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50">Cancel</button>
+        <button
+          onClick={handleRelease}
+          disabled={releasing}
+          className="text-[10px] px-2.5 py-1 rounded-md bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 font-medium"
+        >
+          {releasing ? 'Releasing…' : 'Confirm Release'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ───────── Component ───────── */
 
 interface PaymentLifecycleProps {
   invoiceId: string;
-  /** Which role is viewing — affects emphasis */
+  /** Which role is viewing — affects emphasis and deduction controls */
   role: 'approver' | 'accounts';
 }
 
@@ -120,6 +367,7 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'tranches' | 'timeline'>('tranches');
+  const [deductionFormTranche, setDeductionFormTranche] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -168,7 +416,7 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
     );
   }
 
-  /* No tranches yet — invoice may just be approved with no history */
+  /* No tranches yet */
   if (data.tranches.length === 0 && data.timeline.length === 0) {
     return (
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
@@ -178,6 +426,7 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
   }
 
   const { summary, tranches, timeline } = data;
+  const hasDeductions = (summary.totalDeducted || 0) > 0;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
@@ -208,7 +457,7 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
         </div>
 
         {/* Summary row */}
-        <div className="grid grid-cols-4 gap-2 text-[11px]">
+        <div className={`grid ${hasDeductions ? 'grid-cols-5' : 'grid-cols-4'} gap-2 text-[11px]`}>
           <div>
             <p className="text-gray-400">Invoice</p>
             <p className="font-bold text-gray-800">{formatCurrency(data.invoiceTotal)}</p>
@@ -217,6 +466,12 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
             <p className="text-gray-400">Approved</p>
             <p className="font-bold text-emerald-700">{formatCurrency(summary.totalApproved)}</p>
           </div>
+          {hasDeductions && (
+            <div>
+              <p className="text-gray-400">Deducted</p>
+              <p className="font-bold text-red-600">-{formatCurrency(summary.totalDeducted || 0)}</p>
+            </div>
+          )}
           <div>
             <p className="text-gray-400">Paid</p>
             <p className="font-bold text-violet-700">{formatCurrency(summary.totalPaid)}</p>
@@ -228,6 +483,28 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
             </p>
           </div>
         </div>
+
+        {/* Deduction breakdown */}
+        {hasDeductions && (
+          <div className="mt-2 pt-2 border-t border-gray-200/50 grid grid-cols-4 gap-2 text-[10px]">
+            <div>
+              <p className="text-gray-400">TDS</p>
+              <p className="font-semibold text-red-600">-{formatCurrency(summary.totalTDS || 0)}</p>
+            </div>
+            <div>
+              <p className="text-gray-400">Retention Held</p>
+              <p className="font-semibold text-amber-600">-{formatCurrency(summary.totalRetentionHeld || 0)}</p>
+            </div>
+            <div>
+              <p className="text-gray-400">Retention Released</p>
+              <p className="font-semibold text-teal-600">{formatCurrency(summary.totalRetentionReleased || 0)}</p>
+            </div>
+            <div>
+              <p className="text-gray-400">Net Payable</p>
+              <p className="font-semibold text-emerald-700">{formatCurrency(summary.netPayable || 0)}</p>
+            </div>
+          </div>
+        )}
 
         {/* Basic / GST breakdown */}
         {(summary.totalBasicPaid > 0 || summary.totalGSTPaid > 0) && (
@@ -265,9 +542,29 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
                   </span>
                   {trancheStatusBadge(tranche.status)}
                 </div>
-                <span className="text-xs font-bold text-emerald-700">
-                  {formatCurrency(tranche.approvedAmount)}
-                </span>
+                <div className="flex items-center gap-2">
+                  {/* Deductions button — only for accounts role */}
+                  {role === 'accounts' && (
+                    <button
+                      onClick={() => setDeductionFormTranche(
+                        deductionFormTranche === tranche.trancheNumber ? null : tranche.trancheNumber
+                      )}
+                      className={`text-[10px] px-2 py-1 rounded-md border font-medium flex items-center gap-1 transition-colors ${
+                        tranche.deduction
+                          ? 'border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                      </svg>
+                      {tranche.deduction ? '₹ Deductions' : '+ Deductions'}
+                    </button>
+                  )}
+                  <span className="text-xs font-bold text-emerald-700">
+                    {formatCurrency(tranche.approvedAmount)}
+                  </span>
+                </div>
               </div>
 
               {/* Approval info */}
@@ -279,6 +576,63 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
                 <span className="text-gray-300">·</span>
                 <span className="text-gray-400">{tranche.approvedDate}</span>
               </div>
+
+              {/* Deduction display (when deductions exist) */}
+              {tranche.deduction && (
+                <div className="ml-2 pl-3 border-l-2 border-orange-200 mb-2">
+                  <div className="rounded-md bg-orange-50/60 px-3 py-2">
+                    <div className="grid grid-cols-4 gap-2 text-[10px]">
+                      <div>
+                        <p className="text-gray-400">TDS</p>
+                        <p className="font-bold text-red-600">-{formatCurrency(tranche.deduction.tdsAmount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Retention</p>
+                        <p className={`font-bold ${tranche.deduction.retentionStatus === 'held' ? 'text-amber-600' : 'text-teal-600'}`}>
+                          {tranche.deduction.retentionStatus === 'held' ? '-' : ''}{formatCurrency(tranche.deduction.retentionAmount)}
+                          {tranche.deduction.retentionStatus === 'released' && (
+                            <span className="ml-1 text-[9px] bg-teal-100 text-teal-700 px-1 py-0.5 rounded-full">Released</span>
+                          )}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Net Payable</p>
+                        <p className="font-bold text-emerald-700">{formatCurrency(tranche.deduction.netPayable)}</p>
+                      </div>
+                      <div className="flex items-end justify-end">
+                        {role === 'accounts' && (
+                          <ReleaseRetentionButton
+                            invoiceId={data.invoiceId}
+                            tranche={tranche}
+                            onReleased={() => {
+                              setDeductionFormTranche(null);
+                              fetchData();
+                            }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                    {tranche.deduction.releasedAt && (
+                      <p className="text-[9px] text-teal-600 mt-1">
+                        Released by {tranche.deduction.releasedBy} on {tranche.deduction.releasedAt}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Deduction form (inline) */}
+              {deductionFormTranche === tranche.trancheNumber && (
+                <DeductionForm
+                  invoiceId={data.invoiceId}
+                  tranche={tranche}
+                  onSaved={() => {
+                    setDeductionFormTranche(null);
+                    fetchData();
+                  }}
+                  onClose={() => setDeductionFormTranche(null)}
+                />
+              )}
 
               {/* Payments under this tranche */}
               {tranche.payments.length > 0 ? (
@@ -313,7 +667,7 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
               ) : (
                 <div className="ml-2 pl-3 border-l-2 border-blue-200">
                   <p className="text-[11px] text-blue-600 font-medium py-1">
-                    ⏳ Awaiting payment — {formatCurrency(tranche.pendingAmount)} pending
+                    ⏳ Awaiting payment — {formatCurrency(tranche.deduction ? tranche.deduction.netPayable : tranche.pendingAmount)} pending
                   </p>
                 </div>
               )}
@@ -329,7 +683,6 @@ export default function PaymentLifecycle({ invoiceId, role }: PaymentLifecyclePr
             </div>
           ))}
 
-          {/* If no tranches but status suggests payment is possible */}
           {tranches.length === 0 && (
             <div className="px-4 py-3 text-sm text-gray-500">
               No approval tranches recorded yet.
