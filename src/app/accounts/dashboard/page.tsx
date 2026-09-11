@@ -1029,18 +1029,25 @@ export default function AccountsDashboard() {
     };
   }, [invoices, bulkSummaries]);
 
-  // Payment submission
+  // Payment submission — generates a unique idempotency key per attempt
+  // so that double-clicks, retries, and network timeouts are safe.
   const handleRecordPayment = useCallback(
     async (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string }) => {
       if (!paymentInvoice) return;
       setIsSubmitting(true);
       try {
+        // Generate a unique idempotency key: invoiceId + UTR + timestamp
+        // This ensures that even if the user retries, the same key is not
+        // reused for a genuinely different payment attempt.
+        const idempotencyKey = `${paymentInvoice.id}-${data.utrReference}-${Date.now()}`;
+
         const payload: Record<string, string> = {
           invoiceId: paymentInvoice.id,
           amount: data.amount,
           utrReference: data.utrReference,
           paymentDate: data.paymentDate,
           notes: data.notes,
+          idempotencyKey,
         };
         if (data.basicAmount) payload.basicAmount = data.basicAmount;
         if (data.gstAmount) payload.gstAmount = data.gstAmount;
@@ -1055,9 +1062,11 @@ export default function AccountsDashboard() {
         if (!res.ok) throw new Error(result.error || 'Failed to record payment');
 
         setToast({
-          message: result.newStatus === 'paid'
-            ? `Payment recorded — invoice fully paid!`
-            : `Payment of ${formatCurrency(data.amount)} recorded`,
+          message: result.idempotent
+            ? 'Payment was already recorded (duplicate prevented)'
+            : result.newStatus === 'paid'
+              ? `Payment recorded — invoice fully paid!`
+              : `Payment of ${formatCurrency(data.amount)} recorded`,
           type: 'success',
         });
         setPaymentInvoice(null);

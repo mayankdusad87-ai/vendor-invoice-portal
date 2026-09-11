@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
-import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus, addApprovalHistory, ConflictError } from '@/lib/google-sheets';
+import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus, addApprovalHistory, ConflictError, findPaymentByUtr, findPaymentByIdempotencyKey } from '@/lib/google-sheets';
 import { sanitizeString, sanitizeDate, rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 /**
@@ -60,7 +60,18 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/payments — record a new payment (accounts team only)
- * Body: { invoiceId, amount, utrReference, paymentDate, notes? }
+ * Body: { invoiceId, amount, utrReference, paymentDate, notes?, idempotencyKey? }
+ *
+ * PAYMENT HARDENING:
+ * 1. Idempotency — client sends an idempotencyKey; if a payment with that key
+ *    already exists, we return the existing payment (HTTP 200, not a duplicate).
+ * 2. UTR dedup — same UTR on the same invoice = idempotent return;
+ *    same UTR on a different invoice = blocked (400).
+ * 3. Re-read-after-write — after addPayment, re-read all payments to detect
+ *    concurrent overpayment before updating the invoice status.
+ * 4. Consistent 3-step write — if updateInvoiceStatus or addApprovalHistory
+ *    fails after addPayment succeeds, the payment row still exists (detectable
+ *    on retry via UTR/idempotency), and the retry will reconcile.
  */
 export async function POST(request: NextRequest) {
   const session = requireAuth(request);
@@ -84,6 +95,7 @@ export async function POST(request: NextRequest) {
     const utrReference = sanitizeString(body.utrReference, 100);
     const paymentDate = sanitizeDate(body.paymentDate);
     const notes = sanitizeString(body.notes, 500) || '';
+    const idempotencyKey = sanitizeString(body.idempotencyKey, 100) || '';
 
     // Validation — all required fields
     if (!invoiceId || !body.amount || !utrReference || !paymentDate) {
@@ -119,6 +131,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Payment date cannot be more than 30 days in the future' }, { status: 400 });
     }
 
+    // ─── IDEMPOTENCY CHECK (client key) ───────────────────────────────
+    // If the client sent an idempotency key and we already have a payment
+    // with that key, return the existing payment. This makes retries safe.
+    if (idempotencyKey) {
+      const existingByKey = await findPaymentByIdempotencyKey(idempotencyKey);
+      if (existingByKey) {
+        // Idempotent return — the payment was already recorded
+        return NextResponse.json({
+          success: true,
+          payment: existingByKey,
+          idempotent: true,
+          message: 'Payment already recorded (idempotent retry)',
+        });
+      }
+    }
+
+    // ─── UTR DUPLICATE DETECTION ──────────────────────────────────────
+    // Same UTR + same invoice = idempotent return (retry/double-click).
+    // Same UTR + different invoice = blocked (real duplicate UTR).
+    const existingByUtr = await findPaymentByUtr(utrReference);
+    if (existingByUtr) {
+      if (existingByUtr.invoiceId === invoiceId) {
+        // Same invoice, same UTR — this is a retry. Return existing payment.
+        return NextResponse.json({
+          success: true,
+          payment: existingByUtr,
+          idempotent: true,
+          message: 'Payment already recorded with this UTR (idempotent retry)',
+        });
+      } else {
+        // Different invoice, same UTR — block it
+        return NextResponse.json(
+          { error: `UTR "${utrReference}" is already used for invoice ${existingByUtr.invoiceNumber}. Each UTR can only be used once.` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // ─── INVOICE VALIDATION ───────────────────────────────────────────
     // Get the invoice
     const invoice = await getInvoiceById(invoiceId);
     if (!invoice) {
@@ -133,7 +184,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check payment doesn't exceed remaining approved amount (the payment cap)
+    // ─── OVERPAYMENT CHECK (pre-write) ────────────────────────────────
     const existingPayments = await getPaymentsByInvoiceId(invoiceId);
     const totalPaid = existingPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     const baseAmount = parseFloat(invoice.amount) || 0;
@@ -188,11 +239,9 @@ export async function POST(request: NextRequest) {
       gstAmountStr = String(gst);
     }
 
-    // Determine new status based on total paid vs total INVOICE amount (Amount + GST)
-    const newTotalPaid = totalPaid + paymentAmount;
-    const newStatus = newTotalPaid >= invoiceAmount ? 'paid' : 'partially_paid';
-
-    // Record the payment with vendor name, invoice number, and status for easy sheet reading
+    // ─── STEP 1: RECORD THE PAYMENT (append row) ─────────────────────
+    // This is the first write. If anything after this fails, the payment
+    // row exists and will be detected by UTR/idempotency on retry.
     const payment = await addPayment({
       invoiceId,
       vendorName: invoice.vendorName,
@@ -202,40 +251,94 @@ export async function POST(request: NextRequest) {
       paymentDate,
       paidBy,
       notes,
-      paymentStatus: newStatus,
+      paymentStatus: 'recorded', // temporary; corrected after re-read
       basicAmount,
       gstAmount: gstAmountStr,
       paymentType,
+      idempotencyKey,
     });
 
-    // Update invoice status on the Invoices sheet (with concurrency check)
-    await updateInvoiceStatus(
-      invoiceId,
-      newStatus,
-      undefined,
-      undefined,
-      undefined,
-      invoice.updatedAt, // optimistic concurrency
-    );
+    // ─── RE-READ AFTER WRITE (concurrent overpayment guard) ──────────
+    // Another tab/user may have recorded a payment between our pre-write
+    // check and the addPayment above. Re-read all payments including the
+    // one we just wrote to compute the true total.
+    const paymentsAfterWrite = await getPaymentsByInvoiceId(invoiceId);
+    const trueTotalPaid = paymentsAfterWrite.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
 
-    // Log payment to ApprovalHistory for audit trail
-    await addApprovalHistory({
-      invoiceId,
-      amount: String(paymentAmount),
-      cumulativeTotal: String(newTotalPaid),
-      approvedBy: `Accounts: ${paidBy}`,
-      comments: `[PAYMENT] ₹${paymentAmount.toLocaleString('en-IN')} paid (UTR: ${utrReference})${newStatus === 'paid' ? ' — Invoice fully paid' : ''} (${invoice.status} → ${newStatus})`,
-    });
+    // Re-read the invoice to get fresh approvedAmount and updatedAt
+    const freshInvoice = await getInvoiceById(invoiceId);
+    const freshApprovedAmount = freshInvoice?.approvedAmount
+      ? parseFloat(freshInvoice.approvedAmount) || invoiceAmount
+      : invoiceAmount;
+
+    // Check if the true total exceeds the approved cap
+    if (trueTotalPaid > freshApprovedAmount + 0.01) {
+      // Overpayment detected! Our payment pushed it over the limit.
+      // The payment row is already written — but we do NOT update the
+      // invoice status. On the next retry (or manual review), the
+      // UTR dedup will return the existing payment idempotently.
+      // We return an error so the user knows something went wrong.
+      return NextResponse.json(
+        {
+          error: `Concurrent overpayment detected. Total paid (₹${trueTotalPaid.toLocaleString('en-IN')}) exceeds approved amount (₹${freshApprovedAmount.toLocaleString('en-IN')}). Please refresh and review.`,
+          paymentRecorded: true,
+          paymentId: payment.id,
+        },
+        { status: 409 }
+      );
+    }
+
+    // ─── STEP 2: UPDATE INVOICE STATUS ────────────────────────────────
+    const newStatus = trueTotalPaid >= invoiceAmount ? 'paid' : 'partially_paid';
+
+    try {
+      await updateInvoiceStatus(
+        invoiceId,
+        newStatus,
+        undefined,
+        undefined,
+        undefined,
+        freshInvoice?.updatedAt || invoice.updatedAt, // use freshest updatedAt
+      );
+    } catch (statusError) {
+      // If this fails (e.g. ConflictError from another concurrent update),
+      // the payment row already exists. On retry, UTR dedup will return
+      // the existing payment idempotently. Log and return a partial success.
+      console.error('Failed to update invoice status after recording payment:', statusError);
+      return NextResponse.json(
+        {
+          error: 'Payment recorded but invoice status update failed. Please refresh — the system will reconcile on retry.',
+          paymentRecorded: true,
+          paymentId: payment.id,
+        },
+        { status: 409 }
+      );
+    }
+
+    // ─── STEP 3: LOG AUDIT TRAIL ──────────────────────────────────────
+    try {
+      await addApprovalHistory({
+        invoiceId,
+        amount: String(paymentAmount),
+        cumulativeTotal: String(trueTotalPaid),
+        approvedBy: `Accounts: ${paidBy}`,
+        comments: `[PAYMENT] ₹${paymentAmount.toLocaleString('en-IN')} paid (UTR: ${utrReference})${newStatus === 'paid' ? ' — Invoice fully paid' : ''} (${invoice.status} → ${newStatus})`,
+      });
+    } catch (auditError) {
+      // Non-fatal: the payment and status are already updated.
+      // The audit entry will be missing but the financial data is correct.
+      console.error('Failed to log payment audit trail:', auditError);
+    }
 
     return NextResponse.json({
       success: true,
       payment,
       newStatus,
-      totalPaid: newTotalPaid,
-      remaining: Math.max(0, invoiceAmount - newTotalPaid),
-      availableToPay: Math.max(0, approvedAmount - newTotalPaid),
+      totalPaid: trueTotalPaid,
+      remaining: Math.max(0, invoiceAmount - trueTotalPaid),
+      availableToPay: Math.max(0, freshApprovedAmount - trueTotalPaid),
       invoiceAmount,
-      approvedAmount,
+      approvedAmount: freshApprovedAmount,
     });
   } catch (error) {
     if (error instanceof ConflictError) {

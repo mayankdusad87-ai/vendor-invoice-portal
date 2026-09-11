@@ -1223,6 +1223,7 @@ export interface Payment {
   basicAmount: string;   // Portion applied to base amount
   gstAmount: string;     // Portion applied to GST
   paymentType: string;   // 'basic_only' | 'gst_only' | 'combined' | 'advance'
+  idempotencyKey: string; // Col O — client-supplied key for duplicate detection
 }
 
 async function ensurePaymentsSheet(): Promise<void> {
@@ -1245,12 +1246,12 @@ async function ensurePaymentsSheet(): Promise<void> {
     }
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Payments!A1:N1',
+      range: 'Payments!A1:O1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [['ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount',
           'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At',
-          'Basic Amount', 'GST Amount', 'Payment Type']],
+          'Basic Amount', 'GST Amount', 'Payment Type', 'Idempotency Key']],
       },
     });
   }
@@ -1261,7 +1262,7 @@ export async function getPayments(): Promise<Payment[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A2:N',
+    range: 'Payments!A2:O',
   });
 
   const rows = response.data.values || [];
@@ -1280,6 +1281,7 @@ export async function getPayments(): Promise<Payment[]> {
     basicAmount: row[11] || '',
     gstAmount: row[12] || '',
     paymentType: row[13] || '',
+    idempotencyKey: row[14] || '',
   }));
 }
 
@@ -1296,7 +1298,7 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A:N',
+    range: 'Payments!A:O',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -1314,11 +1316,32 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
         payment.basicAmount || '',
         payment.gstAmount || '',
         payment.paymentType || 'combined',
+        payment.idempotencyKey || '',
       ]],
     },
   });
 
   return { ...payment, id, createdAt };
+}
+
+/**
+ * Find an existing payment by UTR reference (case-insensitive).
+ * Returns the first match, or null.
+ */
+export async function findPaymentByUtr(utrReference: string): Promise<Payment | null> {
+  const payments = await getPayments();
+  const utrLower = utrReference.toLowerCase();
+  return payments.find((p) => p.utrReference.toLowerCase() === utrLower) || null;
+}
+
+/**
+ * Find an existing payment by idempotency key.
+ * Returns the first match, or null.
+ */
+export async function findPaymentByIdempotencyKey(key: string): Promise<Payment | null> {
+  if (!key) return null;
+  const payments = await getPayments();
+  return payments.find((p) => p.idempotencyKey === key) || null;
 }
 
 // ==================== VENDOR DATA MIGRATION ====================
@@ -1828,16 +1851,16 @@ export async function initializeSheetHeaders(): Promise<void> {
     });
   }
 
-  // Always set correct headers for Payments tab (with Basic/GST split columns)
+  // Always set correct headers for Payments tab (with Basic/GST split + idempotency key)
   const expectedPaymentHeaders = [
     'ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount',
     'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At',
-    'Basic Amount', 'GST Amount', 'Payment Type',
+    'Basic Amount', 'GST Amount', 'Payment Type', 'Idempotency Key',
   ];
 
   const paymentHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A1:N1',
+    range: 'Payments!A1:O1',
   });
 
   const currentPaymentHeaders = paymentHeaders.data.values?.[0] || [];
@@ -1845,7 +1868,7 @@ export async function initializeSheetHeaders(): Promise<void> {
       currentPaymentHeaders.some((h, i) => h !== expectedPaymentHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Payments!A1:N1',
+      range: 'Payments!A1:O1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedPaymentHeaders],
