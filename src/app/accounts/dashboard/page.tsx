@@ -176,7 +176,7 @@ function PaymentModal({
   invoice: Invoice;
   paymentSummary: PaymentSummary | null;
   onClose: () => void;
-  onSubmit: (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string }) => void;
+  onSubmit: (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string; tdsAmount?: string; retentionAmount?: string }) => void;
   isSubmitting: boolean;
 }) {
   const [amount, setAmount] = useState('');
@@ -193,8 +193,20 @@ function PaymentModal({
   const [basicAmount, setBasicAmount] = useState('');
   const [gstPayAmount, setGstPayAmount] = useState('');
 
+  // Deductions (TDS / Retention) — optional
+  const [showDeductions, setShowDeductions] = useState(false);
+  const [tdsInput, setTdsInput] = useState('');
+  const [retentionInput, setRetentionInput] = useState('');
+  const tdsNum = parseFloat(tdsInput) || 0;
+  const retentionNum = parseFloat(retentionInput) || 0;
+
   const invoiceRemaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
   const availableToPay = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
+
+  // Gross = net to vendor + TDS + retention; must fit within approved cap
+  const parsedAmount = parseFloat(amount) || 0;
+  const grossAmount = parsedAmount + tdsNum + retentionNum;
+  const netToVendor = parsedAmount; // What actually goes to vendor's bank
 
   /** Validate all fields and show specific error messages */
   const validateAndConfirm = () => {
@@ -205,8 +217,18 @@ function PaymentModal({
       setFormError('Please enter a valid payment amount greater than ₹0');
       return;
     }
-    if (parsedAmt > availableToPay + 0.01) {
-      setFormError(`Payment amount (₹${parsedAmt.toLocaleString('en-IN')}) exceeds available balance of ₹${availableToPay.toLocaleString('en-IN')}`);
+    // Gross check: net + TDS + retention must fit within available cap
+    const gross = parsedAmt + tdsNum + retentionNum;
+    if (gross > availableToPay + 0.01) {
+      const deductionNote = tdsNum + retentionNum > 0
+        ? ` (₹${parsedAmt.toLocaleString('en-IN')} net + ₹${tdsNum.toLocaleString('en-IN')} TDS + ₹${retentionNum.toLocaleString('en-IN')} retention = ₹${gross.toLocaleString('en-IN')} gross)`
+        : '';
+      setFormError(`Total${deductionNote} exceeds available balance of ₹${availableToPay.toLocaleString('en-IN')}`);
+      return;
+    }
+    // Validate deduction amounts
+    if (tdsNum < 0 || retentionNum < 0) {
+      setFormError('TDS and retention amounts cannot be negative');
       return;
     }
     // Validate GST/Basic split if enabled
@@ -270,6 +292,14 @@ function PaymentModal({
             <p className="text-2xl font-bold text-emerald-700 mb-1">
               ₹{parseFloat(amount).toLocaleString('en-IN')}
             </p>
+            <p className="text-xs text-gray-500 mb-0.5">Net amount to vendor</p>
+            {(tdsNum > 0 || retentionNum > 0) && (
+              <div className="inline-flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 my-1.5 text-xs">
+                {tdsNum > 0 && <span className="text-red-600 font-medium">TDS: ₹{tdsNum.toLocaleString('en-IN')}</span>}
+                {retentionNum > 0 && <span className="text-amber-600 font-medium">Retention: ₹{retentionNum.toLocaleString('en-IN')}</span>}
+                <span className="text-gray-500">Gross: ₹{grossAmount.toLocaleString('en-IN')}</span>
+              </div>
+            )}
             {splitMode === 'split' && (parseFloat(basicAmount) || 0) + (parseFloat(gstPayAmount) || 0) > 0 && (
               <p className="text-xs text-gray-500 mb-1">
                 Basic: ₹{(parseFloat(basicAmount) || 0).toLocaleString('en-IN')} · GST: ₹{(parseFloat(gstPayAmount) || 0).toLocaleString('en-IN')}
@@ -300,7 +330,11 @@ function PaymentModal({
                   const splitData = splitMode === 'split'
                     ? { basicAmount, gstAmount: gstPayAmount, paymentType: (parseFloat(basicAmount) || 0) > 0 && (parseFloat(gstPayAmount) || 0) > 0 ? 'combined' : (parseFloat(basicAmount) || 0) > 0 ? 'basic_only' : 'gst_only' }
                     : {};
-                  onSubmit({ amount, utrReference, paymentDate, notes, ...splitData });
+                  const deductionData = {
+                    ...(tdsNum > 0 ? { tdsAmount: String(tdsNum) } : {}),
+                    ...(retentionNum > 0 ? { retentionAmount: String(retentionNum) } : {}),
+                  };
+                  onSubmit({ amount, utrReference, paymentDate, notes, ...splitData, ...deductionData });
                 }}
                 disabled={isSubmitting}
                 className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 min-h-[44px]"
@@ -397,6 +431,92 @@ function PaymentModal({
                       <span className="text-amber-500"> · Available now: {formatCurrency(availableToPay)}</span>
                     )}
                   </p>
+                )}
+              </div>
+
+              {/* ── Deductions (TDS / Retention) — optional ── */}
+              <div className="rounded-lg border border-orange-100 bg-orange-50/30 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowDeductions(!showDeductions)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-gray-600 hover:bg-orange-50/50 transition-colors"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                    </svg>
+                    Deductions (TDS / Retention)
+                    <span className="text-[10px] font-normal text-gray-400">— optional</span>
+                  </span>
+                  <svg className={`w-4 h-4 text-gray-400 transition-transform ${showDeductions ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {showDeductions && (
+                  <div className="px-3 pb-3 space-y-3 border-t border-orange-100">
+                    <div className="grid grid-cols-2 gap-3 mt-3">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">TDS Amount</label>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₹</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={tdsInput}
+                            onChange={(e) => { setTdsInput(e.target.value); setFormError(''); }}
+                            className="w-full pl-6 pr-2 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400 min-h-[40px]"
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-0.5">Tax deducted at source</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Retention Amount</label>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₹</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={retentionInput}
+                            onChange={(e) => { setRetentionInput(e.target.value); setFormError(''); }}
+                            className="w-full pl-6 pr-2 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400 min-h-[40px]"
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-0.5">Amount held (defect liability)</p>
+                      </div>
+                    </div>
+
+                    {/* Live calculation summary */}
+                    {(tdsNum > 0 || retentionNum > 0) && parsedAmount > 0 && (
+                      <div className="rounded-md bg-white border border-orange-200 p-2.5">
+                        <div className="grid grid-cols-3 gap-2 text-[11px] text-center">
+                          <div>
+                            <p className="text-gray-400">Net to Vendor</p>
+                            <p className="font-bold text-emerald-700">{formatCurrency(netToVendor)}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-400">TDS + Retention</p>
+                            <p className="font-bold text-red-600">{formatCurrency(tdsNum + retentionNum)}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-400">Gross Consumed</p>
+                            <p className={`font-bold ${grossAmount > availableToPay + 0.01 ? 'text-red-600' : 'text-gray-800'}`}>
+                              {formatCurrency(grossAmount)}
+                            </p>
+                          </div>
+                        </div>
+                        {grossAmount > availableToPay + 0.01 && (
+                          <p className="text-[10px] text-red-500 mt-1.5 text-center font-medium">
+                            ⚠ Gross exceeds available balance of {formatCurrency(availableToPay)}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -796,9 +916,9 @@ export default function AccountsDashboard() {
     invoiceCount: number;
     totalApproved: number;
     totalTDS: number;
-    totalRetentionHeld: number;
-    totalRetentionReleased: number;
-    totalPaid: number;
+    totalRetention: number;
+    totalPaidToVendor: number;
+    totalConsumed: number;
     outstanding: number;
   }>>([]);
   const [vendorSummaryOpen, setVendorSummaryOpen] = useState(false);
@@ -958,7 +1078,7 @@ export default function AccountsDashboard() {
   // Payment submission — generates a unique idempotency key per attempt
   // so that double-clicks, retries, and network timeouts are safe.
   const handleRecordPayment = useCallback(
-    async (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string }) => {
+    async (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string; tdsAmount?: string; retentionAmount?: string }) => {
       if (!paymentInvoice) return;
       setIsSubmitting(true);
       try {
@@ -978,6 +1098,8 @@ export default function AccountsDashboard() {
         if (data.basicAmount) payload.basicAmount = data.basicAmount;
         if (data.gstAmount) payload.gstAmount = data.gstAmount;
         if (data.paymentType) payload.paymentType = data.paymentType;
+        if (data.tdsAmount) payload.tdsAmount = data.tdsAmount;
+        if (data.retentionAmount) payload.retentionAmount = data.retentionAmount;
 
         const res = await fetch('/api/payments', {
           method: 'POST',
@@ -1270,8 +1392,8 @@ export default function AccountsDashboard() {
                         <th className="text-center px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Invoices</th>
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Approved</th>
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">TDS</th>
-                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Retention Held</th>
-                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Paid</th>
+                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Retention</th>
+                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Paid to Vendor</th>
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Outstanding</th>
                       </tr>
                     </thead>
@@ -1288,14 +1410,11 @@ export default function AccountsDashboard() {
                           </td>
                           <td className="px-3 py-2.5 text-center text-xs text-gray-600">{v.invoiceCount}</td>
                           <td className="px-3 py-2.5 text-right text-xs font-semibold text-emerald-700">{formatCurrency(v.totalApproved)}</td>
-                          <td className="px-3 py-2.5 text-right text-xs text-red-600">{v.totalTDS > 0 ? `-${formatCurrency(v.totalTDS)}` : '—'}</td>
+                          <td className="px-3 py-2.5 text-right text-xs text-red-600">{v.totalTDS > 0 ? formatCurrency(v.totalTDS) : '—'}</td>
                           <td className="px-3 py-2.5 text-right text-xs text-amber-600">
-                            {v.totalRetentionHeld > 0 ? `-${formatCurrency(v.totalRetentionHeld)}` : '—'}
-                            {v.totalRetentionReleased > 0 && (
-                              <span className="block text-[9px] text-teal-600">({formatCurrency(v.totalRetentionReleased)} released)</span>
-                            )}
+                            {v.totalRetention > 0 ? formatCurrency(v.totalRetention) : '—'}
                           </td>
-                          <td className="px-3 py-2.5 text-right text-xs font-semibold text-violet-700">{formatCurrency(v.totalPaid)}</td>
+                          <td className="px-3 py-2.5 text-right text-xs font-semibold text-violet-700">{formatCurrency(v.totalPaidToVendor)}</td>
                           <td className="px-3 py-2.5 text-right">
                             <span className={`text-xs font-bold ${v.outstanding > 0 ? 'text-blue-700' : 'text-emerald-600'}`}>
                               {formatCurrency(Math.max(0, v.outstanding))}
@@ -1310,8 +1429,8 @@ export default function AccountsDashboard() {
                         <td className="px-3 py-2.5 text-center text-gray-600">{vendorSummary.reduce((s, v) => s + v.invoiceCount, 0)}</td>
                         <td className="px-3 py-2.5 text-right text-emerald-700">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalApproved, 0))}</td>
                         <td className="px-3 py-2.5 text-right text-red-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalTDS, 0))}</td>
-                        <td className="px-3 py-2.5 text-right text-amber-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalRetentionHeld, 0))}</td>
-                        <td className="px-3 py-2.5 text-right text-violet-700">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalPaid, 0))}</td>
+                        <td className="px-3 py-2.5 text-right text-amber-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalRetention, 0))}</td>
+                        <td className="px-3 py-2.5 text-right text-violet-700">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalPaidToVendor, 0))}</td>
                         <td className="px-3 py-2.5 text-right text-blue-700">{formatCurrency(vendorSummary.reduce((s, v) => s + Math.max(0, v.outstanding), 0))}</td>
                       </tr>
                     </tfoot>

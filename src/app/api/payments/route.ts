@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
-import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus, addApprovalHistory, ConflictError, findPaymentByUtr, findPaymentByIdempotencyKey, getDeductions } from '@/lib/google-sheets';
+import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus, addApprovalHistory, ConflictError, findPaymentByUtr, findPaymentByIdempotencyKey } from '@/lib/google-sheets';
 import { sanitizeString, sanitizeDate, rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 /**
@@ -184,42 +184,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ─── PARSE DEDUCTION AMOUNTS (optional per-payment) ─────────────
+    const tdsAmount = parseFloat(body.tdsAmount) || 0;
+    const retentionAmount = parseFloat(body.retentionAmount) || 0;
+    if (tdsAmount < 0 || retentionAmount < 0) {
+      return NextResponse.json({ error: 'TDS and retention amounts cannot be negative' }, { status: 400 });
+    }
+
+    // Gross = net to vendor + TDS + retention (total consumed from approved cap)
+    const grossAmount = paymentAmount + tdsAmount + retentionAmount;
+
     // ─── OVERPAYMENT CHECK (pre-write) ────────────────────────────────
-    const [existingPayments, invoiceDeductions] = await Promise.all([
-      getPaymentsByInvoiceId(invoiceId),
-      getDeductions(invoiceId),
-    ]);
+    const existingPayments = await getPaymentsByInvoiceId(invoiceId);
+    // Total consumed = sum of (net + TDS + retention) across all existing payments
+    const totalConsumed = existingPayments.reduce((sum, p) => {
+      return sum + (parseFloat(p.amount) || 0) + (parseFloat(p.tdsAmount) || 0) + (parseFloat(p.retentionAmount) || 0);
+    }, 0);
     const totalPaid = existingPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     const baseAmount = parseFloat(invoice.amount) || 0;
     const gstAmount = parseFloat(invoice.gstAmount) || 0;
     const invoiceAmount = baseAmount + gstAmount; // Total = Amount + GST
     const approvedAmount = invoice.approvedAmount ? parseFloat(invoice.approvedAmount) || invoiceAmount : invoiceAmount;
-
-    // Factor in deductions: TDS + held retention reduce payable amount
-    const totalTDS = invoiceDeductions.reduce((sum, d) => sum + (parseFloat(d.tdsAmount) || 0), 0);
-    const totalRetentionHeld = invoiceDeductions
-      .filter(d => d.retentionStatus === 'held')
-      .reduce((sum, d) => sum + (parseFloat(d.retentionAmount) || 0), 0);
-    const totalDeducted = totalTDS + totalRetentionHeld;
-    const netApproved = Math.max(0, approvedAmount - totalDeducted);
-    const remainingApproved = netApproved - totalPaid; // Cap: how much more can be paid
+    const remainingApproved = approvedAmount - totalConsumed; // Cap: how much gross can still be consumed
 
     if (remainingApproved <= 0) {
       const remainingInvoice = invoiceAmount - totalPaid;
       if (remainingInvoice <= 0) {
         return NextResponse.json({ error: 'Invoice is already fully paid' }, { status: 400 });
       }
-      const deductionNote = totalDeducted > 0 ? ` (after deductions of ₹${totalDeducted.toLocaleString('en-IN')})` : '';
       return NextResponse.json(
-        { error: `Net payable amount (₹${netApproved.toLocaleString('en-IN')})${deductionNote} fully paid. ₹${remainingInvoice.toLocaleString('en-IN')} remains on invoice — approver must increase approved amount to continue.` },
+        { error: `Approved amount (₹${approvedAmount.toLocaleString('en-IN')}) fully consumed. ₹${remainingInvoice.toLocaleString('en-IN')} remains on invoice — approver must increase approved amount to continue.` },
         { status: 400 }
       );
     }
 
-    if (paymentAmount > remainingApproved + 0.01) { // small tolerance for floating point
-      const deductionNote = totalDeducted > 0 ? ` (approved ₹${approvedAmount.toLocaleString('en-IN')} minus deductions ₹${totalDeducted.toLocaleString('en-IN')})` : '';
+    if (grossAmount > remainingApproved + 0.01) { // small tolerance for floating point
+      const deductionNote = tdsAmount + retentionAmount > 0
+        ? ` (₹${paymentAmount.toLocaleString('en-IN')} net + ₹${tdsAmount.toLocaleString('en-IN')} TDS + ₹${retentionAmount.toLocaleString('en-IN')} retention = ₹${grossAmount.toLocaleString('en-IN')} gross)`
+        : '';
       return NextResponse.json(
-        { error: `Payment of ₹${paymentAmount.toLocaleString('en-IN')} exceeds remaining payable balance of ₹${remainingApproved.toLocaleString('en-IN')}${deductionNote}` },
+        { error: `Gross payment${deductionNote} exceeds remaining approved balance of ₹${remainingApproved.toLocaleString('en-IN')}` },
         { status: 400 }
       );
     }
@@ -269,6 +273,8 @@ export async function POST(request: NextRequest) {
       gstAmount: gstAmountStr,
       paymentType,
       idempotencyKey,
+      tdsAmount: tdsAmount > 0 ? String(tdsAmount) : '',
+      retentionAmount: retentionAmount > 0 ? String(retentionAmount) : '',
     });
 
     // ─── RE-READ AFTER WRITE (concurrent overpayment guard) ──────────
@@ -277,6 +283,9 @@ export async function POST(request: NextRequest) {
     // one we just wrote to compute the true total.
     const paymentsAfterWrite = await getPaymentsByInvoiceId(invoiceId);
     const trueTotalPaid = paymentsAfterWrite.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const trueTotalConsumed = paymentsAfterWrite.reduce((sum, p) => {
+      return sum + (parseFloat(p.amount) || 0) + (parseFloat(p.tdsAmount) || 0) + (parseFloat(p.retentionAmount) || 0);
+    }, 0);
 
     // Re-read the invoice to get fresh approvedAmount and updatedAt
     const freshInvoice = await getInvoiceById(invoiceId);
@@ -284,16 +293,11 @@ export async function POST(request: NextRequest) {
       ? parseFloat(freshInvoice.approvedAmount) || invoiceAmount
       : invoiceAmount;
 
-    // Check if the true total exceeds the approved cap
-    if (trueTotalPaid > freshApprovedAmount + 0.01) {
-      // Overpayment detected! Our payment pushed it over the limit.
-      // The payment row is already written — but we do NOT update the
-      // invoice status. On the next retry (or manual review), the
-      // UTR dedup will return the existing payment idempotently.
-      // We return an error so the user knows something went wrong.
+    // Check if total consumed (net + TDS + retention) exceeds approved cap
+    if (trueTotalConsumed > freshApprovedAmount + 0.01) {
       return NextResponse.json(
         {
-          error: `Concurrent overpayment detected. Total paid (₹${trueTotalPaid.toLocaleString('en-IN')}) exceeds approved amount (₹${freshApprovedAmount.toLocaleString('en-IN')}). Please refresh and review.`,
+          error: `Concurrent overpayment detected. Total consumed (₹${trueTotalConsumed.toLocaleString('en-IN')}) exceeds approved amount (₹${freshApprovedAmount.toLocaleString('en-IN')}). Please refresh and review.`,
           paymentRecorded: true,
           paymentId: payment.id,
         },
@@ -335,7 +339,7 @@ export async function POST(request: NextRequest) {
         amount: String(paymentAmount),
         cumulativeTotal: String(trueTotalPaid),
         approvedBy: `Accounts: ${paidBy}`,
-        comments: `[PAYMENT] ₹${paymentAmount.toLocaleString('en-IN')} paid (UTR: ${utrReference})${newStatus === 'paid' ? ' — Invoice fully paid' : ''} (${invoice.status} → ${newStatus})`,
+        comments: `[PAYMENT] ₹${paymentAmount.toLocaleString('en-IN')} paid (UTR: ${utrReference})${tdsAmount > 0 ? ` [TDS: ₹${tdsAmount.toLocaleString('en-IN')}]` : ''}${retentionAmount > 0 ? ` [Retention: ₹${retentionAmount.toLocaleString('en-IN')}]` : ''}${newStatus === 'paid' ? ' — Invoice fully paid' : ''} (${invoice.status} → ${newStatus})`,
       });
     } catch (auditError) {
       // Non-fatal: the payment and status are already updated.

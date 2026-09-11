@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
-import { getApprovalHistory, getPaymentsByInvoiceId, getInvoiceById, getDeductions } from '@/lib/google-sheets';
+import { getApprovalHistory, getPaymentsByInvoiceId, getInvoiceById } from '@/lib/google-sheets';
 
 /**
  * GET /api/payments/lifecycle?invoiceId=XXX
@@ -23,11 +23,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [history, payments, invoice, deductions] = await Promise.all([
+    const [history, payments, invoice] = await Promise.all([
       getApprovalHistory(invoiceId),
       getPaymentsByInvoiceId(invoiceId),
       getInvoiceById(invoiceId),
-      getDeductions(invoiceId),
     ]);
 
     if (!invoice) {
@@ -160,17 +159,6 @@ export async function GET(request: NextRequest) {
     }
 
     // Build tranches: each approval event opens a tranche, payments fill it
-    interface TrancheDeduction {
-      deductionId: string;
-      tdsAmount: number;
-      retentionAmount: number;
-      retentionStatus: 'held' | 'released';
-      releasedAt: string;
-      releasedBy: string;
-      netPayable: number;       // approvedAmount - TDS - retention (if held)
-      totalDeducted: number;    // TDS + retention (if held)
-    }
-
     interface Tranche {
       trancheNumber: number;
       approvedAmount: number;
@@ -179,19 +167,24 @@ export async function GET(request: NextRequest) {
       approvedDate: string;
       approvalComments: string;
       historyId: string;
-      deduction: TrancheDeduction | null;
       payments: Array<{
         id: string;
         amount: number;
         basicAmount: number;
         gstAmount: number;
+        tdsAmount: number;
+        retentionAmount: number;
+        grossAmount: number;    // amount + TDS + retention
         utr: string;
         date: string;
         paidBy: string;
         notes: string;
         paymentType: string;
       }>;
-      totalPaid: number;
+      totalPaid: number;        // net to vendor
+      totalTDS: number;
+      totalRetention: number;
+      totalConsumed: number;    // net + TDS + retention
       pendingAmount: number;
       status: 'fully_paid' | 'partially_paid' | 'pending';
     }
@@ -206,34 +199,9 @@ export async function GET(request: NextRequest) {
     const tranches: Tranche[] = [];
     let paymentIdx = 0;
 
-    // Build a map of deductions keyed by approvalHistoryId for fast lookup
-    const deductionMap = new Map<string, typeof deductions[0]>();
-    for (const d of deductions) {
-      deductionMap.set(d.approvalHistoryId, d);
-    }
-
     for (let i = 0; i < approvalEvents.length; i++) {
       const event = approvalEvents[i];
       const nextEventDate = approvalEvents[i + 1]?.date || '9999-99-99';
-
-      // Look up deduction for this tranche (matched by approval history ID)
-      const ded = deductionMap.get(event.historyId);
-      let trancheDeduction: TrancheDeduction | null = null;
-      if (ded) {
-        const tds = parseFloat(ded.tdsAmount) || 0;
-        const retention = parseFloat(ded.retentionAmount) || 0;
-        const heldRetention = ded.retentionStatus === 'held' ? retention : 0;
-        trancheDeduction = {
-          deductionId: ded.id,
-          tdsAmount: tds,
-          retentionAmount: retention,
-          retentionStatus: ded.retentionStatus as 'held' | 'released',
-          releasedAt: ded.releasedAt || '',
-          releasedBy: ded.releasedBy || '',
-          netPayable: Math.max(0, event.trancheAmount - tds - heldRetention),
-          totalDeducted: tds + heldRetention,
-        };
-      }
 
       const tranche: Tranche = {
         trancheNumber: i + 1,
@@ -243,9 +211,11 @@ export async function GET(request: NextRequest) {
         approvedDate: event.date,
         approvalComments: event.comments,
         historyId: event.historyId,
-        deduction: trancheDeduction,
         payments: [],
         totalPaid: 0,
+        totalTDS: 0,
+        totalRetention: 0,
+        totalConsumed: 0,
         pendingAmount: event.trancheAmount,
         status: 'pending',
       };
@@ -257,25 +227,36 @@ export async function GET(request: NextRequest) {
         // If there's a next approval and this payment comes after it, stop
         if (pDate >= nextEventDate) break;
 
+        const pNet = parseFloat(p.amount) || 0;
+        const pTds = parseFloat(p.tdsAmount) || 0;
+        const pRet = parseFloat(p.retentionAmount) || 0;
+        const pGross = pNet + pTds + pRet;
+
         tranche.payments.push({
           id: p.id,
-          amount: parseFloat(p.amount) || 0,
+          amount: pNet,
           basicAmount: parseFloat(p.basicAmount) || 0,
           gstAmount: parseFloat(p.gstAmount) || 0,
+          tdsAmount: pTds,
+          retentionAmount: pRet,
+          grossAmount: pGross,
           utr: p.utrReference,
           date: p.paymentDate,
           paidBy: p.paidBy,
           notes: p.notes,
           paymentType: p.paymentType || 'combined',
         });
-        tranche.totalPaid += parseFloat(p.amount) || 0;
+        tranche.totalPaid += pNet;
+        tranche.totalTDS += pTds;
+        tranche.totalRetention += pRet;
+        tranche.totalConsumed += pGross;
         paymentIdx++;
       }
 
-      tranche.pendingAmount = Math.max(0, tranche.approvedAmount - tranche.totalPaid);
-      tranche.status = tranche.totalPaid >= tranche.approvedAmount
+      tranche.pendingAmount = Math.max(0, tranche.approvedAmount - tranche.totalConsumed);
+      tranche.status = tranche.totalConsumed >= tranche.approvedAmount - 0.01
         ? 'fully_paid'
-        : tranche.totalPaid > 0
+        : tranche.totalConsumed > 0
           ? 'partially_paid'
           : 'pending';
 
@@ -283,12 +264,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Any remaining payments that weren't assigned to a tranche
-    // (shouldn't happen normally, but handle gracefully)
     const unassignedPayments = sortedPayments.slice(paymentIdx).map(p => ({
       id: p.id,
       amount: parseFloat(p.amount) || 0,
       basicAmount: parseFloat(p.basicAmount) || 0,
       gstAmount: parseFloat(p.gstAmount) || 0,
+      tdsAmount: parseFloat(p.tdsAmount) || 0,
+      retentionAmount: parseFloat(p.retentionAmount) || 0,
+      grossAmount: (parseFloat(p.amount) || 0) + (parseFloat(p.tdsAmount) || 0) + (parseFloat(p.retentionAmount) || 0),
       utr: p.utrReference,
       date: p.paymentDate,
       paidBy: p.paidBy,
@@ -296,22 +279,17 @@ export async function GET(request: NextRequest) {
       paymentType: p.paymentType || 'combined',
     }));
 
-    // Summary — include deduction totals
+    // Summary — include deduction totals from payment records
     const totalApproved = approvalEvents.reduce((sum, e) => sum + e.trancheAmount, 0);
     const totalPaid = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     const totalBasicPaid = payments.reduce((sum, p) => sum + (parseFloat(p.basicAmount) || 0), 0);
     const totalGSTPaid = payments.reduce((sum, p) => sum + (parseFloat(p.gstAmount) || 0), 0);
 
-    // Deduction aggregates
-    const totalTDS = tranches.reduce((sum, t) => sum + (t.deduction?.tdsAmount || 0), 0);
-    const totalRetention = tranches.reduce((sum, t) => sum + (t.deduction?.retentionAmount || 0), 0);
-    const totalRetentionHeld = tranches.reduce((sum, t) => {
-      if (t.deduction && t.deduction.retentionStatus === 'held') return sum + t.deduction.retentionAmount;
-      return sum;
-    }, 0);
-    const totalRetentionReleased = totalRetention - totalRetentionHeld;
-    const totalDeducted = totalTDS + totalRetentionHeld;
-    const netPayable = Math.max(0, totalApproved - totalDeducted);
+    // Deduction aggregates — from payment records
+    const totalTDS = payments.reduce((sum, p) => sum + (parseFloat(p.tdsAmount) || 0), 0);
+    const totalRetention = payments.reduce((sum, p) => sum + (parseFloat(p.retentionAmount) || 0), 0);
+    const totalConsumed = totalPaid + totalTDS + totalRetention;
+    const pendingPayment = Math.max(0, totalApproved - totalConsumed);
 
     return NextResponse.json({
       invoiceId,
@@ -331,17 +309,14 @@ export async function GET(request: NextRequest) {
         totalGSTPaid,
         basicRemaining: Math.max(0, baseAmount - totalBasicPaid),
         gstRemaining: Math.max(0, gstAmount - totalGSTPaid),
-        pendingPayment: Math.max(0, netPayable - totalPaid),
+        pendingPayment,
         remainingOnInvoice: Math.max(0, invoiceTotal - totalPaid),
         trancheCount: tranches.length,
         paymentCount: payments.length,
-        // Deduction summary
+        // Deduction totals
         totalTDS,
         totalRetention,
-        totalRetentionHeld,
-        totalRetentionReleased,
-        totalDeducted,
-        netPayable,
+        totalConsumed,
       },
     });
   } catch (error) {

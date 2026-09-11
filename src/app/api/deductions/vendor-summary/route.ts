@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
-import { getInvoices, getAllDeductions, getPaymentsByInvoiceId } from '@/lib/google-sheets';
+import { getInvoices, getPaymentsByInvoiceId } from '@/lib/google-sheets';
 
 /**
  * GET /api/deductions/vendor-summary
  *
  * Returns a per-vendor outstanding summary across all invoices.
- * For each vendor: total approved, total TDS, total retention (held/released),
- * total paid, and outstanding = approved - TDS - retentionHeld - paid.
+ * Aggregates from payment records: each payment has amount (net to vendor),
+ * tdsAmount, and retentionAmount. Gross consumed = amount + TDS + retention.
+ * Outstanding = approved - grossConsumed.
  */
 export async function GET(request: NextRequest) {
   const session = requireAuth(request);
@@ -19,22 +20,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [invoices, allDeductions] = await Promise.all([
-      getInvoices(),
-      getAllDeductions(),
-    ]);
+    const invoices = await getInvoices();
 
     // Only consider invoices that have been approved or beyond
     const activeStatuses = ['approved', 'partially_paid', 'paid'];
     const activeInvoices = invoices.filter(inv => activeStatuses.includes(inv.status));
-
-    // Build deductions map: invoiceId → deduction entries
-    const deductionsByInvoice = new Map<string, typeof allDeductions>();
-    for (const d of allDeductions) {
-      const existing = deductionsByInvoice.get(d.invoiceId) || [];
-      existing.push(d);
-      deductionsByInvoice.set(d.invoiceId, existing);
-    }
 
     // Aggregate by vendor
     interface VendorSummary {
@@ -42,10 +32,10 @@ export async function GET(request: NextRequest) {
       invoiceCount: number;
       totalApproved: number;
       totalTDS: number;
-      totalRetentionHeld: number;
-      totalRetentionReleased: number;
-      totalPaid: number;
-      outstanding: number;  // approved - TDS - retentionHeld - paid
+      totalRetention: number;
+      totalPaidToVendor: number;
+      totalConsumed: number;
+      outstanding: number;  // approved - consumed
     }
 
     const vendorMap = new Map<string, VendorSummary>();
@@ -57,17 +47,12 @@ export async function GET(request: NextRequest) {
     for (let i = 0; i < activeInvoices.length; i++) {
       const inv = activeInvoices[i];
       const payments = allPayments[i];
-      const deductions = deductionsByInvoice.get(inv.id) || [];
 
       const approved = parseFloat(inv.approvedAmount || '0') || 0;
-      const paid = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-      const tds = deductions.reduce((sum, d) => sum + (parseFloat(d.tdsAmount) || 0), 0);
-      const retHeld = deductions
-        .filter(d => d.retentionStatus === 'held')
-        .reduce((sum, d) => sum + (parseFloat(d.retentionAmount) || 0), 0);
-      const retReleased = deductions
-        .filter(d => d.retentionStatus === 'released')
-        .reduce((sum, d) => sum + (parseFloat(d.retentionAmount) || 0), 0);
+      const paidToVendor = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+      const tds = payments.reduce((sum, p) => sum + (parseFloat(p.tdsAmount) || 0), 0);
+      const retention = payments.reduce((sum, p) => sum + (parseFloat(p.retentionAmount) || 0), 0);
+      const consumed = paidToVendor + tds + retention;
 
       const vendorKey = inv.vendorName.toLowerCase().trim();
       const existing = vendorMap.get(vendorKey) || {
@@ -75,26 +60,26 @@ export async function GET(request: NextRequest) {
         invoiceCount: 0,
         totalApproved: 0,
         totalTDS: 0,
-        totalRetentionHeld: 0,
-        totalRetentionReleased: 0,
-        totalPaid: 0,
+        totalRetention: 0,
+        totalPaidToVendor: 0,
+        totalConsumed: 0,
         outstanding: 0,
       };
 
       existing.invoiceCount += 1;
       existing.totalApproved += approved;
       existing.totalTDS += tds;
-      existing.totalRetentionHeld += retHeld;
-      existing.totalRetentionReleased += retReleased;
-      existing.totalPaid += paid;
-      existing.outstanding = existing.totalApproved - existing.totalTDS - existing.totalRetentionHeld - existing.totalPaid;
+      existing.totalRetention += retention;
+      existing.totalPaidToVendor += paidToVendor;
+      existing.totalConsumed += consumed;
+      existing.outstanding = existing.totalApproved - existing.totalConsumed;
 
       vendorMap.set(vendorKey, existing);
     }
 
     // Return sorted by outstanding (highest first), only vendors with outstanding > 0
     const vendors = Array.from(vendorMap.values())
-      .filter(v => v.outstanding > 0.01 || v.totalRetentionHeld > 0)
+      .filter(v => v.outstanding > 0.01 || v.totalRetention > 0)
       .sort((a, b) => b.outstanding - a.outstanding);
 
     return NextResponse.json({ vendors });

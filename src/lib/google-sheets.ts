@@ -1373,7 +1373,7 @@ export interface Payment {
   invoiceId: string;
   vendorName: string;
   invoiceNumber: string;
-  amount: string;
+  amount: string;         // Net amount paid to vendor
   utrReference: string;
   paymentDate: string;
   paidBy: string;
@@ -1384,6 +1384,8 @@ export interface Payment {
   gstAmount: string;     // Portion applied to GST
   paymentType: string;   // 'basic_only' | 'gst_only' | 'combined' | 'advance'
   idempotencyKey: string; // Col O — client-supplied key for duplicate detection
+  tdsAmount: string;      // Col P — TDS deducted from this payment
+  retentionAmount: string; // Col Q — Retention held from this payment
 }
 
 async function ensurePaymentsSheet(): Promise<void> {
@@ -1422,7 +1424,7 @@ export async function getPayments(): Promise<Payment[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A2:O',
+    range: 'Payments!A2:Q',
   });
 
   const rows = response.data.values || [];
@@ -1442,6 +1444,8 @@ export async function getPayments(): Promise<Payment[]> {
     gstAmount: row[12] || '',
     paymentType: row[13] || '',
     idempotencyKey: row[14] || '',
+    tdsAmount: row[15] || '',
+    retentionAmount: row[16] || '',
   }));
 }
 
@@ -1458,7 +1462,7 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A:O',
+    range: 'Payments!A:Q',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -1477,6 +1481,8 @@ export async function addPayment(payment: Omit<Payment, 'id' | 'createdAt'>): Pr
         payment.gstAmount || '',
         payment.paymentType || 'combined',
         payment.idempotencyKey || '',
+        payment.tdsAmount || '',
+        payment.retentionAmount || '',
       ]],
     },
   });
