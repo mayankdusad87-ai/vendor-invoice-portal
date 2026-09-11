@@ -37,9 +37,18 @@ export async function GET(request: NextRequest) {
     const gstAmount = parseFloat(invoice.gstAmount) || 0;
     const invoiceTotal = baseAmount + gstAmount;
 
-    // Extract approval events from history
-    // These are entries whose comments contain "→ approved" or "→ partially_paid"
-    // and have a non-zero amount (the tranche amount, not cumulative)
+    // Extract approval events from history.
+    // Strategy: any entry with a positive tranche amount that is NOT tagged as
+    // a non-approval event ([PAYMENT], [ACCOUNTS_QUERY], etc.) is an approval.
+    // This correctly handles:
+    //   - Initial approval: "comment (submitted → approved)"
+    //   - Additional tranche: "comment | +₹118 authorized (total: ₹218) (partially_paid → partially_paid)"
+    //   - Old additional tranches (pre-fix): plain user comment with no marker
+    // And correctly EXCLUDES:
+    //   - Payments: "[PAYMENT] ₹100 paid (UTR: ...) (approved → partially_paid)"
+    //     (which previously matched "→ partially_paid" and was misclassified as an approval)
+    const NON_APPROVAL_TAGS = ['[PAYMENT]', '[ACCOUNTS_QUERY]', '[QUERY_ACCEPTED]', '[QUERY_DISAGREED]', '[REJECTED]', '[RESUBMITTED]'];
+
     interface ApprovalEvent {
       date: string;
       approvedBy: string;
@@ -51,21 +60,22 @@ export async function GET(request: NextRequest) {
 
     const approvalEvents: ApprovalEvent[] = [];
     for (const entry of history) {
-      // Match approval entries: "→ approved" in comments
-      if (entry.comments?.includes('→ approved') || entry.comments?.includes('→ partially_paid')) {
-        const trancheAmt = parseFloat(entry.amount) || 0;
-        const cumulative = parseFloat(entry.cumulativeTotal) || 0;
-        if (trancheAmt > 0) {
-          approvalEvents.push({
-            date: entry.createdAt,
-            approvedBy: entry.approvedBy,
-            trancheAmount: trancheAmt,
-            cumulativeApproved: cumulative,
-            comments: entry.comments,
-            historyId: entry.id,
-          });
-        }
-      }
+      const trancheAmt = parseFloat(entry.amount) || 0;
+      if (trancheAmt <= 0) continue; // Skip zero-amount entries (queries, rejections, resubmissions)
+
+      // Skip entries tagged as non-approval events
+      const isNonApproval = NON_APPROVAL_TAGS.some(tag => entry.comments?.includes(tag));
+      if (isNonApproval) continue;
+
+      const cumulative = parseFloat(entry.cumulativeTotal) || 0;
+      approvalEvents.push({
+        date: entry.createdAt,
+        approvedBy: entry.approvedBy,
+        trancheAmount: trancheAmt,
+        cumulativeApproved: cumulative,
+        comments: entry.comments,
+        historyId: entry.id,
+      });
     }
 
     // Extract other significant events (queries, rejections, resubmissions, payments)

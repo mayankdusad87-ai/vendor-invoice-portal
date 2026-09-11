@@ -281,17 +281,17 @@ export async function PUT(request: NextRequest) {
         );
       }
 
-      // Log to ApprovalHistory
+      // Build tranche detail note (used in both ApprovalHistory and Invoices sheet)
+      const trancheNote = `+₹${additionalAmount.toLocaleString('en-IN')} authorized (total: ₹${newCumulativeApproved.toLocaleString('en-IN')})`;
+
+      // Log to ApprovalHistory with full tranche detail and status transition marker
       await addApprovalHistory({
         invoiceId: id,
         amount: String(additionalAmount),
         cumulativeTotal: String(newCumulativeApproved),
         approvedBy: approvedBy || invoice.approvedBy,
-        comments: approvalComments || '',
+        comments: `${approvalComments ? approvalComments + ' | ' : ''}${trancheNote} (${invoice.status} → partially_paid)`,
       });
-
-      // Build approval comments that include tranche detail for the Invoices sheet
-      const trancheNote = `+₹${additionalAmount.toLocaleString('en-IN')} authorized (total: ₹${newCumulativeApproved.toLocaleString('en-IN')})`;
       const userComment = approvalComments ? `${approvalComments} | ${trancheNote}` : trancheNote;
       const existingComments = invoice.approvalComments || '';
       const updatedComments = existingComments
