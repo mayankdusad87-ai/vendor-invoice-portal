@@ -1434,6 +1434,7 @@ export default function AccountsDashboard() {
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">TDS</th>
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Retention</th>
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Paid to Vendor</th>
+                        <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Consumed</th>
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Outstanding</th>
                       </tr>
                     </thead>
@@ -1455,6 +1456,7 @@ export default function AccountsDashboard() {
                             {v.totalRetention > 0 ? formatCurrency(v.totalRetention) : '—'}
                           </td>
                           <td className="px-3 py-2.5 text-right text-xs font-semibold text-violet-700">{formatCurrency(v.totalPaidToVendor)}</td>
+                          <td className="px-3 py-2.5 text-right text-xs text-gray-600">{formatCurrency(v.totalConsumed)}</td>
                           <td className="px-3 py-2.5 text-right">
                             <span className={`text-xs font-bold ${v.outstanding > 0 ? 'text-blue-700' : 'text-emerald-600'}`}>
                               {formatCurrency(Math.max(0, v.outstanding))}
@@ -1471,6 +1473,7 @@ export default function AccountsDashboard() {
                         <td className="px-3 py-2.5 text-right text-red-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalTDS, 0))}</td>
                         <td className="px-3 py-2.5 text-right text-amber-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalRetention, 0))}</td>
                         <td className="px-3 py-2.5 text-right text-violet-700">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalPaidToVendor, 0))}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalConsumed, 0))}</td>
                         <td className="px-3 py-2.5 text-right text-blue-700">{formatCurrency(vendorSummary.reduce((s, v) => s + Math.max(0, v.outstanding), 0))}</td>
                       </tr>
                     </tfoot>

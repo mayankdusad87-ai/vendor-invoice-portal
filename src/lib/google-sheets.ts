@@ -1390,11 +1390,13 @@ export interface Payment {
 
 async function ensurePaymentsSheet(): Promise<void> {
   const sheets = getSheets();
+  let sheetExists = false;
   try {
     await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: 'Payments!A1:A1',
     });
+    sheetExists = true;
   } catch {
     try {
       await sheets.spreadsheets.batchUpdate({
@@ -1408,14 +1410,35 @@ async function ensurePaymentsSheet(): Promise<void> {
     }
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Payments!A1:O1',
+      range: 'Payments!A1:Q1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [['ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount',
           'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At',
-          'Basic Amount', 'GST Amount', 'Payment Type', 'Idempotency Key']],
+          'Basic Amount', 'GST Amount', 'Payment Type', 'Idempotency Key', 'TDS Amount', 'Retention Amount']],
       },
     });
+  }
+
+  if (sheetExists) {
+    // Sheet exists — ensure P1:Q1 headers are present (migration for existing sheets)
+    try {
+      const headerCheck = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'Payments!P1:Q1',
+      });
+      const existing = headerCheck.data.values?.[0] || [];
+      if (!existing[0] || !existing[1]) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: 'Payments!P1:Q1',
+          valueInputOption: 'RAW',
+          requestBody: { values: [['TDS Amount', 'Retention Amount']] },
+        });
+      }
+    } catch {
+      // Ignore — headers will be set on next sheet creation
+    }
   }
 }
 
@@ -2020,16 +2043,16 @@ export async function initializeSheetHeaders(): Promise<void> {
     });
   }
 
-  // Always set correct headers for Payments tab (with Basic/GST split + idempotency key)
+  // Always set correct headers for Payments tab (with Basic/GST split + idempotency key + deductions)
   const expectedPaymentHeaders = [
     'ID', 'Invoice ID', 'Vendor Name', 'Invoice Number', 'Amount',
     'UTR/Reference', 'Payment Date', 'Paid By', 'Notes', 'Payment Status', 'Created At',
-    'Basic Amount', 'GST Amount', 'Payment Type', 'Idempotency Key',
+    'Basic Amount', 'GST Amount', 'Payment Type', 'Idempotency Key', 'TDS Amount', 'Retention Amount',
   ];
 
   const paymentHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Payments!A1:O1',
+    range: 'Payments!A1:Q1',
   });
 
   const currentPaymentHeaders = paymentHeaders.data.values?.[0] || [];
@@ -2037,7 +2060,7 @@ export async function initializeSheetHeaders(): Promise<void> {
       currentPaymentHeaders.some((h, i) => h !== expectedPaymentHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Payments!A1:O1',
+      range: 'Payments!A1:Q1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedPaymentHeaders],
