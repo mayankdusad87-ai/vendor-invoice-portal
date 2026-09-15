@@ -197,6 +197,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ─── PROFORMA GST LOCK ──────────────────────────────────────────
+    // If invoice is at proforma stage, GST payments are blocked until
+    // the actual tax invoice is uploaded (documentStage → tax_invoice).
+    const gstPaymentAttempt = parseFloat(body.gstAmount) || 0;
+    if (invoice.documentStage === 'proforma' && gstPaymentAttempt > 0) {
+      return NextResponse.json(
+        { error: 'GST payment is locked — this invoice is at proforma stage. Upload the tax invoice first to unlock GST payments.' },
+        { status: 400 }
+      );
+    }
+
     // ─── PARSE DEDUCTION AMOUNTS (optional per-payment) ─────────────
     const tdsAmount = parseFloat(body.tdsAmount) || 0;
     const retentionAmount = parseFloat(body.retentionAmount) || 0;

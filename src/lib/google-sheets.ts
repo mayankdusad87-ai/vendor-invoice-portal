@@ -597,13 +597,22 @@ export interface Invoice {
   costCategory: string;          // Col AF — e.g., "CIVIL", "MEP", "FINISHING"
   costSubCategory: string;       // Col AG — e.g., "Sub-Structure", "Electrical"
   costType: string;              // Col AH — e.g., "Material", "Labor", "Mixed"
+  // DOCUMENT STAGE (AI–AP) — proforma invoice workflow
+  documentStage: 'proforma' | 'tax_invoice' | 'direct' | '';  // Col AI
+  taxInvoiceFileUrl: string;     // Col AJ — uploaded tax invoice file
+  taxInvoiceFileName: string;    // Col AK
+  taxInvoiceNumber: string;      // Col AL
+  taxInvoiceDate: string;        // Col AM
+  taxInvoiceUploadedAt: string;  // Col AN
+  taxInvoiceUploadedBy: string;  // Col AO
+  originalGstAmount: string;     // Col AP — GST from proforma, before tax invoice revision
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AH',
+    range: 'Invoices!A2:AP',
   });
 
   const rows = response.data.values || [];
@@ -643,6 +652,15 @@ export async function getInvoices(): Promise<Invoice[]> {
     costCategory: row[31] || '',        // AF
     costSubCategory: row[32] || '',     // AG
     costType: row[33] || '',            // AH
+    // DOCUMENT STAGE (AI–AP) — proforma invoice workflow
+    documentStage: (row[34] as Invoice['documentStage']) || '',  // AI
+    taxInvoiceFileUrl: row[35] || '',   // AJ
+    taxInvoiceFileName: row[36] || '',  // AK
+    taxInvoiceNumber: row[37] || '',    // AL
+    taxInvoiceDate: row[38] || '',      // AM
+    taxInvoiceUploadedAt: row[39] || '',// AN
+    taxInvoiceUploadedBy: row[40] || '',// AO
+    originalGstAmount: row[41] || '',   // AP
   }));
 }
 
@@ -657,7 +675,7 @@ export async function getInvoiceById(id: string): Promise<Invoice | null> {
 }
 
 export async function addInvoice(
-  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount' | 'totalAmount' | 'accountsQueryBy' | 'accountsQueryReason' | 'accountsQueryAt' | 'previousStatus' | 'costCategory' | 'costSubCategory' | 'costType'> & { gstAmount?: string; costCategory?: string; costSubCategory?: string; costType?: string }
+  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount' | 'totalAmount' | 'accountsQueryBy' | 'accountsQueryReason' | 'accountsQueryAt' | 'previousStatus' | 'costCategory' | 'costSubCategory' | 'costType' | 'documentStage' | 'taxInvoiceFileUrl' | 'taxInvoiceFileName' | 'taxInvoiceNumber' | 'taxInvoiceDate' | 'taxInvoiceUploadedAt' | 'taxInvoiceUploadedBy' | 'originalGstAmount'> & { gstAmount?: string; costCategory?: string; costSubCategory?: string; costType?: string; documentStage?: Invoice['documentStage'] }
 ): Promise<Invoice> {
   const sheets = getSheets();
   const id = `INV${Date.now()}`;
@@ -669,7 +687,7 @@ export async function addInvoice(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:AH',
+    range: 'Invoices!A:AP',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -709,11 +727,20 @@ export async function addInvoice(
         invoice.costCategory || '',           // AF: Cost Category
         invoice.costSubCategory || '',        // AG: Cost Sub-Category
         invoice.costType || '',               // AH: Cost Type
+        // DOCUMENT STAGE (AI–AP)
+        invoice.documentStage || '',          // AI: Document Stage
+        '',                                   // AJ: Tax Invoice File URL (empty on creation)
+        '',                                   // AK: Tax Invoice File Name
+        '',                                   // AL: Tax Invoice Number
+        '',                                   // AM: Tax Invoice Date
+        '',                                   // AN: Tax Invoice Uploaded At
+        '',                                   // AO: Tax Invoice Uploaded By
+        '',                                   // AP: Original GST Amount
       ]],
     },
   });
 
-  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount, accountsQueryBy: '', accountsQueryReason: '', accountsQueryAt: '', previousStatus: '', costCategory: invoice.costCategory || '', costSubCategory: invoice.costSubCategory || '', costType: invoice.costType || '' };
+  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount, accountsQueryBy: '', accountsQueryReason: '', accountsQueryAt: '', previousStatus: '', costCategory: invoice.costCategory || '', costSubCategory: invoice.costSubCategory || '', costType: invoice.costType || '', documentStage: invoice.documentStage || '', taxInvoiceFileUrl: '', taxInvoiceFileName: '', taxInvoiceNumber: '', taxInvoiceDate: '', taxInvoiceUploadedAt: '', taxInvoiceUploadedBy: '', originalGstAmount: '' };
 }
 
 export async function updateInvoiceStatus(
@@ -865,6 +892,84 @@ export async function clearAccountsQuery(id: string): Promise<boolean> {
   // Clear query columns AB–AE (keep the data for audit, just clear previousStatus)
   // Actually we keep all query data for audit trail — only clear previousStatus
   // No, let's keep everything for the record. This function is optional.
+  return true;
+}
+
+/**
+ * Transition a proforma invoice to tax_invoice stage.
+ * Updates columns AI–AP with tax invoice details and refreshes updatedAt.
+ */
+export async function updateInvoiceDocumentStage(
+  id: string,
+  updates: {
+    taxInvoiceFileUrl: string;
+    taxInvoiceFileName: string;
+    taxInvoiceNumber: string;
+    taxInvoiceDate: string;
+    uploadedBy: string;
+    revisedGstAmount?: string;
+  },
+): Promise<boolean> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Invoices!A2:AP',
+  });
+
+  const rows = response.data.values || [];
+  const rowIndex = rows.findIndex((row) => row[0] === id);
+  if (rowIndex === -1) return false;
+
+  const currentRow = rows[rowIndex];
+  const currentStage = currentRow[34] || '';
+
+  if (currentStage !== 'proforma') {
+    throw new Error(`Cannot upload tax invoice: document stage is "${currentStage || 'not set'}", expected "proforma"`);
+  }
+
+  const now = getISTTimestamp().combined;
+  const originalGst = currentRow[8] || '';
+
+  // If revised GST provided, update column I (GST Amount) and J (Total Amount)
+  if (updates.revisedGstAmount !== undefined && updates.revisedGstAmount !== '') {
+    const baseAmount = parseFloat(currentRow[7]) || 0;
+    const newGst = parseFloat(updates.revisedGstAmount) || 0;
+    const newTotal = (baseAmount + newGst).toFixed(2);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `Invoices!I${rowIndex + 2}:J${rowIndex + 2}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[String(newGst), newTotal]] },
+    });
+  }
+
+  // Update document stage columns AI–AP
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Invoices!AI${rowIndex + 2}:AP${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[
+        'tax_invoice',                           // AI: Document Stage
+        updates.taxInvoiceFileUrl,               // AJ: Tax Invoice File URL
+        updates.taxInvoiceFileName,              // AK: Tax Invoice File Name
+        updates.taxInvoiceNumber,                // AL: Tax Invoice Number
+        toIndianDateFormat(updates.taxInvoiceDate), // AM: Tax Invoice Date
+        now,                                     // AN: Tax Invoice Uploaded At
+        updates.uploadedBy,                      // AO: Tax Invoice Uploaded By
+        originalGst,                             // AP: Original GST Amount (snapshot)
+      ]],
+    },
+  });
+
+  // Update updatedAt (column AA)
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Invoices!AA${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[now]] },
+  });
+
   return true;
 }
 

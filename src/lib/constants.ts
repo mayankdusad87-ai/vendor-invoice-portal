@@ -14,6 +14,7 @@ export type InvoiceStatus = keyof typeof INVOICE_STATUSES;
 export const INVOICE_TYPES = {
   advance: { label: 'Advance', badgeClass: 'badge-type-advance' },
   ra: { label: 'RA', badgeClass: 'badge-type-ra' },
+  tax_invoice: { label: 'Tax Invoice', badgeClass: 'badge-type-final' },
   final: { label: 'Final', badgeClass: 'badge-type-final' },
 } as const;
 

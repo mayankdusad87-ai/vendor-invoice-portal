@@ -41,6 +41,11 @@ interface Invoice {
   costCategory?: string;
   costSubCategory?: string;
   costType?: string;
+  documentStage?: 'proforma' | 'tax_invoice' | 'direct' | '';
+  taxInvoiceFileUrl?: string;
+  taxInvoiceFileName?: string;
+  taxInvoiceNumber?: string;
+  originalGstAmount?: string;
 }
 
 interface Payment {
@@ -191,7 +196,11 @@ function PaymentModal({
 }) {
   const [amount, setAmount] = useState('');
   const [utrReference, setUtrReference] = useState('');
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentDate, setPaymentDate] = useState(() => {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(ist.getDate()).padStart(2, '0')}`;
+  });
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -199,6 +208,7 @@ function PaymentModal({
   // GST/Basic split
   const invoiceGST = paymentSummary?.invoiceGSTAmount ?? (parseFloat(invoice.gstAmount || '') || 0);
   const hasGST = invoiceGST > 0;
+  const isProforma = invoice.documentStage === 'proforma';
   const [splitMode, setSplitMode] = useState<'combined' | 'split'>(hasGST ? 'split' : 'combined');
   const [basicAmount, setBasicAmount] = useState('');
   const [gstPayAmount, setGstPayAmount] = useState('');
@@ -364,7 +374,15 @@ function PaymentModal({
             <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm text-gray-500">{invoice.vendorName}</span>
-                <TypeBadge type={invoice.invoiceType} />
+                <span className="flex items-center gap-1.5">
+                  <TypeBadge type={invoice.invoiceType} />
+                  {invoice.documentStage === 'proforma' && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                  )}
+                  {invoice.documentStage === 'tax_invoice' && invoice.taxInvoiceFileUrl && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
+                  )}
+                </span>
               </div>
               <p className="text-sm font-medium text-gray-900">#{invoice.invoiceNumber} — {invoice.purpose}</p>
               <div className="flex items-center justify-between mt-2">
@@ -530,6 +548,19 @@ function PaymentModal({
                 )}
               </div>
 
+              {/* Proforma GST Lock Banner */}
+              {isProforma && hasGST && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
+                  <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">GST Payment Locked</p>
+                    <p className="text-xs text-amber-700 mt-0.5">This is a proforma invoice. GST of ₹{invoiceGST.toLocaleString('en-IN')} cannot be paid until the engineer uploads the actual tax invoice.</p>
+                  </div>
+                </div>
+              )}
+
               {/* GST / Basic Split (only shown when invoice has GST) */}
               {hasGST && (
                 <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 space-y-3">
@@ -585,15 +616,18 @@ function PaymentModal({
                           )}
                         </div>
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">GST Amount</label>
+                          <label className="block text-xs text-gray-500 mb-1">
+                            GST Amount {isProforma && <span className="text-amber-600 font-medium">(Locked)</span>}
+                          </label>
                           <div className="relative">
                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₹</span>
                             <input
                               type="number"
                               step="0.01"
                               min="0"
-                              value={gstPayAmount}
+                              value={isProforma ? '0' : gstPayAmount}
                               onChange={(e) => {
+                                if (isProforma) return;
                                 setGstPayAmount(e.target.value);
                                 setFormError('');
                                 // Auto-fill basic if total is set
@@ -603,7 +637,8 @@ function PaymentModal({
                                   setBasicAmount(String(Math.max(0, +(parsedTotal - parsedGst).toFixed(2))));
                                 }
                               }}
-                              className="w-full pl-6 pr-2 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px]"
+                              disabled={isProforma}
+                              className={`w-full pl-6 pr-2 py-2 rounded-lg border text-sm min-h-[40px] focus:outline-none focus:ring-2 focus:ring-blue-500 ${isProforma ? 'border-amber-200 bg-amber-50 text-amber-500 cursor-not-allowed' : 'border-gray-200 bg-white text-gray-900'}`}
                               placeholder="0.00"
                             />
                           </div>
@@ -876,7 +911,11 @@ function RetentionReleaseModal({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [totalNet, setTotalNet] = useState(0);
   const [utrReference, setUtrReference] = useState('');
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentDate, setPaymentDate] = useState(() => {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(ist.getDate()).padStart(2, '0')}`;
+  });
   const [notes, setNotes] = useState('Retention Release');
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1151,7 +1190,7 @@ function RetentionReleaseModal({
                       value={utrReference}
                       onChange={(e) => setUtrReference(e.target.value)}
                       placeholder="UTR number"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-black focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                     />
                   </div>
                   <div>
@@ -1160,7 +1199,7 @@ function RetentionReleaseModal({
                       type="date"
                       value={paymentDate}
                       onChange={(e) => setPaymentDate(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-black focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                     />
                   </div>
                 </div>
@@ -1173,7 +1212,7 @@ function RetentionReleaseModal({
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="Retention Release"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-black focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                   />
                 </div>
 
@@ -1428,7 +1467,7 @@ export default function AccountsDashboard() {
     const partiallyPaid = invoices.filter((i) => i.status === 'partially_paid');
     const paid = invoices.filter((i) => i.status === 'paid');
     const outstanding = [...approved, ...partiallyPaid];
-    const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+    const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0) + (parseFloat(i.gstAmount || '0') || 0), 0);
     // Total disbursed across all invoices from bulk summaries
     const totalDisbursed = Object.values(bulkSummaries).reduce((sum, s) => sum + s.totalPaid, 0);
     return {
@@ -1955,6 +1994,9 @@ export default function AccountsDashboard() {
                               {inv.invoiceType && (
                                 <span className="ml-1.5"><TypeBadge type={inv.invoiceType} /></span>
                               )}
+                              {inv.documentStage === 'proforma' && (
+                                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
@@ -2336,6 +2378,9 @@ export default function AccountsDashboard() {
                             </span>
                           )}
                           <span className="font-bold text-gray-900 text-sm">{inv.invoiceNumber}</span>
+                          {inv.documentStage === 'proforma' && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                          )}
                           <span className="text-gray-400 text-xs">·</span>
                           <span className="text-sm text-gray-600">{inv.vendorName}</span>
                         </div>

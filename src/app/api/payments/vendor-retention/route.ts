@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
-import { getInvoices, getPaymentsByInvoiceId, addPayment, updateInvoiceStatus, addApprovalHistory, getISTTimestamp } from '@/lib/google-sheets';
+import { getInvoices, getPaymentsByInvoiceId, addPayment, updateInvoiceStatus, addApprovalHistory, addDeduction, getISTTimestamp } from '@/lib/google-sheets';
 
 /**
  * GET /api/payments/vendor-retention?vendorName=X
@@ -194,14 +194,27 @@ export async function POST(request: NextRequest) {
         });
 
         // Log to ApprovalHistory for audit
-        await addApprovalHistory({
+        const approvalEntry = await addApprovalHistory({
           invoiceId,
           amount: String(amount),
           cumulativeTotal: String(
             (parseFloat(invoice.approvedAmount || '0') || 0)
           ),
-          approvedBy: paidBy,
+          approvedBy: `Accounts: ${paidBy}`,
           comments: `[PAYMENT] Retention Release ₹${amount.toLocaleString('en-IN')} (UTR: ${utrReference.trim()})`,
+        });
+
+        // Record in Deductions sheet for tracking
+        await addDeduction({
+          invoiceId,
+          approvalHistoryId: approvalEntry?.id || payment.id,
+          trancheNumber: String(payments.filter(p => p.paymentType === 'retention_release').length + 1),
+          tdsAmount: '0',
+          retentionAmount: String(amount),
+          retentionStatus: 'released',
+          releasedAt: paymentDate,
+          releasedBy: `Accounts: ${paidBy}`,
+          updatedBy: paidBy,
         });
 
         results.push({

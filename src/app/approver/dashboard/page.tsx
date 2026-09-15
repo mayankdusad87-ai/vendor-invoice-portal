@@ -6,6 +6,7 @@ import TypeBadge from '@/components/ui/TypeBadge';
 import PhotoViewer from '@/components/ui/PhotoViewer';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import PaymentLifecycle from '@/components/ui/PaymentLifecycle';
+import { CostTagBadge } from '@/components/ui/CostTagDropdowns';
 import { useApproverAuth } from '@/hooks/useApproverAuth';
 import type { InvoiceStatus } from '@/lib/constants';
 
@@ -39,6 +40,10 @@ interface Invoice {
   accountsQueryReason?: string;
   accountsQueryAt?: string;
   previousStatus?: string;
+  costCategory?: string;
+  costSubCategory?: string;
+  costType?: string;
+  documentStage?: 'proforma' | 'tax_invoice' | 'direct' | '';
 }
 
 interface BulkSummary {
@@ -976,9 +981,21 @@ export default function ApproverDashboard() {
                         <span className="text-gray-400 text-xs">·</span>
                         <span className="text-sm text-gray-600">{invoice.vendorName}</span>
                         {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
+                        {invoice.documentStage === 'proforma' && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                        )}
+                        {invoice.documentStage === 'tax_invoice' && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
+                        )}
                         <StatusBadge status={invoice.status} />
                       </div>
                       <p className="text-sm text-gray-500 mt-0.5 truncate">{invoice.purpose}</p>
+                      <CostTagBadge
+                        costCategory={invoice.costCategory || ''}
+                        costSubCategory={invoice.costSubCategory || ''}
+                        costType={invoice.costType || ''}
+                        className="mt-1"
+                      />
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         {(() => {
                           const baseAmt = parseFloat(invoice.amount) || 0;

@@ -36,6 +36,9 @@ interface Invoice {
   approvedAmount?: string;
   gstAmount?: string;
   approvedDate?: string;
+  documentStage?: 'proforma' | 'tax_invoice' | 'direct' | '';
+  taxInvoiceFileUrl?: string;
+  taxInvoiceFileName?: string;
 }
 
 /* =====================================================================
@@ -108,7 +111,7 @@ function getInitials(name: string): string {
    MAIN PAGE — TABLE LAYOUT
    ===================================================================== */
 
-type FilterTab = 'all' | 'pending' | 'approved' | 'in_payment' | 'rejected' | 'action_needed';
+type FilterTab = 'all' | 'pending' | 'approved' | 'in_payment' | 'rejected' | 'action_needed' | 'awaiting_tax_invoice';
 
 export default function VendorInvoices() {
   const { engineerName: loggedInName, isReady, logout } = useEngineerAuth();
@@ -121,20 +124,20 @@ export default function VendorInvoices() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
+  const refreshInvoices = async () => {
+    try {
+      const res = await fetch('/api/invoices');
+      const data = await res.json();
+      if (res.ok) setInvoices(data.invoices || []);
+    } catch {
+      console.error('Failed to fetch invoices');
+    }
+  };
+
   useEffect(() => {
     if (!isReady) return;
-    const fetchInvoices = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch('/api/invoices');
-        const data = await res.json();
-        if (res.ok) setInvoices(data.invoices || []);
-      } catch {
-        console.error('Failed to fetch invoices');
-      }
-      setLoading(false);
-    };
-    fetchInvoices();
+    setLoading(true);
+    refreshInvoices().finally(() => setLoading(false));
   }, [isReady]);
 
   // Derive unique vendor names
@@ -151,6 +154,7 @@ export default function VendorInvoices() {
     const rejected = invoices.filter((i) => i.status === 'rejected');
     const correctionRequired = invoices.filter((i) => i.status === 'correction_required');
     const actionNeeded = [...rejected, ...correctionRequired];
+    const awaitingTaxInvoice = invoices.filter((i) => i.documentStage === 'proforma' && i.status !== 'rejected');
     const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
     return {
       total: invoices.length,
@@ -165,6 +169,7 @@ export default function VendorInvoices() {
       rejectedAmount: sumAmount(rejected),
       actionNeededCount: actionNeeded.length,
       actionNeededAmount: sumAmount(actionNeeded),
+      awaitingTaxInvoiceCount: awaitingTaxInvoice.length,
     };
   }, [invoices]);
 
@@ -178,6 +183,7 @@ export default function VendorInvoices() {
     else if (activeTab === 'in_payment') list = list.filter((i) => i.status === 'partially_paid' || i.status === 'paid');
     else if (activeTab === 'rejected') list = list.filter((i) => i.status === 'rejected');
     else if (activeTab === 'action_needed') list = list.filter((i) => i.status === 'rejected' || i.status === 'correction_required');
+    else if (activeTab === 'awaiting_tax_invoice') list = list.filter((i) => i.documentStage === 'proforma' && i.status !== 'rejected');
 
     // Vendor filter
     if (selectedVendor) list = list.filter((i) => i.vendorName === selectedVendor);
@@ -397,6 +403,29 @@ export default function VendorInvoices() {
               </span>
             )}
           </button>
+
+          {/* Awaiting Tax Invoice — proforma invoices needing tax invoice upload */}
+          {stats.awaitingTaxInvoiceCount > 0 && (
+            <button
+              onClick={() => { setActiveTab('awaiting_tax_invoice'); setExpandedId(null); }}
+              className={`bg-white rounded-xl p-4 text-left transition-all border relative overflow-hidden hover:shadow-md ${
+                activeTab === 'awaiting_tax_invoice' ? 'ring-2 ring-amber-500 ring-offset-1' : ''
+              } border-amber-300 shadow-sm`}
+              aria-label={`Awaiting tax invoice: ${stats.awaitingTaxInvoiceCount}`}
+            >
+              <div className="flex items-start justify-between">
+                <p className="text-xs font-medium text-amber-600">Awaiting Tax Invoice</p>
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-100">
+                  <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-amber-600 mt-1">{stats.awaitingTaxInvoiceCount}</p>
+              <p className="text-xs text-gray-400 mt-0.5">proforma invoices</p>
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
+            </button>
+          )}
         </div>
 
         {/* ── Filter bar: vendor + sort ── */}
@@ -529,7 +558,12 @@ export default function VendorInvoices() {
                               {formatDate(invoice.invoiceDate)}
                             </td>
                             <td className="px-4 py-3">
-                              {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
+                              <span className="flex items-center gap-1">
+                                {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
+                                {invoice.documentStage === 'proforma' && (
+                                  <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                                )}
+                              </span>
                             </td>
                             <td className="px-4 py-3 text-right">
                               <span className="text-sm font-bold text-gray-900">{formatCurrency(invoice.amount)}</span>
@@ -587,6 +621,7 @@ export default function VendorInvoices() {
                                   invoice={invoice}
                                   photoUrls={photoUrls}
                                   onLightbox={setLightboxUrl}
+                                  onInvoicesRefresh={refreshInvoices}
                                 />
                               </td>
                             </tr>
@@ -667,6 +702,9 @@ export default function VendorInvoices() {
                           );
                         })()}
                         {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
+                        {invoice.documentStage === 'proforma' && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                        )}
                         <span>{formatDate(invoice.invoiceDate)}</span>
                       </div>
                     </div>
@@ -679,6 +717,7 @@ export default function VendorInvoices() {
                             invoice={invoice}
                             photoUrls={photoUrls}
                             onLightbox={setLightboxUrl}
+                            onInvoicesRefresh={refreshInvoices}
                           />
                         </div>
                       </div>
@@ -724,18 +763,162 @@ function ExpandedInvoiceDetail({
   invoice,
   photoUrls,
   onLightbox,
+  onInvoicesRefresh,
 }: {
   invoice: Invoice;
   photoUrls: string[];
   onLightbox: (url: string) => void;
+  onInvoicesRefresh?: () => void;
 }) {
   const invoiceIsImage = isImageUrl(invoice.invoiceFileUrl, invoice.invoiceFileName);
   const invoicePreview = !invoiceIsImage ? getPreviewUrl(invoice.invoiceFileUrl) : null;
   const measurementIsImage = isImageUrl(invoice.measurementSheetUrl, invoice.measurementSheetName);
   const measurementPreview = !measurementIsImage ? getPreviewUrl(invoice.measurementSheetUrl) : null;
 
+  // Tax invoice upload state (for proforma invoices)
+  const [showTaxUpload, setShowTaxUpload] = useState(false);
+  const [taxFile, setTaxFile] = useState<File | null>(null);
+  const [taxInvoiceNumber, setTaxInvoiceNumber] = useState('');
+  const [taxInvoiceDate, setTaxInvoiceDate] = useState('');
+  const [revisedGst, setRevisedGst] = useState('');
+  const [taxUploadLoading, setTaxUploadLoading] = useState(false);
+  const [taxUploadError, setTaxUploadError] = useState('');
+  const [taxUploadSuccess, setTaxUploadSuccess] = useState(false);
+
+  const handleTaxInvoiceUpload = async () => {
+    setTaxUploadError('');
+    if (!taxFile) { setTaxUploadError('Please select the tax invoice file'); return; }
+    if (!taxInvoiceNumber.trim()) { setTaxUploadError('Tax invoice number is required'); return; }
+    if (!taxInvoiceDate) { setTaxUploadError('Tax invoice date is required'); return; }
+
+    setTaxUploadLoading(true);
+    try {
+      // Upload file to R2
+      const formData = new FormData();
+      formData.append('file', taxFile);
+      formData.append('invoiceId', invoice.id);
+      formData.append('type', 'tax-invoice');
+      const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) throw new Error(uploadData.error || 'File upload failed');
+      const uploaded = uploadData.files?.[0] || uploadData;
+
+      // Submit tax invoice details
+      const res = await fetch('/api/invoices/tax-invoice', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceId: invoice.id,
+          taxInvoiceFileUrl: uploaded.url,
+          taxInvoiceFileName: uploaded.fileName || taxFile.name,
+          taxInvoiceNumber: taxInvoiceNumber.trim(),
+          taxInvoiceDate,
+          revisedGstAmount: revisedGst || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to upload tax invoice');
+
+      setTaxUploadSuccess(true);
+      onInvoicesRefresh?.();
+    } catch (err) {
+      setTaxUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setTaxUploadLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
+      {/* Proforma → Tax Invoice Upload Section */}
+      {invoice.documentStage === 'proforma' && !taxUploadSuccess && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <span className="text-sm font-semibold text-amber-800">Proforma Invoice — GST Locked</span>
+            </div>
+            <button
+              onClick={() => setShowTaxUpload(!showTaxUpload)}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+            >
+              {showTaxUpload ? 'Cancel' : 'Upload Tax Invoice'}
+            </button>
+          </div>
+          <p className="text-xs text-amber-700">GST payment of ₹{parseFloat(invoice.gstAmount || '0').toLocaleString('en-IN')} is locked until the actual tax invoice is uploaded.</p>
+
+          {showTaxUpload && (
+            <div className="mt-3 space-y-3 p-3 bg-white rounded-lg border border-amber-200">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Tax Invoice File *</label>
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.heic"
+                  onChange={(e) => setTaxFile(e.target.files?.[0] || null)}
+                  className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Tax Invoice Number *</label>
+                  <input
+                    type="text"
+                    value={taxInvoiceNumber}
+                    onChange={(e) => setTaxInvoiceNumber(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 focus:ring-2 focus:ring-amber-500 min-h-[40px]"
+                    placeholder="e.g., TAX-001"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Tax Invoice Date *</label>
+                  <input
+                    type="date"
+                    value={taxInvoiceDate}
+                    onChange={(e) => setTaxInvoiceDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 focus:ring-2 focus:ring-amber-500 min-h-[40px]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Revised GST Amount <span className="text-gray-400">(only if different from ₹{parseFloat(invoice.gstAmount || '0').toLocaleString('en-IN')})</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={revisedGst}
+                  onChange={(e) => setRevisedGst(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 focus:ring-2 focus:ring-amber-500 min-h-[40px]"
+                  placeholder="Leave blank if unchanged"
+                />
+              </div>
+              {taxUploadError && (
+                <p className="text-xs text-red-600 font-medium">{taxUploadError}</p>
+              )}
+              <button
+                onClick={handleTaxInvoiceUpload}
+                disabled={taxUploadLoading}
+                className="w-full py-2.5 rounded-lg bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 disabled:opacity-50 transition-colors"
+              >
+                {taxUploadLoading ? 'Uploading...' : 'Submit Tax Invoice'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {taxUploadSuccess && (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 flex items-center gap-2">
+          <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+          </svg>
+          <span className="text-sm font-semibold text-emerald-800">Tax invoice uploaded successfully! GST payment is now unlocked.</span>
+        </div>
+      )}
+
       {/* Info grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
         <div>

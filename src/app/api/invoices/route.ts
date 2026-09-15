@@ -143,10 +143,12 @@ export async function POST(request: NextRequest) {
     // GST: sanitize as amount (reject non-numeric/negative), but allow empty (optional field)
     const rawGst = body.gstAmount;
     const gstAmount = rawGst ? sanitizeAmount(rawGst) : '';
-    // Cost categorization (optional)
+    // Cost categorization (required for new submissions)
     const costCategory = sanitizeString(body.costCategory, 50) || '';
     const costSubCategory = sanitizeString(body.costSubCategory, 100) || '';
     const costType = sanitizeString(body.costType, 20) || '';
+    // Document stage for proforma workflow
+    const documentStage = sanitizeString(body.documentStage, 20) || '';
 
     // Derive submittedBy from authenticated session — never from client
     const submittedBy = session.type === 'engineer'
@@ -177,15 +179,32 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    // Validate invoice type
-    const validTypes = ['advance', 'ra', 'final'];
-    if (!invoiceType || !validTypes.includes(invoiceType)) {
+    if (!costCategory || !costType) {
       return NextResponse.json(
-        { error: 'Invoice type is required (Advance, RA, or Final)' },
+        { error: 'Cost Category and Cost Type are required' },
         { status: 400 }
       );
     }
+
+    // Validate invoice type
+    const validTypes = ['advance', 'ra', 'tax_invoice'];
+    if (!invoiceType || !validTypes.includes(invoiceType)) {
+      return NextResponse.json(
+        { error: 'Invoice type is required (Advance, RA, or Tax Invoice)' },
+        { status: 400 }
+      );
+    }
+
+    // Validate document stage
+    if (invoiceType === 'advance' || invoiceType === 'ra') {
+      if (!documentStage || !['proforma', 'tax_invoice'].includes(documentStage)) {
+        return NextResponse.json(
+          { error: 'Document type is required for Advance/RA invoices (Proforma or Tax Invoice)' },
+          { status: 400 }
+        );
+      }
+    }
+    const effectiveDocumentStage = invoiceType === 'tax_invoice' ? 'direct' : documentStage;
 
     // Verify vendor exists in the system
     const activeVendors = await getActiveVendors();
@@ -219,6 +238,7 @@ export async function POST(request: NextRequest) {
       costCategory,
       costSubCategory,
       costType,
+      documentStage: effectiveDocumentStage as 'proforma' | 'tax_invoice' | 'direct',
     });
 
     return NextResponse.json({ success: true, invoice });
