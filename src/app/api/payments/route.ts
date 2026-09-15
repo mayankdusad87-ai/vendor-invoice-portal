@@ -21,8 +21,12 @@ export async function GET(request: NextRequest) {
     const totalPaid = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     const totalTDS = payments.reduce((sum, p) => sum + (parseFloat(p.tdsAmount) || 0), 0);
     const totalRetention = payments.reduce((sum, p) => sum + (parseFloat(p.retentionAmount) || 0), 0);
-    // Gross consumed = net to vendor + TDS + retention — all consume from approved cap
-    const totalConsumed = totalPaid + totalTDS + totalRetention;
+    // Gross consumed = net to vendor + TDS + retention — all consume from approved cap.
+    // Exclude retention_release payments from consumed — their amount was already consumed
+    // when the original retention was held.
+    const nonReleasePayments = payments.filter(p => p.paymentType !== 'retention_release');
+    const consumedNet = nonReleasePayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const totalConsumed = consumedNet + totalTDS + totalRetention;
 
     const baseAmount = invoice ? parseFloat(invoice.amount) || 0 : 0;
     const gstAmount = invoice ? parseFloat(invoice.gstAmount) || 0 : 0;
@@ -209,12 +213,14 @@ export async function POST(request: NextRequest) {
 
     // ─── OVERPAYMENT CHECK (pre-write) ────────────────────────────────
     const existingPayments = await getPaymentsByInvoiceId(invoiceId);
-    // Total consumed = sum of (net + TDS + retention) across all existing payments
-    const totalConsumed = existingPayments.reduce((sum, p) => {
+    // Exclude retention_release payments from consumed — their amount was already
+    // consumed when the original retention was held.
+    const nonReleaseExisting = existingPayments.filter(p => p.paymentType !== 'retention_release');
+    const totalConsumed = nonReleaseExisting.reduce((sum, p) => {
       return sum + (parseFloat(p.amount) || 0) + (parseFloat(p.tdsAmount) || 0) + (parseFloat(p.retentionAmount) || 0);
     }, 0);
     const totalPaid = existingPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-    const totalRetentionHeld = existingPayments.reduce((sum, p) => sum + (parseFloat(p.retentionAmount) || 0), 0);
+    const totalRetentionHeld = nonReleaseExisting.reduce((sum, p) => sum + (parseFloat(p.retentionAmount) || 0), 0);
     const baseAmount = parseFloat(invoice.amount) || 0;
     const gstAmount = parseFloat(invoice.gstAmount) || 0;
     const invoiceAmount = baseAmount + gstAmount; // Total = Amount + GST

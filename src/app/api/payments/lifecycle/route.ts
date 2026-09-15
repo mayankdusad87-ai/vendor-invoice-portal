@@ -258,7 +258,10 @@ export async function GET(request: NextRequest) {
         const pNet = parseFloat(p.amount) || 0;
         const pTds = parseFloat(p.tdsAmount) || 0;
         const pRet = parseFloat(p.retentionAmount) || 0;
-        const pGross = pNet + pTds + pRet;
+        const isRetRelease = p.paymentType === 'retention_release';
+        // Retention release payments don't consume additional cap — the retention
+        // was already consumed when it was originally held.
+        const pGross = isRetRelease ? 0 : (pNet + pTds + pRet);
 
         tranche.payments.push({
           id: p.id,
@@ -316,7 +319,11 @@ export async function GET(request: NextRequest) {
     // Deduction aggregates — from payment records
     const totalTDS = payments.reduce((sum, p) => sum + (parseFloat(p.tdsAmount) || 0), 0);
     const totalRetention = payments.reduce((sum, p) => sum + (parseFloat(p.retentionAmount) || 0), 0);
-    const totalConsumed = totalPaid + totalTDS + totalRetention;
+    // Exclude retention_release payments from consumed — their amount was already
+    // consumed when the original retention was held.
+    const nonReleasePayments = payments.filter(p => p.paymentType !== 'retention_release');
+    const consumedNet = nonReleasePayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const totalConsumed = consumedNet + totalTDS + totalRetention;
     const pendingPayment = Math.max(0, totalApproved - totalConsumed);
 
     return NextResponse.json({

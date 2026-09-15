@@ -49,10 +49,15 @@ export async function GET(request: NextRequest) {
       const payments = allPayments[i];
 
       const approved = parseFloat(inv.approvedAmount || '0') || 0;
+      // paidToVendor = total net amount vendor received (includes retention releases)
       const paidToVendor = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
       const tds = payments.reduce((sum, p) => sum + (parseFloat(p.tdsAmount) || 0), 0);
       const retention = payments.reduce((sum, p) => sum + (parseFloat(p.retentionAmount) || 0), 0);
-      const consumed = paidToVendor + tds + retention;
+      // Consumed from approved cap: exclude retention_release payments — those
+      // were already consumed when the original retention was held.
+      const nonReleasePayments = payments.filter(p => p.paymentType !== 'retention_release');
+      const consumedNet = nonReleasePayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+      const consumed = consumedNet + tds + retention;
 
       const vendorKey = inv.vendorName.toLowerCase().trim();
       const existing = vendorMap.get(vendorKey) || {

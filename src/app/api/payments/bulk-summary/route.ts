@@ -35,7 +35,10 @@ export async function GET(request: NextRequest) {
       const net = parseFloat(p.amount) || 0;
       const tds = parseFloat(p.tdsAmount) || 0;
       const ret = parseFloat(p.retentionAmount) || 0;
-      const gross = net + tds + ret;
+      const isRetRelease = p.paymentType === 'retention_release';
+      // Retention release payments don't consume additional cap — the retention
+      // was already consumed when it was held in the original payment.
+      const gross = isRetRelease ? 0 : (net + tds + ret);
       paymentsByInvoice[p.invoiceId] = (paymentsByInvoice[p.invoiceId] || 0) + net;
       consumedByInvoice[p.invoiceId] = (consumedByInvoice[p.invoiceId] || 0) + gross;
       tdsByInvoice[p.invoiceId] = (tdsByInvoice[p.invoiceId] || 0) + tds;
