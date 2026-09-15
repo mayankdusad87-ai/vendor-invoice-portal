@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import AdminHeader from '@/components/layout/AdminHeader';
+import { useState, useEffect, useMemo } from 'react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import TypeBadge from '@/components/ui/TypeBadge';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
@@ -17,6 +16,7 @@ interface Invoice {
   invoiceNumber: string;
   purpose: string;
   amount: string;
+  gstAmount?: string;
   remarks: string;
   fileUrl: string;
   fileName: string;
@@ -27,18 +27,33 @@ interface Invoice {
   approvedDate: string;
   invoiceType: string;
   submittedBy: string;
+  documentStage?: string;
 }
+
+const STATUS_TABS: { key: string; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'submitted', label: 'Submitted' },
+  { key: 'under_review', label: 'Under Review' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'partially_paid', label: 'Partially Paid' },
+  { key: 'paid', label: 'Paid' },
+  { key: 'rejected', label: 'Rejected' },
+  { key: 'accounts_query', label: 'Query' },
+  { key: 'correction_required', label: 'Correction' },
+];
+
+const PAGE_SIZE = 25;
 
 export default function AdminInvoices() {
   const { isReady } = useAdminAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>('all');
+  const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(0);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Confirmation dialog for status changes
   const [confirmDialog, setConfirmDialog] = useState<{
     invoiceId: string;
     invoiceNumber: string;
@@ -46,7 +61,6 @@ export default function AdminInvoices() {
     newStatus: InvoiceStatus;
   } | null>(null);
 
-  // Comments dialog for approve/reject
   const [commentsDialog, setCommentsDialog] = useState<{
     invoiceId: string;
     invoiceNumber: string;
@@ -61,7 +75,6 @@ export default function AdminInvoices() {
 
   const fetchInvoices = async () => {
     try {
-      // Cookie is sent automatically — no Authorization header needed
       const res = await fetch('/api/invoices');
       const data = await res.json();
       if (res.ok) {
@@ -75,8 +88,6 @@ export default function AdminInvoices() {
 
   const handleStatusChange = (invoice: Invoice, newStatus: InvoiceStatus) => {
     if (newStatus === invoice.status) return;
-
-    // For approve/reject, require comments
     if (newStatus === 'approved' || newStatus === 'rejected') {
       setCommentsDialog({
         invoiceId: invoice.id,
@@ -86,8 +97,6 @@ export default function AdminInvoices() {
       });
       return;
     }
-
-    // For other statuses, show simple confirmation
     setConfirmDialog({
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
@@ -103,7 +112,6 @@ export default function AdminInvoices() {
     setStatusMessage(null);
 
     try {
-      // Cookie is sent automatically — no Authorization header needed
       const res = await fetch('/api/invoices', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -113,7 +121,6 @@ export default function AdminInvoices() {
           approvalComments: comments || '',
         }),
       });
-
       const data = await res.json();
       if (res.ok) {
         setInvoices((prev) =>
@@ -121,7 +128,7 @@ export default function AdminInvoices() {
             inv.id === invoiceId ? { ...inv, status: newStatus } : inv
           )
         );
-        setStatusMessage({ type: 'success', text: `Invoice status updated to ${INVOICE_STATUSES[newStatus]?.label || newStatus}` });
+        setStatusMessage({ type: 'success', text: `Status updated to ${INVOICE_STATUSES[newStatus]?.label || newStatus}` });
         setTimeout(() => setStatusMessage(null), 3000);
       } else {
         setStatusMessage({ type: 'error', text: data.error || 'Failed to update status' });
@@ -132,171 +139,188 @@ export default function AdminInvoices() {
     setUpdatingId(null);
   };
 
-  const filteredInvoices = invoices.filter((inv) => {
-    const matchesFilter = filter === 'all' || inv.status === filter;
-    const matchesSearch =
-      !searchTerm ||
-      inv.vendorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.purpose.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: invoices.length };
+    for (const inv of invoices) {
+      counts[inv.status] = (counts[inv.status] || 0) + 1;
+    }
+    return counts;
+  }, [invoices]);
+
+  const filtered = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    return invoices.filter((inv) => {
+      if (activeTab !== 'all' && inv.status !== activeTab) return false;
+      if (q) {
+        return (
+          inv.vendorName.toLowerCase().includes(q) ||
+          inv.invoiceNumber.toLowerCase().includes(q) ||
+          inv.purpose.toLowerCase().includes(q) ||
+          (inv.project || '').toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [invoices, activeTab, searchTerm]);
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageInvoices = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  useEffect(() => { setPage(0); }, [activeTab, searchTerm]);
 
   if (!isReady) return null;
 
   return (
-    <div className="page-container">
-      <AdminHeader />
-
-      <main className="max-w-6xl mx-auto p-4 mt-4 fade-in">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <h2 className="text-xl font-bold text-[var(--text-primary)]">All Invoices</h2>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="input-field text-sm"
-              style={{ maxWidth: '200px' }}
-              aria-label="Search invoices"
-            />
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="input-field text-sm"
-              style={{ maxWidth: '160px' }}
-              aria-label="Filter by status"
-            >
-              <option value="all">All Status</option>
-              {Object.entries(INVOICE_STATUSES).map(([key, val]) => (
-                <option key={key} value={key}>{val.label}</option>
-              ))}
-            </select>
-          </div>
+    <div>
+      {/* Header row */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-[var(--text-primary)]">Invoices</h2>
+          <p className="text-xs text-[var(--text-muted)]">{invoices.length} total invoices</p>
         </div>
+        <div className="relative" style={{ maxWidth: '260px', width: '100%' }}>
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search invoices..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="input-field text-sm pl-9"
+            aria-label="Search invoices"
+          />
+        </div>
+      </div>
 
-        {/* Status change message */}
-        {statusMessage && (
-          <div className={`alert ${statusMessage.type === 'success' ? 'alert-success' : 'alert-error'} mb-4`}>
-            {statusMessage.text}
-          </div>
-        )}
+      {/* Status tabs */}
+      <div className="admin-status-tabs">
+        {STATUS_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`admin-status-tab ${activeTab === tab.key ? 'active' : ''}`}
+          >
+            {tab.label}
+            {(statusCounts[tab.key] || 0) > 0 && (
+              <span className="tab-count">{statusCounts[tab.key]}</span>
+            )}
+          </button>
+        ))}
+      </div>
 
-        {loading ? (
-          <LoadingSkeleton variant="card" count={4} />
-        ) : filteredInvoices.length === 0 ? (
-          <div className="card text-center py-12">
-            <p className="text-[var(--text-muted)]">No invoices found</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {filteredInvoices.map((invoice) => (
-              <div key={invoice.id} className="card">
-                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
-                  {/* Invoice Details */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      {invoice.project && (
-                        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
-                          {invoice.project}
-                        </span>
-                      )}
-                      <span className="font-bold text-[var(--text-primary)]">
+      {statusMessage && (
+        <div className={`alert ${statusMessage.type === 'success' ? 'alert-success' : 'alert-error'} mb-4`}>
+          {statusMessage.text}
+        </div>
+      )}
+
+      {loading ? (
+        <LoadingSkeleton variant="list" count={8} />
+      ) : filtered.length === 0 ? (
+        <div className="card text-center py-12">
+          <p className="text-[var(--text-muted)]">
+            {searchTerm ? 'No invoices match your search' : 'No invoices in this category'}
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Table */}
+          <div className="card p-0 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th className="pl-4">Invoice #</th>
+                    <th>Vendor</th>
+                    <th className="hidden md:table-cell">Project</th>
+                    <th className="hidden lg:table-cell">Type</th>
+                    <th className="text-right">Amount</th>
+                    <th className="hidden sm:table-cell">Date</th>
+                    <th>Status</th>
+                    <th className="pr-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageInvoices.map((invoice) => (
+                    <tr key={invoice.id}>
+                      <td className="pl-4 font-medium text-[var(--text-primary)]">
                         {invoice.invoiceNumber}
-                      </span>
-                      <span className="text-sm text-[var(--text-muted)]">&bull;</span>
-                      <span className="text-sm text-[var(--text-secondary)]">
-                        {invoice.vendorName}
-                      </span>
-                      <span className="text-sm text-[var(--text-muted)]">&bull;</span>
-                      <span className="text-sm text-[var(--text-muted)]">
-                        {new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}
-                      </span>
-                      {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
-                      <StatusBadge status={invoice.status} />
-                    </div>
-                    <p className="text-sm text-[var(--text-secondary)] mb-1">{invoice.purpose}</p>
-                    <div className="flex flex-wrap gap-3 text-xs text-[var(--text-muted)]">
-                      <span className="font-semibold text-base text-[var(--text-primary)]">
+                      </td>
+                      <td className="max-w-[160px] truncate">{invoice.vendorName}</td>
+                      <td className="hidden md:table-cell text-[var(--text-muted)]">
+                        {invoice.project || '—'}
+                      </td>
+                      <td className="hidden lg:table-cell">
+                        {invoice.invoiceType ? <TypeBadge type={invoice.invoiceType} /> : '—'}
+                      </td>
+                      <td className="text-right font-semibold text-[var(--text-primary)] whitespace-nowrap">
                         ₹{Number(invoice.amount).toLocaleString('en-IN')}
-                      </span>
-                      {invoice.remarks && <span className="self-center">Remarks: {invoice.remarks}</span>}
-                      {invoice.fileUrl && (
-                        <a
-                          href={invoice.fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="self-center inline-flex items-center gap-1 hover:underline"
-                          style={{ color: 'var(--primary)' }}
+                        {invoice.gstAmount && parseFloat(invoice.gstAmount) > 0 && (
+                          <span className="block text-[0.625rem] font-normal text-[var(--text-muted)]">
+                            +₹{Number(invoice.gstAmount).toLocaleString('en-IN')} GST
+                          </span>
+                        )}
+                      </td>
+                      <td className="hidden sm:table-cell whitespace-nowrap text-[var(--text-muted)]">
+                        {invoice.submittedAt
+                          ? new Date(invoice.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+                          : '—'}
+                      </td>
+                      <td>
+                        <StatusBadge status={invoice.status} />
+                      </td>
+                      <td className="pr-4 text-right">
+                        <select
+                          value={invoice.status}
+                          onChange={(e) => handleStatusChange(invoice, e.target.value as InvoiceStatus)}
+                          disabled={updatingId === invoice.id}
+                          className="input-field text-xs py-1 px-2"
+                          style={{ minWidth: '110px', minHeight: '32px' }}
+                          aria-label={`Update status for ${invoice.invoiceNumber}`}
                         >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
-                          </svg>
-                          {invoice.fileName || 'View File'}
-                        </a>
-                      )}
-                    </div>
-                    {/* Dates */}
-                    <div className="flex flex-wrap gap-4 text-xs text-[var(--text-muted)] mt-1.5">
-                      {invoice.submittedAt && (
-                        <span className="inline-flex items-center gap-1">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          Submitted: {new Date(invoice.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </span>
-                      )}
-                      {invoice.status === 'approved' && invoice.approvedDate && (
-                        <span className="inline-flex items-center gap-1" style={{ color: 'var(--success)' }}>
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          Approved: {new Date(invoice.approvedDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                          {invoice.approvedBy && ` by ${invoice.approvedBy}`}
-                        </span>
-                      )}
-                      {invoice.status === 'rejected' && invoice.updatedAt && (
-                        <span className="inline-flex items-center gap-1" style={{ color: 'var(--danger)' }}>
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          Rejected: {new Date(invoice.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Status Update */}
-                  <div className="flex-shrink-0">
-                    <select
-                      value={invoice.status}
-                      onChange={(e) => handleStatusChange(invoice, e.target.value as InvoiceStatus)}
-                      disabled={updatingId === invoice.id}
-                      className="input-field text-sm"
-                      style={{ minWidth: '140px' }}
-                      aria-label={`Update status for ${invoice.invoiceNumber}`}
-                    >
-                      {Object.entries(INVOICE_STATUSES).map(([key, val]) => (
-                        <option key={key} value={key}>{val.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-            ))}
+                          {Object.entries(INVOICE_STATUSES).map(([key, val]) => (
+                            <option key={key} value={key}>{val.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        )}
-      </main>
 
-      {/* Simple Confirmation Dialog */}
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4">
+              <button
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="btn-secondary text-xs disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-[var(--text-muted)]">
+                Page {page + 1} of {totalPages} ({filtered.length} invoices)
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                className="btn-secondary text-xs disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Confirmation Dialog */}
       {confirmDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.7)' }}
-          onClick={() => {
-            // Revert the select to current status
-            setConfirmDialog(null);
-          }}
+          style={{ background: 'rgba(0,0,0,0.4)' }}
+          onClick={() => setConfirmDialog(null)}
           role="dialog" aria-modal="true"
         >
           <div className="card max-w-sm w-full text-center" onClick={(e) => e.stopPropagation()}>
@@ -319,10 +343,10 @@ export default function AdminInvoices() {
         </div>
       )}
 
-      {/* Comments Dialog for approve/reject */}
+      {/* Comments Dialog */}
       {commentsDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.7)' }}
+          style={{ background: 'rgba(0,0,0,0.4)' }}
           onClick={() => setCommentsDialog(null)}
           role="dialog" aria-modal="true"
         >

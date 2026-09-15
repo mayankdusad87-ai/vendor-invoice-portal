@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import AdminHeader from '@/components/layout/AdminHeader';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
@@ -133,10 +132,7 @@ export default function AdminProjects() {
   const inactiveProjects = projects.filter((p) => p.status === 'inactive');
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
-      <AdminHeader />
-
-      <main className="max-w-4xl mx-auto p-4 mt-4 fade-in">
+    <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-xl font-bold text-[var(--text-primary)]">Projects</h2>
@@ -254,7 +250,6 @@ export default function AdminProjects() {
             )}
           </div>
         )}
-      </main>
     </div>
   );
 }

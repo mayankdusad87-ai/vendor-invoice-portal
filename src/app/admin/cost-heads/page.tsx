@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import AdminHeader from '@/components/layout/AdminHeader';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 interface CostHead {
@@ -109,9 +108,7 @@ export default function CostHeadsPage() {
   if (!isReady) return null;
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)]">
-      <AdminHeader />
-      <main className="max-w-4xl mx-auto px-4 py-6">
+    <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-bold text-[var(--text-primary)]">Cost Heads</h2>
@@ -232,7 +229,6 @@ export default function CostHeadsPage() {
               ))}
           </div>
         )}
-      </main>
     </div>
   );
 }

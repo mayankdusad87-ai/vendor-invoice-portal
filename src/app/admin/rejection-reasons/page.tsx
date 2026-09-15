@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import AdminHeader from '@/components/layout/AdminHeader';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
@@ -80,9 +79,7 @@ export default function RejectionReasonsPage() {
   if (!isReady) return null;
 
   return (
-    <div className="page-container">
-      <AdminHeader />
-      <main className="page-content fade-in" style={{ maxWidth: '48rem' }}>
+    <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-bold text-[var(--text-primary)]">Rejection Reasons</h2>
@@ -159,7 +156,6 @@ export default function RejectionReasonsPage() {
             </div>
           </div>
         )}
-      </main>
     </div>
   );
 }

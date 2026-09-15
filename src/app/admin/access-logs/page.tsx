@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import AdminHeader from '@/components/layout/AdminHeader';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
@@ -132,10 +131,7 @@ export default function AccessLogsPage() {
   if (!isReady) return null;
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
-      <AdminHeader />
-
-      <main className="max-w-6xl mx-auto p-4 mt-4 fade-in">
+    <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-[var(--text-primary)]">Access Logs</h2>
           <span className="text-sm text-[var(--text-muted)]">
@@ -285,7 +281,6 @@ export default function AccessLogsPage() {
             )}
           </>
         )}
-      </main>
     </div>
   );
 }
