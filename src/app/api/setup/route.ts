@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeSheetHeaders, migrateVendorRows, migrateOldPaymentRows, migrateInvoiceColumns, fixOrphanedPaymentStatuses, getActiveRejectionReasons, addRejectionReason } from '@/lib/google-sheets';
+import { ensureCostHeadsSheet } from '@/lib/cost-heads';
 import { requireAdmin, isAuthError } from '@/lib/auth';
 import { rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
@@ -49,6 +50,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Ensure CostHeads sheet exists with seed data
+    const costHeadsResult = await ensureCostHeadsSheet();
+
     const folderId = process.env.DRIVE_FOLDER_ID || '(not set)';
 
     return NextResponse.json({
@@ -58,6 +62,8 @@ export async function POST(request: NextRequest) {
       migratedVendorRows: migratedVendors,
       migratedPaymentRows: migratedPayments,
       fixedOrphanedStatuses: fixedStatuses,
+      costHeadsCreated: costHeadsResult.created,
+      costHeadsSeeded: costHeadsResult.seeded,
       driveFolderId: folderId,
       driveFolderUrl: folderId !== '(not set)' ? `https://drive.google.com/drive/folders/${folderId}` : null,
     });

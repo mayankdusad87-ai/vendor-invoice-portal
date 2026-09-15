@@ -5,6 +5,7 @@ import TypeBadge from '@/components/ui/TypeBadge';
 import PhotoViewer from '@/components/ui/PhotoViewer';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import PaymentLifecycle from '@/components/ui/PaymentLifecycle';
+import CostTagDropdowns, { CostTagBadge } from '@/components/ui/CostTagDropdowns';
 import { useAccountsAuth } from '@/hooks/useAccountsAuth';
 import type { InvoiceStatus } from '@/lib/constants';
 
@@ -37,6 +38,9 @@ interface Invoice {
   challanName?: string;
   approvedAmount?: string;
   gstAmount?: string;
+  costCategory?: string;
+  costSubCategory?: string;
+  costType?: string;
 }
 
 interface Payment {
@@ -1290,6 +1294,11 @@ export default function AccountsDashboard() {
   const [fileViewer, setFileViewer] = useState<{ title: string; url: string; fileName?: string } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Cost tag inline editing
+  const [editingCostTagId, setEditingCostTagId] = useState<string | null>(null);
+  const [costTagForm, setCostTagForm] = useState({ costCategory: '', costSubCategory: '', costType: '' });
+  const [savingCostTag, setSavingCostTag] = useState(false);
+
   // Rejection reasons from database
   const [rejectionReasons, setRejectionReasons] = useState<{ id: string; reason: string }[]>([]);
 
@@ -1536,6 +1545,33 @@ export default function AccountsDashboard() {
     },
     [fetchPaymentSummary]
   );
+
+  const handleSaveCostTag = useCallback(async (invoiceId: string) => {
+    setSavingCostTag(true);
+    try {
+      const res = await fetch('/api/invoices/cost-tag', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId, ...costTagForm }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setInvoices(prev => prev.map(inv =>
+          inv.id === invoiceId
+            ? { ...inv, costCategory: data.costTag.costCategory, costSubCategory: data.costTag.costSubCategory, costType: data.costTag.costType }
+            : inv
+        ));
+        setEditingCostTagId(null);
+        setToast({ message: 'Cost tag updated', type: 'success' });
+      } else {
+        const data = await res.json();
+        setToast({ message: data.error || 'Failed to update cost tag', type: 'error' });
+      }
+    } catch {
+      setToast({ message: 'Network error', type: 'error' });
+    }
+    setSavingCostTag(false);
+  }, [costTagForm]);
 
   if (!isReady) return null;
 
@@ -2081,6 +2117,68 @@ export default function AccountsDashboard() {
                                     )}
                                   </div>
 
+                                  {/* Cost classification tags with inline editing */}
+                                  <div className="mb-3">
+                                    {editingCostTagId === inv.id ? (
+                                      <div className="p-3 rounded-lg border border-blue-200 bg-blue-50/30 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xs font-medium text-gray-600">Edit Cost Head</span>
+                                          <div className="flex gap-1.5">
+                                            <button
+                                              onClick={() => handleSaveCostTag(inv.id)}
+                                              disabled={savingCostTag}
+                                              className="px-2.5 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                                            >
+                                              {savingCostTag ? 'Saving...' : 'Save'}
+                                            </button>
+                                            <button
+                                              onClick={() => setEditingCostTagId(null)}
+                                              className="px-2.5 py-1 text-xs font-medium rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
+                                            >
+                                              Cancel
+                                            </button>
+                                          </div>
+                                        </div>
+                                        <CostTagDropdowns
+                                          costCategory={costTagForm.costCategory}
+                                          costSubCategory={costTagForm.costSubCategory}
+                                          costType={costTagForm.costType}
+                                          onChange={setCostTagForm}
+                                          compact
+                                        />
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        {(inv.costCategory || inv.costSubCategory || inv.costType) ? (
+                                          <>
+                                            <span className="text-xs text-gray-400">Cost Head:</span>
+                                            <CostTagBadge
+                                              costCategory={inv.costCategory || ''}
+                                              costSubCategory={inv.costSubCategory || ''}
+                                              costType={inv.costType || ''}
+                                              className="inline-flex"
+                                            />
+                                          </>
+                                        ) : (
+                                          <span className="text-xs text-gray-400 italic">No cost head assigned</span>
+                                        )}
+                                        <button
+                                          onClick={() => {
+                                            setCostTagForm({
+                                              costCategory: inv.costCategory || '',
+                                              costSubCategory: inv.costSubCategory || '',
+                                              costType: inv.costType || '',
+                                            });
+                                            setEditingCostTagId(inv.id);
+                                          }}
+                                          className="text-xs text-blue-600 hover:text-blue-800 hover:underline ml-1"
+                                        >
+                                          {(inv.costCategory || inv.costType) ? 'Edit' : '+ Assign'}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+
                                   {/* Payment progress */}
                                   {cachedPayment && cachedPayment.totalPaid > 0 && (
                                     <div className="mb-4 p-3 rounded-lg bg-emerald-50/50 border border-emerald-100">
@@ -2348,6 +2446,68 @@ export default function AccountsDashboard() {
                               showVersionHistory={true}
                             />
                           )}
+
+                          {/* Cost classification tags with inline editing */}
+                          <div className="mb-3">
+                            {editingCostTagId === inv.id ? (
+                              <div className="p-3 rounded-lg border border-blue-200 bg-blue-50/30 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-medium text-gray-600">Edit Cost Head</span>
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      onClick={() => handleSaveCostTag(inv.id)}
+                                      disabled={savingCostTag}
+                                      className="px-2.5 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                      {savingCostTag ? 'Saving...' : 'Save'}
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingCostTagId(null)}
+                                      className="px-2.5 py-1 text-xs font-medium rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                                <CostTagDropdowns
+                                  costCategory={costTagForm.costCategory}
+                                  costSubCategory={costTagForm.costSubCategory}
+                                  costType={costTagForm.costType}
+                                  onChange={setCostTagForm}
+                                  compact
+                                />
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                {(inv.costCategory || inv.costSubCategory || inv.costType) ? (
+                                  <>
+                                    <span className="text-xs text-gray-400">Cost Head:</span>
+                                    <CostTagBadge
+                                      costCategory={inv.costCategory || ''}
+                                      costSubCategory={inv.costSubCategory || ''}
+                                      costType={inv.costType || ''}
+                                      className="inline-flex"
+                                    />
+                                  </>
+                                ) : (
+                                  <span className="text-xs text-gray-400 italic">No cost head assigned</span>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setCostTagForm({
+                                      costCategory: inv.costCategory || '',
+                                      costSubCategory: inv.costSubCategory || '',
+                                      costType: inv.costType || '',
+                                    });
+                                    setEditingCostTagId(inv.id);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline ml-1"
+                                >
+                                  {(inv.costCategory || inv.costType) ? 'Edit' : '+ Assign'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
 
                           {/* Action buttons */}
                           <div className="flex flex-wrap gap-2 mt-2">

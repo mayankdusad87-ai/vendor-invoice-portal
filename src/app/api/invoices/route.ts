@@ -143,6 +143,10 @@ export async function POST(request: NextRequest) {
     // GST: sanitize as amount (reject non-numeric/negative), but allow empty (optional field)
     const rawGst = body.gstAmount;
     const gstAmount = rawGst ? sanitizeAmount(rawGst) : '';
+    // Cost categorization (optional)
+    const costCategory = sanitizeString(body.costCategory, 50) || '';
+    const costSubCategory = sanitizeString(body.costSubCategory, 100) || '';
+    const costType = sanitizeString(body.costType, 20) || '';
 
     // Derive submittedBy from authenticated session — never from client
     const submittedBy = session.type === 'engineer'
@@ -212,6 +216,9 @@ export async function POST(request: NextRequest) {
       challanUrl,
       challanName,
       gstAmount: gstAmount || '',
+      costCategory,
+      costSubCategory,
+      costType,
     });
 
     return NextResponse.json({ success: true, invoice });

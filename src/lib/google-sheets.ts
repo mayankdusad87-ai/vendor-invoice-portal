@@ -593,13 +593,17 @@ export interface Invoice {
   accountsQueryReason: string;   // Col AC — Accounts query reason
   accountsQueryAt: string;       // Col AD — Timestamp of accounts query
   previousStatus: string;        // Col AE — Status before accounts query was raised
+  // COST CATEGORIZATION (AF–AH) — optional, added for construction cost tracking
+  costCategory: string;          // Col AF — e.g., "CIVIL", "MEP", "FINISHING"
+  costSubCategory: string;       // Col AG — e.g., "Sub-Structure", "Electrical"
+  costType: string;              // Col AH — e.g., "Material", "Labor", "Mixed"
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AE',
+    range: 'Invoices!A2:AH',
   });
 
   const rows = response.data.values || [];
@@ -635,6 +639,10 @@ export async function getInvoices(): Promise<Invoice[]> {
     accountsQueryReason: row[28] || '', // AC
     accountsQueryAt: row[29] || '',     // AD
     previousStatus: row[30] || '',      // AE
+    // COST CATEGORIZATION (AF–AH) — empty for old invoices, optional
+    costCategory: row[31] || '',        // AF
+    costSubCategory: row[32] || '',     // AG
+    costType: row[33] || '',            // AH
   }));
 }
 
@@ -649,7 +657,7 @@ export async function getInvoiceById(id: string): Promise<Invoice | null> {
 }
 
 export async function addInvoice(
-  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount' | 'totalAmount' | 'accountsQueryBy' | 'accountsQueryReason' | 'accountsQueryAt' | 'previousStatus'> & { gstAmount?: string }
+  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount' | 'totalAmount' | 'accountsQueryBy' | 'accountsQueryReason' | 'accountsQueryAt' | 'previousStatus' | 'costCategory' | 'costSubCategory' | 'costType'> & { gstAmount?: string; costCategory?: string; costSubCategory?: string; costType?: string }
 ): Promise<Invoice> {
   const sheets = getSheets();
   const id = `INV${Date.now()}`;
@@ -661,7 +669,7 @@ export async function addInvoice(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:AA',
+    range: 'Invoices!A:AH',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -695,11 +703,17 @@ export async function addInvoice(
         '',                                   // Z: Approved Date
         // SYSTEM (AA)
         now,                                  // AA: Updated At
+        // ACCOUNTS QUERY (AB–AE) — empty on creation
+        '', '', '', '',
+        // COST CATEGORIZATION (AF–AH) — optional
+        invoice.costCategory || '',           // AF: Cost Category
+        invoice.costSubCategory || '',        // AG: Cost Sub-Category
+        invoice.costType || '',               // AH: Cost Type
       ]],
     },
   });
 
-  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount, accountsQueryBy: '', accountsQueryReason: '', accountsQueryAt: '', previousStatus: '' };
+  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount, accountsQueryBy: '', accountsQueryReason: '', accountsQueryAt: '', previousStatus: '', costCategory: invoice.costCategory || '', costSubCategory: invoice.costSubCategory || '', costType: invoice.costType || '' };
 }
 
 export async function updateInvoiceStatus(
@@ -1955,11 +1969,13 @@ export async function initializeSheetHeaders(): Promise<void> {
     'Updated At',
     // ACCOUNTS QUERY (AB–AE)
     'Accounts Query By', 'Accounts Query Reason', 'Accounts Query At', 'Previous Status',
+    // COST CATEGORIZATION (AF–AH) — optional, for construction cost tracking
+    'Cost Category', 'Cost Sub-Category', 'Cost Type',
   ];
 
   const invoiceHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A1:AE1',
+    range: 'Invoices!A1:AH1',
   });
 
   const currentHeaders = invoiceHeaders.data.values?.[0] || [];
@@ -1967,7 +1983,7 @@ export async function initializeSheetHeaders(): Promise<void> {
       currentHeaders.some((h, i) => h !== expectedInvoiceHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Invoices!A1:AE1',
+      range: 'Invoices!A1:AH1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedInvoiceHeaders],

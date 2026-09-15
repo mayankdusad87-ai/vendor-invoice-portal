@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
+import CostTagDropdowns from '@/components/ui/CostTagDropdowns';
 import { useEngineerAuth } from '@/hooks/useEngineerAuth';
 
 export default function SubmitInvoicePage() {
@@ -48,6 +49,9 @@ function SubmitInvoice() {
     amount: '',
     gstAmount: '',
     remarks: '',
+    costCategory: '',
+    costSubCategory: '',
+    costType: '',
   });
 
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
@@ -127,6 +131,9 @@ function SubmitInvoice() {
           amount: invoice.amount,
           gstAmount: invoice.gstAmount || '',
           remarks: invoice.remarks,
+          costCategory: invoice.costCategory || '',
+          costSubCategory: invoice.costSubCategory || '',
+          costType: invoice.costType || '',
         });
         setExistingFiles({
           invoiceFileUrl: invoice.invoiceFileUrl || '',
@@ -431,7 +438,7 @@ function SubmitInvoice() {
       }
 
       setSuccess(true);
-      setForm({ invoiceDate: '', invoiceNumber: '', invoiceType: '', purpose: '', amount: '', gstAmount: '', remarks: '' });
+      setForm({ invoiceDate: '', invoiceNumber: '', invoiceType: '', purpose: '', amount: '', gstAmount: '', remarks: '', costCategory: '', costSubCategory: '', costType: '' });
       setSelectedProject('');
       setInvoiceFile(null);
       setWorkPhotos([]);
@@ -713,6 +720,25 @@ function SubmitInvoice() {
                     step="0.01"
                   />
                 </div>
+              </div>
+
+              {/* Cost Categorization (optional) */}
+              <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/50">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
+                  </svg>
+                  Cost Classification
+                  <span className="text-xs text-gray-400 font-normal">(optional)</span>
+                </h4>
+                <CostTagDropdowns
+                  costCategory={form.costCategory}
+                  costSubCategory={form.costSubCategory}
+                  costType={form.costType}
+                  onChange={({ costCategory, costSubCategory, costType }) =>
+                    setForm((prev) => ({ ...prev, costCategory, costSubCategory, costType }))
+                  }
+                />
               </div>
 
               <div>
