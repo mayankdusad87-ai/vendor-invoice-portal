@@ -60,7 +60,7 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'People',
+    label: 'Access',
     items: [
       {
         href: '/admin/engineers',
@@ -170,19 +170,19 @@ export default function AdminSidebar({
       <div className="admin-sidebar-brand">
         <div
           className="flex items-center justify-center w-8 h-8 rounded-lg font-bold text-sm text-white flex-shrink-0"
-          style={{ background: 'var(--primary)' }}
+          style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}
         >
           RG
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <div className="text-sm font-bold text-[var(--text-primary)] truncate">Raghav Group</div>
-            <div className="text-[0.625rem] text-[var(--text-muted)]">Admin Panel</div>
+            <div className="text-sm font-bold text-white truncate">Raghav Group</div>
+            <div className="text-[0.625rem] text-white/50">Admin Panel</div>
           </div>
         )}
         <button
           onClick={onToggle}
-          className="ml-auto p-1 rounded hover:bg-[var(--background-subtle)] text-[var(--text-muted)] hidden md:flex"
+          className="ml-auto p-1 rounded hover:bg-white/10 text-white/50 hidden md:flex"
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -226,7 +226,7 @@ export default function AdminSidebar({
         {collapsed ? (
           <button
             onClick={onLogout}
-            className="flex items-center justify-center w-full p-2 rounded-lg hover:bg-[var(--danger-light)] text-[var(--text-muted)] hover:text-[var(--danger)] transition-colors"
+            className="flex items-center justify-center w-full p-2 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
             title="Logout"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -237,19 +237,19 @@ export default function AdminSidebar({
           <div className="flex items-center gap-2">
             <div
               className="flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold text-white flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, var(--primary), #1d4ed8)' }}
+              style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}
             >
               {username ? username.charAt(0).toUpperCase() : 'A'}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
+              <div className="text-xs font-semibold text-white truncate">
                 {username || 'Admin'}
               </div>
-              <div className="text-[0.625rem] text-[var(--text-muted)]">Administrator</div>
+              <div className="text-[0.625rem] text-white/50">Administrator</div>
             </div>
             <button
               onClick={onLogout}
-              className="p-1.5 rounded-lg hover:bg-[var(--danger-light)] text-[var(--text-muted)] hover:text-[var(--danger)] transition-colors"
+              className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
               title="Logout"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
