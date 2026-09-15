@@ -178,21 +178,17 @@ function PaymentModal({
   onClose,
   onSubmit,
   isSubmitting,
-  prefillRetentionRelease = 0,
 }: {
   invoice: Invoice;
   paymentSummary: PaymentSummary | null;
   onClose: () => void;
   onSubmit: (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string; tdsAmount?: string; retentionAmount?: string }) => void;
   isSubmitting: boolean;
-  /** When > 0, pre-fills the amount with this retention value and marks it as a retention release */
-  prefillRetentionRelease?: number;
 }) {
-  const isRetentionRelease = prefillRetentionRelease > 0;
-  const [amount, setAmount] = useState(isRetentionRelease ? prefillRetentionRelease.toString() : '');
+  const [amount, setAmount] = useState('');
   const [utrReference, setUtrReference] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
-  const [notes, setNotes] = useState(isRetentionRelease ? 'Retention Release' : '');
+  const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -211,11 +207,7 @@ function PaymentModal({
   const retentionNum = parseFloat(retentionInput) || 0;
 
   const invoiceRemaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
-  // For retention release: the retained amount was already consumed from the cap,
-  // so it's available to release without new authorization
-  const baseAvailable = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
-  const retentionHeld = paymentSummary?.totalRetention ?? 0;
-  const availableToPay = isRetentionRelease ? Math.max(baseAvailable, retentionHeld) : baseAvailable;
+  const availableToPay = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
 
   // Gross = net to vendor + TDS + retention; must fit within approved cap
   const parsedAmount = parseFloat(amount) || 0;
@@ -348,9 +340,7 @@ function PaymentModal({
                     ...(tdsNum > 0 ? { tdsAmount: String(tdsNum) } : {}),
                     ...(retentionNum > 0 ? { retentionAmount: String(retentionNum) } : {}),
                   };
-                  // Flag retention release so API doesn't double-count against cap
-                  const retentionReleaseData = isRetentionRelease ? { paymentType: 'retention_release' } : {};
-                  onSubmit({ amount, utrReference, paymentDate, notes, ...splitData, ...deductionData, ...retentionReleaseData });
+                  onSubmit({ amount, utrReference, paymentDate, notes, ...splitData, ...deductionData });
                 }}
                 disabled={isSubmitting}
                 className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 min-h-[44px]"
@@ -362,20 +352,9 @@ function PaymentModal({
         ) : (
           <>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900">
-                {isRetentionRelease ? '🔓 Release Retention' : 'Record Payment'}
-              </h3>
+              <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
               <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
             </div>
-
-            {isRetentionRelease && (
-              <div className="mb-4 flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs">
-                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                <span>Releasing retained amount of <strong>₹{prefillRetentionRelease.toLocaleString('en-IN')}</strong> back to vendor. Adjust amount if partial release is needed.</span>
-              </div>
-            )}
 
             {/* Invoice summary */}
             <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
@@ -827,12 +806,10 @@ function RejectModal({
 function PaymentHistory({
   invoice,
   onClose,
-  onReleaseRetention,
 }: {
   invoice: Invoice;
   payments: PaymentSummary | null; // kept for call-site compatibility
   onClose: () => void;
-  onReleaseRetention?: (retentionAmount: number) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -860,7 +837,359 @@ function PaymentHistory({
         </div>
 
         {/* Full lifecycle component — shows tranches, payments, timeline */}
-        <PaymentLifecycle invoiceId={invoice.id} role="accounts" onReleaseRetention={onReleaseRetention} />
+        <PaymentLifecycle invoiceId={invoice.id} role="accounts" />
+      </div>
+    </div>
+  );
+}
+
+/* =====================================================================
+   RETENTION RELEASE MODAL (vendor-level)
+   ===================================================================== */
+
+interface RetentionInvoice {
+  invoiceId: string;
+  invoiceNumber: string;
+  project: string;
+  invoiceAmount: number;
+  approvedAmount: number;
+  retentionHeld: number;
+  retentionReleased: number;
+  netRetention: number;
+}
+
+function RetentionReleaseModal({
+  vendorName,
+  onClose,
+  onSuccess,
+}: {
+  vendorName: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [invoices, setInvoices] = useState<RetentionInvoice[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [totalNet, setTotalNet] = useState(0);
+  const [utrReference, setUtrReference] = useState('');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState('Retention Release');
+  const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [result, setResult] = useState<{ message: string; success: boolean } | null>(null);
+
+  // Fetch retention details for this vendor
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/payments/vendor-retention?vendorName=${encodeURIComponent(vendorName)}`);
+        if (!res.ok) throw new Error('Failed to fetch');
+        const data = await res.json();
+        const invs: RetentionInvoice[] = data.invoices || [];
+        // Only show invoices with net retention > 0
+        const releasable = invs.filter(i => i.netRetention > 0);
+        setInvoices(releasable);
+        // Pre-select all
+        const allIds = new Set(releasable.map(i => i.invoiceId));
+        setSelected(allIds);
+        setTotalNet(releasable.reduce((s, i) => s + i.netRetention, 0));
+      } catch {
+        setFormError('Failed to load retention details');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [vendorName]);
+
+  // Update total when selection changes
+  const toggleInvoice = (invoiceId: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(invoiceId)) next.delete(invoiceId);
+      else next.add(invoiceId);
+      // Recalculate total
+      const total = invoices
+        .filter(i => next.has(i.invoiceId))
+        .reduce((s, i) => s + i.netRetention, 0);
+      setTotalNet(total);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === invoices.length) {
+      setSelected(new Set());
+      setTotalNet(0);
+    } else {
+      setSelected(new Set(invoices.map(i => i.invoiceId)));
+      setTotalNet(invoices.reduce((s, i) => s + i.netRetention, 0));
+    }
+  };
+
+  const validateAndConfirm = () => {
+    setFormError('');
+    if (selected.size === 0) {
+      setFormError('Select at least one invoice');
+      return;
+    }
+    if (!utrReference.trim() || utrReference.trim().length < 3) {
+      setFormError('UTR / Reference number is required (min 3 characters)');
+      return;
+    }
+    if (!paymentDate) {
+      setFormError('Payment date is required');
+      return;
+    }
+    setShowConfirm(true);
+  };
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    setFormError('');
+    try {
+      const releases = invoices
+        .filter(i => selected.has(i.invoiceId))
+        .map(i => ({ invoiceId: i.invoiceId, amount: i.netRetention }));
+
+      const res = await fetch('/api/payments/vendor-retention', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ releases, utrReference: utrReference.trim(), paymentDate, notes: notes.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to release');
+      setResult({ message: data.message, success: true });
+    } catch (e) {
+      setResult({ message: e instanceof Error ? e.message : 'Failed to release retention', success: false });
+    } finally {
+      setIsSubmitting(false);
+      setShowConfirm(false);
+    }
+  };
+
+  // Group invoices by project
+  const grouped = invoices.reduce((acc, inv) => {
+    const proj = inv.project || 'No Project';
+    if (!acc[proj]) acc[proj] = [];
+    acc[proj].push(inv);
+    return acc;
+  }, {} as Record<string, RetentionInvoice[]>);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto p-5"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Release Retention"
+      >
+        {/* ── Result screen ── */}
+        {result ? (
+          <div className="text-center py-6">
+            <div className={`inline-flex items-center justify-center w-14 h-14 rounded-full mb-4 ${result.success ? 'bg-emerald-50' : 'bg-red-50'}`}>
+              {result.success ? (
+                <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-7 h-7 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              )}
+            </div>
+            <h3 className={`text-lg font-bold mb-2 ${result.success ? 'text-emerald-800' : 'text-red-800'}`}>
+              {result.success ? 'Retention Released' : 'Release Failed'}
+            </h3>
+            <p className="text-sm text-gray-600 mb-6">{result.message}</p>
+            <button
+              onClick={() => { onClose(); if (result.success) onSuccess(); }}
+              className="px-6 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 min-h-[44px]"
+            >
+              Done
+            </button>
+          </div>
+        ) : showConfirm ? (
+          /* ── Confirmation step ── */
+          <div className="text-center py-4">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-50 mb-4">
+              <svg className="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Retention Release</h3>
+            <p className="text-sm text-gray-600 mb-1">
+              Releasing retention for <strong>{vendorName}</strong>
+            </p>
+            <p className="text-2xl font-bold text-amber-700 mb-2">
+              ₹{totalNet.toLocaleString('en-IN')}
+            </p>
+            <p className="text-xs text-gray-500 mb-1">
+              across {selected.size} invoice{selected.size !== 1 ? 's' : ''}
+            </p>
+            <p className="text-sm text-gray-500 mb-4">
+              UTR: <strong className="text-gray-700">{utrReference}</strong> · Date: {paymentDate}
+            </p>
+            <p className="text-xs text-amber-600 mb-5 font-medium">
+              ⚠ This action cannot be undone. Amount will be paid to vendor.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 min-h-[44px]"
+              >
+                Go Back
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 min-h-[44px]"
+              >
+                {isSubmitting ? 'Processing…' : 'Yes, Release'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ── Main form ── */
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                Release Retention
+              </h3>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
+            </div>
+
+            {/* Vendor info */}
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-100 mb-4">
+              <p className="text-sm font-medium text-amber-900">
+                {vendorName}
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Releasing held retention back to vendor across selected invoices
+              </p>
+            </div>
+
+            {loading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400 py-8 justify-center">
+                <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-amber-500 rounded-full animate-spin" />
+                Loading retention details…
+              </div>
+            ) : invoices.length === 0 ? (
+              <div className="py-8 text-center text-sm text-gray-500">
+                No unreleased retention found for this vendor.
+              </div>
+            ) : (
+              <>
+                {/* Select all / none */}
+                <div className="flex items-center justify-between mb-2">
+                  <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selected.size === invoices.length}
+                      onChange={toggleAll}
+                      className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    Select all ({invoices.length} invoice{invoices.length !== 1 ? 's' : ''})
+                  </label>
+                  <span className="text-xs font-bold text-amber-700">
+                    Total: ₹{totalNet.toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                {/* Invoice list grouped by project */}
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 mb-4 max-h-[240px] overflow-y-auto">
+                  {Object.entries(grouped).map(([project, invs]) => (
+                    <div key={project}>
+                      <div className="px-3 py-1.5 bg-gray-50 text-[10px] font-semibold text-gray-500 uppercase tracking-wider sticky top-0">
+                        {project}
+                      </div>
+                      {invs.map(inv => (
+                        <label
+                          key={inv.invoiceId}
+                          className={`flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-amber-50/50 transition-colors ${selected.has(inv.invoiceId) ? 'bg-amber-50/30' : ''}`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(inv.invoiceId)}
+                              onChange={() => toggleInvoice(inv.invoiceId)}
+                              className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                            />
+                            <div>
+                              <span className="text-xs font-medium text-gray-800">#{inv.invoiceNumber}</span>
+                              <p className="text-[10px] text-gray-400">
+                                Invoice: ₹{inv.invoiceAmount.toLocaleString('en-IN')}
+                                {inv.retentionReleased > 0 && (
+                                  <> · Already released: ₹{inv.retentionReleased.toLocaleString('en-IN')}</>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-xs font-bold text-amber-700">
+                            ₹{inv.netRetention.toLocaleString('en-IN')}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+
+                {/* UTR & Date */}
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">UTR / Reference *</label>
+                    <input
+                      type="text"
+                      value={utrReference}
+                      onChange={(e) => setUtrReference(e.target.value)}
+                      placeholder="UTR number"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Payment Date *</label>
+                    <input
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div className="mb-4">
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Notes</label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Retention Release"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                  />
+                </div>
+
+                {formError && (
+                  <div className="mb-3 p-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+                    {formError}
+                  </div>
+                )}
+
+                <button
+                  onClick={validateAndConfirm}
+                  disabled={selected.size === 0}
+                  className="w-full px-4 py-2.5 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-h-[44px]"
+                >
+                  Release ₹{totalNet.toLocaleString('en-IN')} to {vendorName}
+                </button>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -955,7 +1284,7 @@ export default function AccountsDashboard() {
 
   // Modals
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null);
-  const [retentionReleaseAmount, setRetentionReleaseAmount] = useState<number>(0); // pre-fill for retention release
+  const [retentionReleaseVendor, setRetentionReleaseVendor] = useState<string | null>(null); // vendor-level retention release modal
   const [rejectInvoice, setRejectInvoice] = useState<Invoice | null>(null);
   const [historyInvoice, setHistoryInvoice] = useState<Invoice | null>(null);
   const [fileViewer, setFileViewer] = useState<{ title: string; url: string; fileName?: string } | null>(null);
@@ -1192,21 +1521,11 @@ export default function AccountsDashboard() {
 
   // Open payment modal (pre-fetch payment data)
   const openPaymentModal = useCallback(
-    async (inv: Invoice, prefillRetention?: number) => {
-      setRetentionReleaseAmount(prefillRetention || 0);
+    async (inv: Invoice) => {
       setPaymentInvoice(inv);
       await fetchPaymentSummary(inv.id);
     },
     [fetchPaymentSummary]
-  );
-
-  // Handle retention release — close history modal, open payment modal with retention pre-fill
-  const handleReleaseRetention = useCallback(
-    (inv: Invoice) => (retentionAmount: number) => {
-      setHistoryInvoice(null); // close history if open
-      openPaymentModal(inv, retentionAmount);
-    },
-    [openPaymentModal]
   );
 
   // Open history modal
@@ -1436,6 +1755,7 @@ export default function AccountsDashboard() {
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Paid to Vendor</th>
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Consumed</th>
                         <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Outstanding</th>
+                        <th className="text-center px-3 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -1462,6 +1782,22 @@ export default function AccountsDashboard() {
                               {formatCurrency(Math.max(0, v.outstanding))}
                             </span>
                           </td>
+                          <td className="px-3 py-2.5 text-center">
+                            {v.totalRetention > 0 ? (
+                              <button
+                                onClick={() => setRetentionReleaseVendor(v.vendorName)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold hover:bg-amber-100 transition-colors"
+                                title={`Release ₹${v.totalRetention.toLocaleString('en-IN')} retention`}
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                                Release
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-gray-300">—</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1475,6 +1811,7 @@ export default function AccountsDashboard() {
                         <td className="px-3 py-2.5 text-right text-violet-700">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalPaidToVendor, 0))}</td>
                         <td className="px-3 py-2.5 text-right text-gray-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalConsumed, 0))}</td>
                         <td className="px-3 py-2.5 text-right text-blue-700">{formatCurrency(vendorSummary.reduce((s, v) => s + Math.max(0, v.outstanding), 0))}</td>
+                        <td className="px-3 py-2.5"></td>
                       </tr>
                     </tfoot>
                   </table>
@@ -1973,7 +2310,7 @@ export default function AccountsDashboard() {
                           {/* Payment Lifecycle — tranche-correlated view */}
                           {(inv.status === 'approved' || inv.status === 'partially_paid' || inv.status === 'paid') && (
                             <div className="mb-4">
-                              <PaymentLifecycle invoiceId={inv.id} role="accounts" onReleaseRetention={handleReleaseRetention(inv)} />
+                              <PaymentLifecycle invoiceId={inv.id} role="accounts" />
                             </div>
                           )}
 
@@ -2055,10 +2392,9 @@ export default function AccountsDashboard() {
         <PaymentModal
           invoice={paymentInvoice}
           paymentSummary={paymentCache[paymentInvoice.id] || null}
-          onClose={() => { setPaymentInvoice(null); setRetentionReleaseAmount(0); }}
+          onClose={() => setPaymentInvoice(null)}
           onSubmit={handleRecordPayment}
           isSubmitting={isSubmitting}
-          prefillRetentionRelease={retentionReleaseAmount}
         />
       )}
       {rejectInvoice && (
@@ -2075,7 +2411,13 @@ export default function AccountsDashboard() {
           invoice={historyInvoice}
           payments={paymentCache[historyInvoice.id] || null}
           onClose={() => setHistoryInvoice(null)}
-          onReleaseRetention={handleReleaseRetention(historyInvoice)}
+        />
+      )}
+      {retentionReleaseVendor && (
+        <RetentionReleaseModal
+          vendorName={retentionReleaseVendor}
+          onClose={() => setRetentionReleaseVendor(null)}
+          onSuccess={() => { fetchVendorSummary(); fetchInvoices(); }}
         />
       )}
       {fileViewer && (
