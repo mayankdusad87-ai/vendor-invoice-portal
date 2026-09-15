@@ -243,6 +243,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, invoice });
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    }
     console.error('Submit invoice error:', error);
     return NextResponse.json({ error: 'Failed to submit invoice' }, { status: 500 });
   }
@@ -515,6 +518,9 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ success: true, approvedAmount });
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    }
     if (error instanceof ConflictError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
@@ -602,6 +608,9 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    }
     if (error instanceof ConflictError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }

@@ -404,6 +404,9 @@ export async function POST(request: NextRequest) {
       approvedAmount: freshApprovedAmount,
     });
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    }
     if (error instanceof ConflictError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }

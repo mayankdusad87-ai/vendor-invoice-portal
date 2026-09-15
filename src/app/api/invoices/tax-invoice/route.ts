@@ -94,6 +94,9 @@ export async function PATCH(request: NextRequest) {
       gstVariancePercent: gstVariance > 0 ? (gstVariance * 100).toFixed(1) : null,
     });
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    }
     console.error('Tax invoice upload error:', error);
     const message = error instanceof Error ? error.message : 'Failed to upload tax invoice';
     return NextResponse.json({ error: message }, { status: 500 });
