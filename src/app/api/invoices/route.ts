@@ -241,6 +241,14 @@ export async function POST(request: NextRequest) {
       documentStage: effectiveDocumentStage as 'proforma' | 'tax_invoice' | 'direct',
     });
 
+    await addApprovalHistory({
+      invoiceId: invoice.id,
+      amount: amount || '0',
+      cumulativeTotal: '0',
+      approvedBy: `Engineer: ${submittedBy}`,
+      comments: `[SUBMITTED] Invoice #${invoiceNumber} submitted for ₹${amount}${gstAmount ? ` + ₹${gstAmount} GST` : ''} | ${vendorName} | ${project}${effectiveDocumentStage ? ` | ${effectiveDocumentStage}` : ''}`,
+    });
+
     return NextResponse.json({ success: true, invoice });
   } catch (error) {
     if (error instanceof SyntaxError) {
