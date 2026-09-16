@@ -146,10 +146,16 @@ function formatCurrency(amount: string | number): string {
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return '—';
+  // Handle DD/MM/YYYY format stored in Google Sheets
+  const ddmmyyyy = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (ddmmyyyy) {
+    const d = new Date(+ddmmyyyy[3], +ddmmyyyy[2] - 1, +ddmmyyyy[1]);
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
   try {
-    return new Date(dateStr).toLocaleDateString('en-IN', {
-      day: 'numeric', month: 'short', year: 'numeric',
-    });
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   } catch {
     return dateStr;
   }
