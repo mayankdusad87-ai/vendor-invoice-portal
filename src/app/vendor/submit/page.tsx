@@ -110,22 +110,29 @@ function SubmitInvoice() {
     };
     fetchProjectData();
 
-    // If resubmitting, load existing invoice data
-    if (resubmitId && selectedVendor) {
-      loadInvoiceForResubmit(resubmitId, selectedVendor);
+    // If resubmitting, load existing invoice data (no vendor needed — fetch all)
+    if (resubmitId) {
+      loadInvoiceForResubmit(resubmitId);
     }
-  }, [authReady, resubmitId, selectedVendor]);
+  }, [authReady, resubmitId]);
 
-  const loadInvoiceForResubmit = async (invoiceId: string, vName: string) => {
+  const loadInvoiceForResubmit = async (invoiceId: string) => {
     try {
-      const res = await fetch(`/api/invoices?vendorName=${encodeURIComponent(vName)}`);
+      const res = await fetch('/api/invoices');
       const data = await res.json();
       const invoice = (data.invoices || []).find((inv: { id: string }) => inv.id === invoiceId);
 
       if (invoice && (invoice.status === 'rejected' || invoice.status === 'correction_required')) {
         setIsResubmit(true);
+        if (invoice.vendorName) setSelectedVendor(invoice.vendorName);
+        if (invoice.project) setSelectedProject(invoice.project);
+        // Convert DD/MM/YYYY from Sheets to YYYY-MM-DD for <input type="date">
+        let isoDate = invoice.invoiceDate || '';
+        const ddmmMatch = isoDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (ddmmMatch) isoDate = `${ddmmMatch[3]}-${ddmmMatch[2]}-${ddmmMatch[1]}`;
+
         setForm({
-          invoiceDate: invoice.invoiceDate,
+          invoiceDate: isoDate,
           invoiceNumber: invoice.invoiceNumber,
           invoiceType: invoice.invoiceType || '',
           documentType: invoice.documentStage === 'proforma' ? 'proforma' : invoice.documentStage === 'tax_invoice' ? 'tax_invoice' : '',
@@ -641,6 +648,7 @@ function SubmitInvoice() {
                     onChange={(e) => setSelectedProject(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[44px]"
                     required
+                    disabled={isResubmit}
                     aria-label="Select project"
                   >
                     <option value="">-- Select project --</option>
@@ -648,6 +656,9 @@ function SubmitInvoice() {
                       <option key={p.id} value={p.name}>{p.name}</option>
                     ))}
                   </select>
+                  {isResubmit && (
+                    <p className="text-xs mt-1 text-indigo-600">Project cannot be changed during resubmission</p>
+                  )}
                 </div>
               )}
 
