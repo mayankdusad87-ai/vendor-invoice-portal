@@ -2076,11 +2076,15 @@ export async function initializeSheetHeaders(): Promise<void> {
     'Accounts Query By', 'Accounts Query Reason', 'Accounts Query At', 'Previous Status',
     // COST CATEGORIZATION (AF–AH) — optional, for construction cost tracking
     'Cost Category', 'Cost Sub-Category', 'Cost Type',
+    // DOCUMENT STAGE (AI–AP) — proforma invoice workflow
+    'Document Stage', 'Tax Invoice File URL', 'Tax Invoice File Name',
+    'Tax Invoice Number', 'Tax Invoice Date', 'Tax Invoice Uploaded At',
+    'Tax Invoice Uploaded By', 'Original GST Amount',
   ];
 
   const invoiceHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A1:AH1',
+    range: 'Invoices!A1:AP1',
   });
 
   const currentHeaders = invoiceHeaders.data.values?.[0] || [];
@@ -2088,7 +2092,7 @@ export async function initializeSheetHeaders(): Promise<void> {
       currentHeaders.some((h, i) => h !== expectedInvoiceHeaders[i])) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Invoices!A1:AH1',
+      range: 'Invoices!A1:AP1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedInvoiceHeaders],

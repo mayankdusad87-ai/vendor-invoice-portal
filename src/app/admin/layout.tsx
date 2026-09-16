@@ -13,6 +13,7 @@ const BREADCRUMB_MAP: Record<string, string> = {
   '/admin/engineers': 'Engineers',
   '/admin/approvers': 'Approvers',
   '/admin/accounts-team': 'Accounts Team',
+  '/admin/setup': 'Setup',
   '/admin/projects': 'Projects',
   '/admin/cost-heads': 'Cost Heads',
   '/admin/rejection-reasons': 'Rejection Reasons',
