@@ -242,10 +242,10 @@ export default function AdminVendors() {
   return (
     <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="admin-page-header">
           <div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)]">Vendor Management</h2>
-            <p className="text-sm text-[var(--text-muted)]">{activeVendors.length} active vendors</p>
+            <h2>Vendor Management</h2>
+            <p>{activeVendors.length} active vendors</p>
           </div>
           <div className="flex gap-2">
             <button

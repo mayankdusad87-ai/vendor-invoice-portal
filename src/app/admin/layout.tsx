@@ -105,8 +105,8 @@ function AdminShell({
 
           <div className="admin-topbar-actions">
             <div
-              className="flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold text-white cursor-default"
-              style={{ background: 'linear-gradient(135deg, var(--primary), #1d4ed8)' }}
+              className="flex items-center justify-center w-7 h-7 rounded-lg text-[0.6875rem] font-semibold text-white cursor-default"
+              style={{ background: 'var(--primary)' }}
               title={username || 'Admin'}
             >
               {username ? username.charAt(0).toUpperCase() : 'A'}

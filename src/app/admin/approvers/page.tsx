@@ -139,17 +139,17 @@ export default function AdminApprovers() {
 
   return (
     <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
+        <div className="admin-page-header">
           <div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)]">Approver Management</h2>
-            <p className="text-sm text-[var(--text-muted)]">{activeApprovers.length} active approvers</p>
+            <h2>Approver Management</h2>
+            <p>{activeApprovers.length} active approvers</p>
           </div>
           {!showForm && (
             <button
               onClick={() => { setShowForm(true); setEditingApprover(null); setError(''); }}
               className="btn-primary flex items-center gap-2"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               Add Approver
@@ -250,11 +250,11 @@ export default function AdminApprovers() {
                       <span>Added: {new Date(approver.createdAt).toLocaleDateString('en-IN')}</span>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleEdit(approver)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--primary)' }}>
+                  <div className="flex gap-1">
+                    <button onClick={() => handleEdit(approver)} className="action-link action-link-primary">
                       Edit
                     </button>
-                    <button onClick={() => handleToggleStatus(approver)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--danger)' }}>
+                    <button onClick={() => handleToggleStatus(approver)} className="action-link action-link-danger">
                       Deactivate
                     </button>
                   </div>
@@ -272,7 +272,7 @@ export default function AdminApprovers() {
                         <span className="font-bold text-[var(--text-primary)]">{approver.name}</span>
                         <span className="badge badge-inactive">Inactive</span>
                       </div>
-                      <button onClick={() => handleToggleStatus(approver)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--success)' }}>
+                      <button onClick={() => handleToggleStatus(approver)} className="action-link action-link-success">
                         Reactivate
                       </button>
                     </div>

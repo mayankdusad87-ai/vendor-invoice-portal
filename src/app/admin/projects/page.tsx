@@ -133,19 +133,17 @@ export default function AdminProjects() {
 
   return (
     <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
+        <div className="admin-page-header">
           <div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)]">Projects</h2>
-            <p className="text-sm text-[var(--text-muted)]">
-              {activeProjects.length} active project(s) — assign engineers and accounts team to projects
-            </p>
+            <h2>Projects</h2>
+            <p>{activeProjects.length} active project(s) — assign to engineers and accounts team</p>
           </div>
           {!showForm && (
             <button
               onClick={() => { setShowForm(true); setEditingProject(null); setError(''); setFormName(''); }}
               className="btn-primary flex items-center gap-2"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               Add Project
@@ -219,10 +217,10 @@ export default function AdminProjects() {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => handleEdit(project)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--primary)' }}>
+                    <button onClick={() => handleEdit(project)} className="action-link action-link-primary">
                       Edit
                     </button>
-                    <button onClick={() => handleToggleStatus(project)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--danger)' }}>
+                    <button onClick={() => handleToggleStatus(project)} className="action-link action-link-danger">
                       Deactivate
                     </button>
                   </div>
@@ -240,7 +238,7 @@ export default function AdminProjects() {
                         <span className="font-bold text-[var(--text-primary)]">{project.name}</span>
                         <span className="badge badge-inactive">Inactive</span>
                       </div>
-                      <button onClick={() => handleToggleStatus(project)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--success)' }}>
+                      <button onClick={() => handleToggleStatus(project)} className="action-link action-link-success">
                         Reactivate
                       </button>
                     </div>

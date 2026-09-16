@@ -173,13 +173,13 @@ export default function AdminInvoices() {
   return (
     <div>
       {/* Header row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+      <div className="admin-page-header">
         <div>
-          <h2 className="text-lg font-bold text-[var(--text-primary)]">Invoices</h2>
-          <p className="text-xs text-[var(--text-muted)]">{invoices.length} total invoices</p>
+          <h2>Invoices</h2>
+          <p>{invoices.length} total invoices</p>
         </div>
-        <div className="relative" style={{ maxWidth: '260px', width: '100%' }}>
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <div className="relative" style={{ maxWidth: '240px', width: '100%' }}>
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
           </svg>
           <input
@@ -187,7 +187,7 @@ export default function AdminInvoices() {
             placeholder="Search invoices..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="input-field text-sm pl-9"
+            className="input-field pl-8"
             aria-label="Search invoices"
           />
         </div>
@@ -218,15 +218,20 @@ export default function AdminInvoices() {
       {loading ? (
         <LoadingSkeleton variant="list" count={8} />
       ) : filtered.length === 0 ? (
-        <div className="card text-center py-12">
-          <p className="text-[var(--text-muted)]">
+        <div className="card admin-empty-state">
+          <div className="empty-icon">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v16.5c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Zm3.75 11.625a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+            </svg>
+          </div>
+          <p>
             {searchTerm ? 'No invoices match your search' : 'No invoices in this category'}
           </p>
         </div>
       ) : (
         <>
           {/* Table */}
-          <div className="card p-0 overflow-hidden">
+          <div className="admin-table-wrapper">
             <div className="overflow-x-auto">
               <table className="data-table">
                 <thead>
@@ -276,7 +281,7 @@ export default function AdminInvoices() {
                           onChange={(e) => handleStatusChange(invoice, e.target.value as InvoiceStatus)}
                           disabled={updatingId === invoice.id}
                           className="input-field text-xs py-1 px-2"
-                          style={{ minWidth: '110px', minHeight: '32px' }}
+                          style={{ minWidth: '110px', minHeight: '28px' }}
                           aria-label={`Update status for ${invoice.invoiceNumber}`}
                         >
                           {Object.entries(INVOICE_STATUSES).map(([key, val]) => (
@@ -289,43 +294,47 @@ export default function AdminInvoices() {
                 </tbody>
               </table>
             </div>
-          </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <button
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={page === 0}
-                className="btn-secondary text-xs disabled:opacity-40"
-              >
-                Previous
-              </button>
-              <span className="text-xs text-[var(--text-muted)]">
-                Page {page + 1} of {totalPages} ({filtered.length} invoices)
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                disabled={page >= totalPages - 1}
-                className="btn-secondary text-xs disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
-          )}
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="admin-pagination">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                  </svg>
+                  Previous
+                </button>
+                <span>
+                  Page {page + 1} of {totalPages} &middot; {filtered.length} invoices
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                >
+                  Next
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                  </svg>
+                </button>
+              </div>
+            )}
+          </div>
         </>
       )}
 
       {/* Confirmation Dialog */}
       {confirmDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.4)' }}
+          style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(4px)' }}
           onClick={() => setConfirmDialog(null)}
           role="dialog" aria-modal="true"
         >
-          <div className="card max-w-sm w-full text-center" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2">Change Status?</h3>
-            <p className="text-sm text-[var(--text-secondary)] mb-5">
+          <div className="card max-w-sm w-full text-center fade-in" style={{ boxShadow: 'var(--shadow-lg)' }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">Change Status?</h3>
+            <p className="text-[0.8125rem] text-[var(--text-secondary)] mb-5">
               Change <strong>{confirmDialog.invoiceNumber}</strong> from{' '}
               <strong>{confirmDialog.currentStatus}</strong> to{' '}
               <strong>{INVOICE_STATUSES[confirmDialog.newStatus]?.label || confirmDialog.newStatus}</strong>?
@@ -346,15 +355,15 @@ export default function AdminInvoices() {
       {/* Comments Dialog */}
       {commentsDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.4)' }}
+          style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(4px)' }}
           onClick={() => setCommentsDialog(null)}
           role="dialog" aria-modal="true"
         >
-          <div className="card max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2">
+          <div className="card max-w-md w-full fade-in" style={{ boxShadow: 'var(--shadow-lg)' }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">
               {commentsDialog.newStatus === 'approved' ? 'Approve' : 'Reject'} Invoice
             </h3>
-            <p className="text-sm text-[var(--text-secondary)] mb-4">
+            <p className="text-[0.8125rem] text-[var(--text-secondary)] mb-4">
               {commentsDialog.newStatus === 'approved'
                 ? `Add approval remarks for ${commentsDialog.invoiceNumber}:`
                 : `Add rejection reason for ${commentsDialog.invoiceNumber}:`}
@@ -362,7 +371,7 @@ export default function AdminInvoices() {
             <textarea
               value={commentsDialog.comments}
               onChange={(e) => setCommentsDialog({ ...commentsDialog, comments: e.target.value })}
-              className="input-field text-sm mb-4"
+              className="input-field mb-4"
               rows={3}
               placeholder={commentsDialog.newStatus === 'approved'
                 ? 'e.g., Verified and approved for payment...'

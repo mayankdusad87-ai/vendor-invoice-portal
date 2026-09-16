@@ -44,9 +44,11 @@ export default function AccessPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h2 className="text-lg font-bold text-[var(--text-primary)]">Access Management</h2>
-        <p className="text-xs text-[var(--text-muted)]">Manage engineers, approvers, and accounts team access</p>
+      <div className="admin-page-header">
+        <div>
+          <h2>Access Management</h2>
+          <p>Manage engineers, approvers, and accounts team access</p>
+        </div>
       </div>
 
       {/* Tab navigation */}

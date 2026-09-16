@@ -80,10 +80,10 @@ export default function RejectionReasonsPage() {
 
   return (
     <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="admin-page-header" style={{ marginBottom: '1.5rem' }}>
           <div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)]">Rejection Reasons</h2>
-            <p className="text-sm text-[var(--text-muted)] mt-0.5">Configure reasons shown to approvers when rejecting invoices</p>
+            <h2>Rejection Reasons</h2>
+            <p>Configure reasons shown to approvers when rejecting invoices</p>
           </div>
         </div>
 

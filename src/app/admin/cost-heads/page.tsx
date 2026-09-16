@@ -109,14 +109,12 @@ export default function CostHeadsPage() {
 
   return (
     <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="admin-page-header" style={{ marginBottom: '1.5rem' }}>
           <div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)]">Cost Heads</h2>
-            <p className="text-sm text-[var(--text-secondary)]">
-              Manage work categories for construction cost tracking
-            </p>
+            <h2>Cost Heads</h2>
+            <p>Manage work categories for construction cost tracking</p>
           </div>
-          <span className="text-sm text-[var(--text-secondary)]">
+          <span className="text-xs text-[var(--text-muted)]">
             {costHeads.filter((ch) => ch.isActive).length} active / {costHeads.length} total
           </span>
         </div>

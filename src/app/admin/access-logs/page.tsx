@@ -132,12 +132,14 @@ export default function AccessLogsPage() {
 
   return (
     <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-[var(--text-primary)]">Access Logs</h2>
-          <span className="text-sm text-[var(--text-muted)]">
-            {filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}
-            {filtered.length !== entries.length && ` of ${entries.length} total`}
-          </span>
+        <div className="admin-page-header">
+          <div>
+            <h2>Access Logs</h2>
+            <p>
+              {filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}
+              {filtered.length !== entries.length && ` of ${entries.length} total`}
+            </p>
+          </div>
         </div>
 
         {/* Filters */}

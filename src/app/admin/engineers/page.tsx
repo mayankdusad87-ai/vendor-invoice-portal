@@ -249,17 +249,17 @@ export default function AdminEngineers() {
 
   return (
     <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
+        <div className="admin-page-header">
           <div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)]">Billing Engineers</h2>
-            <p className="text-sm text-[var(--text-muted)]">{activeEngineers.length} active engineer(s)</p>
+            <h2>Billing Engineers</h2>
+            <p>{activeEngineers.length} active engineer(s)</p>
           </div>
           {!showForm && (
             <button
               onClick={() => { setShowForm(true); setEditingEngineer(null); setError(''); }}
               className="btn-primary flex items-center gap-2"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               Add Engineer
@@ -370,14 +370,14 @@ export default function AdminEngineers() {
                       <p className="text-xs text-[var(--text-muted)] mt-2 italic">No projects assigned (sees all invoices)</p>
                     )}
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <button onClick={() => openProjectAssignment(eng)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--info, #3b82f6)' }}>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <button onClick={() => openProjectAssignment(eng)} className="action-link action-link-primary">
                       Projects
                     </button>
-                    <button onClick={() => handleEdit(eng)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--primary)' }}>
+                    <button onClick={() => handleEdit(eng)} className="action-link action-link-primary">
                       Edit
                     </button>
-                    <button onClick={() => handleToggleStatus(eng)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--danger)' }}>
+                    <button onClick={() => handleToggleStatus(eng)} className="action-link action-link-danger">
                       Deactivate
                     </button>
                   </div>
@@ -451,7 +451,7 @@ export default function AdminEngineers() {
                         <span className="font-bold text-[var(--text-primary)]">{eng.name}</span>
                         <span className="badge badge-inactive">Inactive</span>
                       </div>
-                      <button onClick={() => handleToggleStatus(eng)} className="text-sm font-medium min-h-[44px] px-2" style={{ color: 'var(--success)' }}>
+                      <button onClick={() => handleToggleStatus(eng)} className="action-link action-link-success">
                         Reactivate
                       </button>
                     </div>
