@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
-import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus, addApprovalHistory, ConflictError, findPaymentByUtr, findPaymentByIdempotencyKey } from '@/lib/google-sheets';
+import { addPayment, getPaymentsByInvoiceId, getInvoiceById, updateInvoiceStatus, addApprovalHistory, addDeduction, ConflictError, findPaymentByUtr, findPaymentByIdempotencyKey } from '@/lib/google-sheets';
 import { sanitizeString, sanitizeDate, rateLimit, getRateLimitKey, rateLimitResponse } from '@/lib/security';
 
 /**
@@ -379,18 +379,38 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── STEP 3: LOG AUDIT TRAIL ──────────────────────────────────────
+    let approvalHistoryId = '';
     try {
-      await addApprovalHistory({
+      const auditEntry = await addApprovalHistory({
         invoiceId,
         amount: String(paymentAmount),
         cumulativeTotal: String(trueTotalPaid),
         approvedBy: `Accounts: ${paidBy}`,
         comments: `[PAYMENT] ₹${paymentAmount.toLocaleString('en-IN')} paid (UTR: ${utrReference})${tdsAmount > 0 ? ` [TDS: ₹${tdsAmount.toLocaleString('en-IN')}]` : ''}${retentionAmount > 0 ? ` [Retention: ₹${retentionAmount.toLocaleString('en-IN')}]` : ''}${newStatus === 'paid' ? ' — Invoice fully paid' : ''} (${invoice.status} → ${newStatus})`,
       });
+      approvalHistoryId = auditEntry.id;
     } catch (auditError) {
-      // Non-fatal: the payment and status are already updated.
-      // The audit entry will be missing but the financial data is correct.
       console.error('Failed to log payment audit trail:', auditError);
+    }
+
+    // ─── STEP 4: RECORD DEDUCTION (if TDS or retention was applied) ──
+    if ((tdsAmount > 0 || retentionAmount > 0) && approvalHistoryId) {
+      try {
+        const trancheNumber = String(paymentsAfterWrite.filter(p => p.paymentType !== 'retention_release').length);
+        await addDeduction({
+          invoiceId,
+          approvalHistoryId,
+          trancheNumber,
+          tdsAmount: tdsAmount > 0 ? String(tdsAmount) : '0',
+          retentionAmount: retentionAmount > 0 ? String(retentionAmount) : '0',
+          retentionStatus: retentionAmount > 0 ? 'held' : 'held',
+          releasedAt: '',
+          releasedBy: '',
+          updatedBy: paidBy,
+        });
+      } catch (deductionError) {
+        console.error('Failed to record deduction:', deductionError);
+      }
     }
 
     return NextResponse.json({
