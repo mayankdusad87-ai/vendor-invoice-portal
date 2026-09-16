@@ -24,6 +24,7 @@ export default function SubmitInvoicePage() {
 function SubmitInvoice() {
   const searchParams = useSearchParams();
   const resubmitId = searchParams.get('resubmit');
+  const amendId = searchParams.get('amend');
   const { engineerName: loggedInName, isReady: authReady, logout } = useEngineerAuth();
 
   // Vendors list for selection (billing engineer can submit for any vendor)
@@ -39,6 +40,7 @@ function SubmitInvoice() {
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState('');
   const [isResubmit, setIsResubmit] = useState(false);
+  const [isAmend, setIsAmend] = useState(false);
   const [rejectionInfo, setRejectionInfo] = useState<{ by: string; comments: string } | null>(null);
 
   const [form, setForm] = useState({
@@ -114,7 +116,11 @@ function SubmitInvoice() {
     if (resubmitId) {
       loadInvoiceForResubmit(resubmitId);
     }
-  }, [authReady, resubmitId]);
+    // If amending a submitted invoice, load its data
+    if (amendId) {
+      loadInvoiceForAmend(amendId);
+    }
+  }, [authReady, resubmitId, amendId]);
 
   const loadInvoiceForResubmit = async (invoiceId: string) => {
     try {
@@ -160,6 +166,46 @@ function SubmitInvoice() {
       }
     } catch {
       console.error('Failed to load invoice for resubmit');
+    }
+  };
+
+  const loadInvoiceForAmend = async (invoiceId: string) => {
+    try {
+      const res = await fetch('/api/invoices');
+      const data = await res.json();
+      const invoice = (data.invoices || []).find((inv: { id: string }) => inv.id === invoiceId);
+
+      if (invoice && invoice.status === 'submitted') {
+        setIsAmend(true);
+        if (invoice.vendorName) setSelectedVendor(invoice.vendorName);
+        if (invoice.project) setSelectedProject(invoice.project);
+        let isoDate = invoice.invoiceDate || '';
+        const ddmmMatch = isoDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (ddmmMatch) isoDate = `${ddmmMatch[3]}-${ddmmMatch[2]}-${ddmmMatch[1]}`;
+
+        setForm({
+          invoiceDate: isoDate,
+          invoiceNumber: invoice.invoiceNumber,
+          invoiceType: invoice.invoiceType || '',
+          documentType: invoice.documentStage === 'proforma' ? 'proforma' : invoice.documentStage === 'tax_invoice' ? 'tax_invoice' : '',
+          purpose: invoice.purpose,
+          amount: invoice.amount,
+          gstAmount: invoice.gstAmount || '',
+          remarks: invoice.remarks,
+          costCategory: invoice.costCategory || '',
+          costSubCategory: invoice.costSubCategory || '',
+          costType: invoice.costType || '',
+        });
+        setExistingFiles({
+          invoiceFileUrl: invoice.invoiceFileUrl || '',
+          invoiceFileName: invoice.invoiceFileName || '',
+          workPhotos: invoice.workPhotos || '',
+          measurementSheetUrl: invoice.measurementSheetUrl || '',
+          measurementSheetName: invoice.measurementSheetName || '',
+        });
+      }
+    } catch {
+      console.error('Failed to load invoice for amend');
     }
   };
 
@@ -341,7 +387,7 @@ function SubmitInvoice() {
     }
 
     // Work photos: require at least 1 (new or existing), max 5
-    const hasExistingPhotos = isResubmit && existingPhotoCount > 0;
+    const hasExistingPhotos = (isResubmit || isAmend) && existingPhotoCount > 0;
     if (workPhotos.length === 0 && !hasExistingPhotos) {
       showError('At least one work photo is required as evidence');
       return;
@@ -393,7 +439,42 @@ function SubmitInvoice() {
         }
       }
 
-      if (isResubmit && resubmitId) {
+      if (isAmend && amendId) {
+        // ── Amend flow — update submitted invoice via recall API ──
+        if (workPhotos.length > 0) {
+          setUploadProgress(`Uploading ${workPhotos.length} work photo(s)...`);
+          await uploadWorkPhotosToR2(amendId, workPhotos);
+        }
+
+        setUploadProgress('Saving changes...');
+        const res = await fetch('/api/invoices/recall', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invoiceId: amendId,
+            updates: {
+              invoiceDate: form.invoiceDate,
+              invoiceNumber: form.invoiceNumber,
+              purpose: form.purpose,
+              amount: form.amount,
+              gstAmount: form.gstAmount,
+              remarks: form.remarks,
+              invoiceFileUrl,
+              invoiceFileName,
+              measurementSheetUrl,
+              measurementSheetName,
+            },
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          showError(data.error || 'Failed to save amendments');
+          setLoading(false);
+          setUploadProgress('');
+          return;
+        }
+      } else if (isResubmit && resubmitId) {
         // ── Resubmit flow ──
         // 1. Upload new work photos to R2 (versioned — e.g. v2, v3)
         if (workPhotos.length > 0) {
@@ -547,10 +628,12 @@ function SubmitInvoice() {
               </svg>
             </div>
             <h2 className="text-xl font-bold text-gray-900 mb-2">
-              {isResubmit ? 'Invoice Resubmitted!' : 'Invoice Submitted!'}
+              {isAmend ? 'Invoice Updated!' : isResubmit ? 'Invoice Resubmitted!' : 'Invoice Submitted!'}
             </h2>
             <p className="text-gray-500 mb-6">
-              {isResubmit
+              {isAmend
+                ? 'Your invoice has been amended successfully. It remains in the approval queue.'
+                : isResubmit
                 ? 'Your corrected invoice has been resubmitted for approval.'
                 : 'Your invoice with evidence has been submitted for approval.'}
             </p>
@@ -566,19 +649,25 @@ function SubmitInvoice() {
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <div className="flex items-center gap-3 mb-1">
-              {isResubmit && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center bg-amber-50">
+              {(isResubmit || isAmend) && (
+                <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${isAmend ? 'bg-amber-50' : 'bg-amber-50'}`}>
                   <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    {isAmend ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    )}
                   </svg>
                 </div>
               )}
               <h2 className="text-xl font-bold text-gray-900">
-                {isResubmit ? 'Resubmit Invoice' : 'Submit Invoice'}
+                {isAmend ? 'Edit Invoice' : isResubmit ? 'Resubmit Invoice' : 'Submit Invoice'}
               </h2>
             </div>
             <p className="text-sm text-gray-500 mb-4">
-              {isResubmit
+              {isAmend
+                ? 'Make changes before the approver reviews this invoice'
+                : isResubmit
                 ? 'Update the details and resubmit for approval'
                 : 'Select vendor, fill in details, and upload evidence'}
             </p>
@@ -616,7 +705,7 @@ function SubmitInvoice() {
                   onChange={(e) => setSelectedVendor(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
                   required
-                  disabled={isResubmit}
+                  disabled={isResubmit || isAmend}
                   aria-label="Select vendor name"
                 >
                   <option value="">-- Select vendor --</option>
@@ -624,10 +713,10 @@ function SubmitInvoice() {
                     <option key={v.id} value={v.name}>{v.name}</option>
                   ))}
                 </select>
-                {isResubmit && (
-                  <p className="text-xs mt-1 text-blue-600">Vendor cannot be changed during resubmission</p>
+                {(isResubmit || isAmend) && (
+                  <p className="text-xs mt-1 text-blue-600">Vendor cannot be changed during {isAmend ? 'editing' : 'resubmission'}</p>
                 )}
-                {!isResubmit && vendors.length === 0 && (
+                {!isResubmit && !isAmend && vendors.length === 0 && (
                   <p className="text-xs mt-1 text-blue-600">No vendors registered yet. Ask admin to add vendors.</p>
                 )}
               </div>
@@ -648,7 +737,7 @@ function SubmitInvoice() {
                     onChange={(e) => setSelectedProject(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[44px]"
                     required
-                    disabled={isResubmit}
+                    disabled={isResubmit || isAmend}
                     aria-label="Select project"
                   >
                     <option value="">-- Select project --</option>
@@ -656,8 +745,8 @@ function SubmitInvoice() {
                       <option key={p.id} value={p.name}>{p.name}</option>
                     ))}
                   </select>
-                  {isResubmit && (
-                    <p className="text-xs mt-1 text-indigo-600">Project cannot be changed during resubmission</p>
+                  {(isResubmit || isAmend) && (
+                    <p className="text-xs mt-1 text-indigo-600">Project cannot be changed during {isAmend ? 'editing' : 'resubmission'}</p>
                   )}
                 </div>
               )}
@@ -849,7 +938,7 @@ function SubmitInvoice() {
                 </label>
 
                 {/* Show existing photos count during resubmit */}
-                {isResubmit && existingPhotoCount > 0 && (
+                {(isResubmit || isAmend) && existingPhotoCount > 0 && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 mb-2 flex items-center gap-2 text-green-700 text-xs">
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -934,7 +1023,7 @@ function SubmitInvoice() {
                     ))}
                   </div>
                 )}
-                {workPhotos.length === 0 && !isResubmit && (
+                {workPhotos.length === 0 && !isResubmit && !isAmend && (
                   <p className="text-xs text-gray-400">Take or upload photos of the completed work (max {MAX_PHOTOS}, 5 MB each)</p>
                 )}
                 {workPhotos.length > 0 && (
@@ -949,7 +1038,7 @@ function SubmitInvoice() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Measurement Sheet
                 </label>
-                {isResubmit && existingFiles.measurementSheetName && !measurementSheet && (
+                {(isResubmit || isAmend) && existingFiles.measurementSheetName && !measurementSheet && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-2 mb-1 flex items-center gap-2 text-green-700 text-xs">
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -986,7 +1075,7 @@ function SubmitInvoice() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Invoice Document
                 </label>
-                {isResubmit && existingFiles.invoiceFileName && !invoiceFile && (
+                {(isResubmit || isAmend) && existingFiles.invoiceFileName && !invoiceFile && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-2 mb-1 flex items-center gap-2 text-green-700 text-xs">
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1043,8 +1132,8 @@ function SubmitInvoice() {
                 disabled={loading || !selectedVendor}
               >
                 {loading
-                  ? (isResubmit ? 'Resubmitting...' : 'Submitting...')
-                  : (isResubmit ? 'Resubmit Invoice' : 'Submit Invoice')}
+                  ? (isAmend ? 'Saving...' : isResubmit ? 'Resubmitting...' : 'Submitting...')
+                  : (isAmend ? 'Save Changes' : isResubmit ? 'Resubmit Invoice' : 'Submit Invoice')}
               </button>
             </form>
           </div>

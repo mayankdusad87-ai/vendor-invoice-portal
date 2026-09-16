@@ -1073,6 +1073,90 @@ export async function resubmitInvoice(
   return true;
 }
 
+export async function amendInvoiceFields(
+  id: string,
+  updates: {
+    invoiceDate?: string;
+    invoiceNumber?: string;
+    purpose?: string;
+    amount?: string;
+    gstAmount?: string;
+    remarks?: string;
+    invoiceFileUrl?: string;
+    invoiceFileName?: string;
+    measurementSheetUrl?: string;
+    measurementSheetName?: string;
+  },
+  expectedUpdatedAt?: string,
+): Promise<boolean> {
+  const sheets = getSheets();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Invoices!A2:AE',
+  });
+
+  const rows = response.data.values || [];
+  const rowIndex = rows.findIndex((row) => row[0] === id);
+  if (rowIndex === -1) return false;
+
+  const currentRow = rows[rowIndex];
+  const now = getISTTimestamp().combined;
+
+  if (expectedUpdatedAt && currentRow[26] && currentRow[26] !== expectedUpdatedAt) {
+    throw new ConflictError();
+  }
+
+  const newAmount = updates.amount ?? currentRow[7];
+  const newGst = updates.gstAmount ?? currentRow[8] ?? '';
+  const baseAmt = parseFloat(newAmount) || 0;
+  const gstNum = parseFloat(newGst) || 0;
+  const totalAmount = (baseAmt + gstNum).toFixed(2);
+
+  // Only update billing fields (columns D–U) and AA (updatedAt). Status and approver columns untouched.
+  const updatedRow = [
+    id,                                                    // A
+    currentRow[1] ?? '',                                   // B: Project
+    currentRow[2],                                         // C: Vendor Name
+    updates.invoiceNumber ?? currentRow[3],                // D
+    updates.invoiceDate ? toIndianDateFormat(updates.invoiceDate) : currentRow[4], // E
+    currentRow[5] ?? '',                                   // F: Invoice Type
+    updates.purpose ?? currentRow[6],                      // G
+    newAmount,                                             // H
+    newGst,                                                // I
+    totalAmount,                                           // J
+    currentRow[10] ?? '',                                  // K: PO Number
+    updates.remarks ?? currentRow[11],                     // L
+    currentRow[12] ?? '',                                  // M: Submitted By
+    currentRow[13],                                        // N: Submitted At
+    updates.invoiceFileUrl ?? currentRow[14] ?? '',        // O
+    updates.invoiceFileName ?? currentRow[15] ?? '',       // P
+    currentRow[16] ?? '',                                  // Q: Work Photos
+    updates.measurementSheetUrl ?? currentRow[17] ?? '',   // R
+    updates.measurementSheetName ?? currentRow[18] ?? '',  // S
+    currentRow[19] ?? '',                                  // T: Challan URL
+    currentRow[20] ?? '',                                  // U: Challan Name
+    currentRow[21] ?? '',                                  // V: Status (UNCHANGED)
+    currentRow[22] ?? '',                                  // W: Approved By (UNCHANGED)
+    currentRow[23] ?? '',                                  // X: Approved Amount (UNCHANGED)
+    currentRow[24] ?? '',                                  // Y: Approval Comments (UNCHANGED)
+    currentRow[25] ?? '',                                  // Z: Approved Date (UNCHANGED)
+    now,                                                   // AA: Updated At
+    currentRow[27] ?? '',                                  // AB
+    currentRow[28] ?? '',                                  // AC
+    currentRow[29] ?? '',                                  // AD
+    currentRow[30] ?? '',                                  // AE
+  ];
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Invoices!A${rowIndex + 2}:AE${rowIndex + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [updatedRow] },
+  });
+
+  return true;
+}
+
 /**
  * Update only the workPhotos field (column Q) for an invoice.
  * Used by the photo upload API to store R2 proxy URLs after upload.

@@ -200,6 +200,13 @@ export default function ApproverDashboard() {
   const [increaseComment, setIncreaseComment] = useState('');
   const [increaseLoading, setIncreaseLoading] = useState(false);
 
+  // Edit approval modal (recall/amend)
+  const [editApprovalInvoice, setEditApprovalInvoice] = useState<Invoice | null>(null);
+  const [editApprovedAmount, setEditApprovedAmount] = useState('');
+  const [editApprovalComment, setEditApprovalComment] = useState('');
+  const [editApprovalLoading, setEditApprovalLoading] = useState(false);
+  const [editApprovalError, setEditApprovalError] = useState('');
+
   // Confirmation dialog
   const [confirmDialog, setConfirmDialog] = useState<{
     invoiceId: string;
@@ -376,6 +383,52 @@ export default function ApproverDashboard() {
       setIncreaseLoading(false);
     }
   }, [increaseAmountInvoice, newApprovedAmount, increaseComment]);
+
+  const handleEditApproval = useCallback(async () => {
+    if (!editApprovalInvoice) return;
+    setEditApprovalError('');
+
+    const amt = parseFloat(editApprovedAmount);
+    if (!editApprovedAmount || isNaN(amt) || amt <= 0) {
+      setEditApprovalError('Approved amount must be greater than ₹0');
+      return;
+    }
+    const baseAmt = parseFloat(editApprovalInvoice.amount) || 0;
+    const gst = parseFloat(editApprovalInvoice.gstAmount || '') || 0;
+    const total = baseAmt + gst;
+    if (amt > total) {
+      setEditApprovalError(`Amount cannot exceed total invoice amount (₹${total.toLocaleString('en-IN')})`);
+      return;
+    }
+
+    setEditApprovalLoading(true);
+    try {
+      const res = await fetch('/api/invoices/recall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceId: editApprovalInvoice.id,
+          updates: {
+            approvedAmount: editApprovedAmount,
+            approvalComments: editApprovalComment,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update approval');
+
+      setToast({ message: 'Approval details updated successfully', type: 'success' });
+      setEditApprovalInvoice(null);
+      // Refresh invoices
+      const refreshRes = await fetch('/api/approver/invoices');
+      const refreshData = await refreshRes.json();
+      if (refreshRes.ok) setInvoices(refreshData.invoices || []);
+    } catch (err) {
+      setEditApprovalError(err instanceof Error ? err.message : 'Failed to update');
+    } finally {
+      setEditApprovalLoading(false);
+    }
+  }, [editApprovalInvoice, editApprovedAmount, editApprovalComment]);
 
   const getComment = (id: string) => comments[id] || '';
   const getReason = (id: string) => selectedReasons[id] || '';
@@ -1226,6 +1279,26 @@ export default function ApproverDashboard() {
                           </div>
                         )}
 
+                        {/* Edit Approval button — only for approved invoices not yet in payment */}
+                        {invoice.status === 'approved' && !isPaymentPhase && (
+                          <div className="mb-4">
+                            <button
+                              onClick={() => {
+                                setEditApprovalInvoice(invoice);
+                                setEditApprovedAmount(invoice.approvedAmount || invoice.amount);
+                                setEditApprovalComment(invoice.approvalComments || '');
+                                setEditApprovalError('');
+                              }}
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium border border-amber-200 hover:bg-amber-100 transition-colors min-h-[44px]"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                              Edit Approval
+                            </button>
+                          </div>
+                        )}
+
                         {/* Payment Lifecycle — structured tranche + payment view */}
                         {isPaymentPhase && (
                           <div className="mb-4 space-y-3">
@@ -1723,6 +1796,96 @@ export default function ApproverDashboard() {
                 </>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Approval Modal ── */}
+      {editApprovalInvoice && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.4)' }}
+          onClick={() => setEditApprovalInvoice(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Edit Approval"
+        >
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Edit Approval</h3>
+              <button onClick={() => setEditApprovalInvoice(null)} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
+            </div>
+
+            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mb-4">
+              <p className="text-sm font-medium text-gray-900">
+                #{editApprovalInvoice.invoiceNumber} — {editApprovalInvoice.vendorName}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Invoice Total: ₹{((parseFloat(editApprovalInvoice.amount) || 0) + (parseFloat(editApprovalInvoice.gstAmount || '') || 0)).toLocaleString('en-IN')}
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  Approved Amount <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    value={editApprovedAmount}
+                    onChange={(e) => { setEditApprovedAmount(e.target.value); setEditApprovalError(''); }}
+                    className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 min-h-[44px]"
+                    aria-label="Approved amount"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Comments</label>
+                <textarea
+                  value={editApprovalComment}
+                  onChange={(e) => setEditApprovalComment(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                  rows={2}
+                  placeholder="Reason for amending the approval…"
+                />
+              </div>
+            </div>
+
+            {editApprovalError && (
+              <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-100 text-red-700 text-xs" role="alert">
+                <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+                {editApprovalError}
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setEditApprovalInvoice(null)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors min-h-[44px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditApproval}
+                disabled={editApprovalLoading || !editApprovedAmount}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+              >
+                {editApprovalLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Saving…
+                  </span>
+                ) : (
+                  'Save Changes'
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

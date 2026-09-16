@@ -1057,6 +1057,21 @@ function ExpandedInvoiceDetail({
         </div>
       )}
 
+      {/* Edit button for submitted invoices (recall/amend before approver acts) */}
+      {invoice.status === 'submitted' && (
+        <div className="pt-2">
+          <Link
+            href={`/vendor/submit?amend=${invoice.id}`}
+            className="inline-flex items-center gap-2 bg-amber-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-amber-700 transition-colors min-h-[44px]"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            Edit Invoice
+          </Link>
+        </div>
+      )}
+
       {/* Resubmit button for rejected / correction_required invoices */}
       {(invoice.status === 'rejected' || invoice.status === 'correction_required') && (
         <div className="pt-2">

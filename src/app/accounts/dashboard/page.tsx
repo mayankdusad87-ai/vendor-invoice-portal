@@ -1321,6 +1321,8 @@ export default function AccountsDashboard() {
   // Filters & search
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [vendorFilter, setVendorFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'amount' | 'vendor'>('date');
 
   // Vendor outstanding summary
@@ -1439,12 +1441,31 @@ export default function AccountsDashboard() {
     }
   }, [isReady, fetchInvoices, fetchBulkSummaries, fetchRejectionReasons]);
 
+  // Unique vendor and project lists for filter dropdowns
+  const uniqueVendors = useMemo(() => {
+    const names = [...new Set(invoices.map((inv) => inv.vendorName))].sort();
+    return names;
+  }, [invoices]);
+
+  const uniqueProjects = useMemo(() => {
+    const names = [...new Set(invoices.map((inv) => inv.project).filter(Boolean))].sort() as string[];
+    return names;
+  }, [invoices]);
+
   // Filter & sort
   const filteredInvoices = useMemo(() => {
     let filtered = invoices;
 
     if (activeTab !== 'all') {
       filtered = filtered.filter((inv) => inv.status === activeTab);
+    }
+
+    if (vendorFilter) {
+      filtered = filtered.filter((inv) => inv.vendorName === vendorFilter);
+    }
+
+    if (projectFilter) {
+      filtered = filtered.filter((inv) => inv.project === projectFilter);
     }
 
     if (searchQuery) {
@@ -1471,7 +1492,7 @@ export default function AccountsDashboard() {
     }
 
     return sorted;
-  }, [invoices, activeTab, searchQuery, sortBy]);
+  }, [invoices, activeTab, vendorFilter, projectFilter, searchQuery, sortBy]);
 
   // Stats
   const stats = useMemo(() => {
@@ -1908,11 +1929,46 @@ export default function AccountsDashboard() {
           )}
         </div>
 
-        {/* ── List header: count + sort ── */}
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm text-gray-500">
+        {/* ── Filters: vendor, project, sort ── */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <select
+            value={vendorFilter}
+            onChange={(e) => setVendorFilter(e.target.value)}
+            className="text-sm text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-h-[36px]"
+            aria-label="Filter by vendor"
+          >
+            <option value="">All Vendors</option>
+            {uniqueVendors.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+          {uniqueProjects.length > 1 && (
+            <select
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+              className="text-sm text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-h-[36px]"
+              aria-label="Filter by project"
+            >
+              <option value="">All Projects</option>
+              {uniqueProjects.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          )}
+          {(vendorFilter || projectFilter) && (
+            <button
+              onClick={() => { setVendorFilter(''); setProjectFilter(''); }}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1.5 rounded-lg hover:bg-blue-50 transition-colors min-h-[36px]"
+            >
+              Clear filters
+            </button>
+          )}
+          <div className="flex-1" />
+          <p className="text-sm text-gray-500 hidden sm:block">
             Showing <strong className="text-gray-700">{filteredInvoices.length}</strong> invoice{filteredInvoices.length !== 1 ? 's' : ''}
             {activeTab !== 'all' && ` · ${activeTab.replace('_', ' ')}`}
+            {vendorFilter && ` · ${vendorFilter}`}
+            {projectFilter && ` · ${projectFilter}`}
           </p>
           <select
             value={sortBy}
@@ -1987,7 +2043,7 @@ export default function AccountsDashboard() {
                       const remaining = bulk?.remaining ?? invoiceAmt;
                       const invoiceIsImage = isImageUrl(inv.invoiceFileUrl, inv.invoiceFileName);
                       const invoicePreview = !invoiceIsImage ? getPreviewUrl(inv.invoiceFileUrl) : null;
-                      const hasAttachments = !!(inv.invoiceFileUrl || inv.workPhotos || inv.measurementSheetUrl || inv.challanUrl);
+                      const hasAttachments = !!(inv.invoiceFileUrl || inv.taxInvoiceFileUrl || inv.workPhotos || inv.measurementSheetUrl || inv.challanUrl);
                       const cachedPayment = paymentCache[inv.id];
 
                       return (
@@ -2281,6 +2337,42 @@ export default function AccountsDashboard() {
                                     </div>
                                   )}
 
+                                  {/* Tax Invoice document (for proforma → tax invoice flow) */}
+                                  {inv.taxInvoiceFileUrl && (
+                                    <div className="mb-4 rounded-lg p-4 bg-emerald-50/50 border border-emerald-100">
+                                      <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                        <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                        </svg>
+                                        Tax Invoice — {inv.taxInvoiceFileName || 'Uploaded file'}
+                                        {inv.taxInvoiceNumber && <span className="text-xs text-emerald-600 font-normal ml-1">(#{inv.taxInvoiceNumber})</span>}
+                                      </p>
+                                      {isImageUrl(inv.taxInvoiceFileUrl, inv.taxInvoiceFileName) ? (
+                                        <img src={inv.taxInvoiceFileUrl} alt="Tax Invoice"
+                                          className="w-full max-h-[500px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity bg-white border border-gray-200"
+                                          onClick={() => setFileViewer({ title: 'Tax Invoice', url: inv.taxInvoiceFileUrl!, fileName: inv.taxInvoiceFileName })} />
+                                      ) : getPreviewUrl(inv.taxInvoiceFileUrl) ? (
+                                        <iframe src={getPreviewUrl(inv.taxInvoiceFileUrl)!} className="w-full rounded-lg border border-gray-200"
+                                          style={{ height: '500px' }} title="Tax Invoice preview" allow="autoplay" />
+                                      ) : (
+                                        <a href={inv.taxInvoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors min-h-[44px]">
+                                          Open Tax Invoice in New Tab
+                                        </a>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* No document warning */}
+                                  {!inv.invoiceFileUrl && !inv.taxInvoiceFileUrl && (
+                                    <div className="mb-4 rounded-lg p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm flex items-center gap-2">
+                                      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                      </svg>
+                                      No invoice document attached
+                                    </div>
+                                  )}
+
                                   {/* File links */}
                                   <div className="flex flex-wrap gap-2 mb-4">
                                     {inv.measurementSheetUrl && (
@@ -2492,6 +2584,41 @@ export default function AccountsDashboard() {
                                   Open Invoice
                                 </a>
                               )}
+                            </div>
+                          )}
+
+                          {/* Tax Invoice document (proforma → tax invoice flow) */}
+                          {inv.taxInvoiceFileUrl && (
+                            <div className="mb-4 rounded-lg p-4 bg-emerald-50/50 border border-emerald-100">
+                              <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                </svg>
+                                Tax Invoice — {inv.taxInvoiceFileName || 'Uploaded file'}
+                                {inv.taxInvoiceNumber && <span className="text-xs text-emerald-600 font-normal ml-1">(#{inv.taxInvoiceNumber})</span>}
+                              </p>
+                              {isImageUrl(inv.taxInvoiceFileUrl, inv.taxInvoiceFileName) ? (
+                                <img src={inv.taxInvoiceFileUrl} alt="Tax Invoice"
+                                  className="w-full max-h-[400px] object-contain rounded-lg bg-white border border-gray-200" />
+                              ) : getPreviewUrl(inv.taxInvoiceFileUrl) ? (
+                                <iframe src={getPreviewUrl(inv.taxInvoiceFileUrl)!} className="w-full rounded-lg border border-gray-200"
+                                  style={{ height: '400px' }} title="Tax Invoice preview" allow="autoplay" />
+                              ) : (
+                                <a href={inv.taxInvoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors min-h-[44px]">
+                                  Open Tax Invoice
+                                </a>
+                              )}
+                            </div>
+                          )}
+
+                          {/* No document warning */}
+                          {!inv.invoiceFileUrl && !inv.taxInvoiceFileUrl && (
+                            <div className="mb-4 rounded-lg p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm flex items-center gap-2">
+                              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                              </svg>
+                              No invoice document attached
                             </div>
                           )}
 
