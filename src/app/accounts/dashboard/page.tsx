@@ -353,7 +353,9 @@ function PaymentModal({
               <button
                 onClick={() => {
                   setShowConfirm(false);
-                  const splitData = splitMode === 'split'
+                  const splitData = isProforma
+                    ? { basicAmount: amount, gstAmount: '0', paymentType: 'basic_only' }
+                    : splitMode === 'split'
                     ? { basicAmount, gstAmount: gstPayAmount, paymentType: (parseFloat(basicAmount) || 0) > 0 && (parseFloat(gstPayAmount) || 0) > 0 ? 'combined' : (parseFloat(basicAmount) || 0) > 0 ? 'basic_only' : 'gst_only' }
                     : {};
                   const deductionData = {
