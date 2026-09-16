@@ -175,35 +175,42 @@ function SubmitInvoice() {
       const data = await res.json();
       const invoice = (data.invoices || []).find((inv: { id: string }) => inv.id === invoiceId);
 
-      if (invoice && invoice.status === 'submitted') {
-        setIsAmend(true);
-        if (invoice.vendorName) setSelectedVendor(invoice.vendorName);
-        if (invoice.project) setSelectedProject(invoice.project);
-        let isoDate = invoice.invoiceDate || '';
-        const ddmmMatch = isoDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-        if (ddmmMatch) isoDate = `${ddmmMatch[3]}-${ddmmMatch[2]}-${ddmmMatch[1]}`;
-
-        setForm({
-          invoiceDate: isoDate,
-          invoiceNumber: invoice.invoiceNumber,
-          invoiceType: invoice.invoiceType || '',
-          documentType: invoice.documentStage === 'proforma' ? 'proforma' : invoice.documentStage === 'tax_invoice' ? 'tax_invoice' : '',
-          purpose: invoice.purpose,
-          amount: invoice.amount,
-          gstAmount: invoice.gstAmount || '',
-          remarks: invoice.remarks,
-          costCategory: invoice.costCategory || '',
-          costSubCategory: invoice.costSubCategory || '',
-          costType: invoice.costType || '',
-        });
-        setExistingFiles({
-          invoiceFileUrl: invoice.invoiceFileUrl || '',
-          invoiceFileName: invoice.invoiceFileName || '',
-          workPhotos: invoice.workPhotos || '',
-          measurementSheetUrl: invoice.measurementSheetUrl || '',
-          measurementSheetName: invoice.measurementSheetName || '',
-        });
+      if (!invoice) {
+        showError('Invoice not found. It may have been deleted.');
+        return;
       }
+      if (invoice.status !== 'submitted') {
+        showError(`This invoice can no longer be edited — its status is now "${invoice.status}".`);
+        return;
+      }
+
+      setIsAmend(true);
+      if (invoice.vendorName) setSelectedVendor(invoice.vendorName);
+      if (invoice.project) setSelectedProject(invoice.project);
+      let isoDate = invoice.invoiceDate || '';
+      const ddmmMatch = isoDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (ddmmMatch) isoDate = `${ddmmMatch[3]}-${ddmmMatch[2]}-${ddmmMatch[1]}`;
+
+      setForm({
+        invoiceDate: isoDate,
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceType: invoice.invoiceType || '',
+        documentType: invoice.documentStage === 'proforma' ? 'proforma' : invoice.documentStage === 'tax_invoice' ? 'tax_invoice' : '',
+        purpose: invoice.purpose,
+        amount: invoice.amount,
+        gstAmount: invoice.gstAmount || '',
+        remarks: invoice.remarks,
+        costCategory: invoice.costCategory || '',
+        costSubCategory: invoice.costSubCategory || '',
+        costType: invoice.costType || '',
+      });
+      setExistingFiles({
+        invoiceFileUrl: invoice.invoiceFileUrl || '',
+        invoiceFileName: invoice.invoiceFileName || '',
+        workPhotos: invoice.workPhotos || '',
+        measurementSheetUrl: invoice.measurementSheetUrl || '',
+        measurementSheetName: invoice.measurementSheetName || '',
+      });
     } catch {
       console.error('Failed to load invoice for amend');
     }

@@ -46,12 +46,17 @@ export async function POST(request: NextRequest) {
       }
 
       const engineerSession = session as EngineerToken;
+      const engineerName = engineerSession.engineerName;
+
+      // Ownership check — only the submitter can amend their own invoice
+      if (invoice.submittedBy !== engineerName) {
+        return NextResponse.json({ error: 'You can only edit invoices you submitted' }, { status: 403 });
+      }
+
       // Project access check
       if (engineerSession.projects.length > 0 && invoice.project && !engineerSession.projects.includes(invoice.project)) {
         return NextResponse.json({ error: 'You do not have access to this project' }, { status: 403 });
       }
-
-      const engineerName = engineerSession.engineerName;
 
       // If updates provided, amend in-place
       const updates = body.updates;
@@ -64,7 +69,7 @@ export async function POST(request: NextRequest) {
         if (updates.invoiceDate && updates.invoiceDate !== invoice.invoiceDate) changes.push(`Date updated`);
         if (updates.remarks !== undefined && updates.remarks !== invoice.remarks) changes.push(`Remarks updated`);
 
-        const success = await amendInvoiceFields(invoiceId, {
+        const sanitizedUpdates = {
           invoiceDate: sanitizeDate(updates.invoiceDate) || undefined,
           invoiceNumber: sanitizeString(updates.invoiceNumber, 50) || undefined,
           purpose: sanitizeString(updates.purpose, 500) || undefined,
@@ -75,7 +80,18 @@ export async function POST(request: NextRequest) {
           invoiceFileName: updates.invoiceFileName ? sanitizeString(updates.invoiceFileName, 200) : undefined,
           measurementSheetUrl: updates.measurementSheetUrl ? sanitizeString(updates.measurementSheetUrl, 2000) : undefined,
           measurementSheetName: updates.measurementSheetName ? sanitizeString(updates.measurementSheetName, 200) : undefined,
-        }, invoice.updatedAt);
+        };
+
+        // Check if file URLs changed (not tracked in the text-based changes list)
+        const fileChanged = (sanitizedUpdates.invoiceFileUrl && sanitizedUpdates.invoiceFileUrl !== (invoice.invoiceFileUrl || ''))
+          || (sanitizedUpdates.measurementSheetUrl && sanitizedUpdates.measurementSheetUrl !== (invoice.measurementSheetUrl || ''));
+        if (fileChanged) changes.push('Attachments updated');
+
+        if (changes.length === 0) {
+          return NextResponse.json({ success: true, amended: false, message: 'No changes detected' });
+        }
+
+        const success = await amendInvoiceFields(invoiceId, sanitizedUpdates, invoice.updatedAt);
 
         if (!success) {
           return NextResponse.json({ error: 'Failed to update invoice' }, { status: 500 });
@@ -86,7 +102,7 @@ export async function POST(request: NextRequest) {
           amount: '0',
           cumulativeTotal: invoice.approvedAmount || '0',
           approvedBy: `Engineer: ${engineerName}`,
-          comments: `[AMENDED] ${changes.length > 0 ? changes.join(', ') : 'Fields updated'} (while status: submitted)`,
+          comments: `[AMENDED] ${changes.join(', ')} (while status: submitted)`,
         });
 
         return NextResponse.json({ success: true, amended: true });
@@ -130,6 +146,10 @@ export async function POST(request: NextRequest) {
         const newApprovedAmount = sanitizeAmount(updates.approvedAmount) || invoice.approvedAmount || invoice.amount;
         const newComments = sanitizeString(updates.approvalComments, 500) || invoice.approvalComments || '';
 
+        if (changes.length === 0) {
+          return NextResponse.json({ success: true, amended: false, message: 'No changes detected' });
+        }
+
         const success = await updateInvoiceStatus(
           invoiceId,
           'approved',
@@ -148,7 +168,7 @@ export async function POST(request: NextRequest) {
           amount: newApprovedAmount,
           cumulativeTotal: newApprovedAmount,
           approvedBy: approverName,
-          comments: `[AMENDED] ${changes.length > 0 ? changes.join(', ') : 'Approval details updated'} (while status: approved)`,
+          comments: `[AMENDED] ${changes.join(', ')} (while status: approved)`,
         });
 
         return NextResponse.json({ success: true, amended: true });
