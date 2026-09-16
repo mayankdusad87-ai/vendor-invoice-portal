@@ -215,7 +215,7 @@ function PaymentModal({
   const invoiceGST = paymentSummary?.invoiceGSTAmount ?? (parseFloat(invoice.gstAmount || '') || 0);
   const hasGST = invoiceGST > 0;
   const isProforma = invoice.documentStage === 'proforma';
-  const [splitMode, setSplitMode] = useState<'combined' | 'split'>(hasGST ? 'split' : 'combined');
+  const [splitMode, setSplitMode] = useState<'combined' | 'split'>(hasGST && !isProforma ? 'split' : 'combined');
   const [basicAmount, setBasicAmount] = useState('');
   const [gstPayAmount, setGstPayAmount] = useState('');
 
