@@ -326,11 +326,15 @@ function PaymentModal({
                 <span className="text-gray-500">Gross: ₹{grossAmount.toLocaleString('en-IN')}</span>
               </div>
             )}
-            {splitMode === 'split' && (parseFloat(basicAmount) || 0) + (parseFloat(gstPayAmount) || 0) > 0 && (
+            {isProforma ? (
+              <p className="text-xs text-gray-500 mb-1">
+                Basic: ₹{parseFloat(amount).toLocaleString('en-IN')} · GST: Locked (Proforma)
+              </p>
+            ) : splitMode === 'split' && (parseFloat(basicAmount) || 0) + (parseFloat(gstPayAmount) || 0) > 0 ? (
               <p className="text-xs text-gray-500 mb-1">
                 Basic: ₹{(parseFloat(basicAmount) || 0).toLocaleString('en-IN')} · GST: ₹{(parseFloat(gstPayAmount) || 0).toLocaleString('en-IN')}
               </p>
-            )}
+            ) : null}
             <p className="text-sm text-gray-500 mb-1">
               for invoice <strong className="text-gray-900">#{invoice.invoiceNumber}</strong>
             </p>
@@ -569,8 +573,8 @@ function PaymentModal({
                 </div>
               )}
 
-              {/* GST / Basic Split (only shown when invoice has GST) */}
-              {hasGST && (
+              {/* GST / Basic Split (only shown when invoice has GST and is NOT proforma) */}
+              {hasGST && !isProforma && (
                 <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-gray-600">Payment Split</span>
