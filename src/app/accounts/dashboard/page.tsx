@@ -747,6 +747,391 @@ function PaymentModal({
 }
 
 /* =====================================================================
+   BATCH PAYMENT MODAL
+   ===================================================================== */
+
+interface BatchInvoiceRow {
+  invoiceId: string;
+  invoiceNumber: string;
+  vendorName: string;
+  invoiceTotal: number;
+  approvedAmount: number;
+  remaining: number;
+  amount: string;
+  tdsAmount: string;
+  retentionAmount: string;
+  isProforma: boolean;
+}
+
+function BatchPaymentModal({
+  invoices,
+  bulkSummaries,
+  onClose,
+  onSubmit,
+  isProcessing,
+}: {
+  invoices: Invoice[];
+  bulkSummaries: Record<string, BulkSummary>;
+  onClose: () => void;
+  onSubmit: (data: {
+    utrReference: string;
+    paymentDate: string;
+    notes: string;
+    invoices: Array<{
+      invoiceId: string;
+      amount: number;
+      tdsAmount: number;
+      retentionAmount: number;
+      basicAmount?: string;
+      gstAmount?: string;
+      paymentType?: string;
+    }>;
+  }) => void;
+  isProcessing: boolean;
+}) {
+  const [utrReference, setUtrReference] = useState('');
+  const [paymentDate, setPaymentDate] = useState(() => {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(ist.getDate()).padStart(2, '0')}`;
+  });
+  const [notes, setNotes] = useState('');
+  const [formError, setFormError] = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const [rows, setRows] = useState<BatchInvoiceRow[]>(() =>
+    invoices.map(inv => {
+      const baseAmt = parseFloat(inv.amount) || 0;
+      const gstAmt = parseFloat(inv.gstAmount || '') || 0;
+      const invTotal = baseAmt + gstAmt;
+      const approved = inv.approvedAmount ? parseFloat(inv.approvedAmount) || invTotal : invTotal;
+      const bulk = bulkSummaries[inv.id];
+      const rem = bulk?.availableToPay ?? (approved - (bulk?.totalConsumed ?? 0));
+      return {
+        invoiceId: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        vendorName: inv.vendorName,
+        invoiceTotal: invTotal,
+        approvedAmount: approved,
+        remaining: Math.max(0, rem),
+        amount: Math.max(0, rem).toFixed(2).replace(/\.00$/, ''),
+        tdsAmount: '',
+        retentionAmount: '',
+        isProforma: inv.documentStage === 'proforma',
+      };
+    })
+  );
+
+  const updateRow = (idx: number, field: keyof BatchInvoiceRow, value: string) => {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+  };
+
+  const grandTotal = rows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+  const grandTDS = rows.reduce((sum, r) => sum + (parseFloat(r.tdsAmount) || 0), 0);
+  const grandRetention = rows.reduce((sum, r) => sum + (parseFloat(r.retentionAmount) || 0), 0);
+  const grandGross = grandTotal + grandTDS + grandRetention;
+
+  const vendorName = invoices[0]?.vendorName || '';
+  const allSameVendor = invoices.every(i => i.vendorName === vendorName);
+
+  const validateAndConfirm = () => {
+    setFormError('');
+
+    if (!utrReference.trim() || utrReference.trim().length < 3) {
+      setFormError('UTR / Reference number must be at least 3 characters');
+      return;
+    }
+    if (!paymentDate) {
+      setFormError('Payment date is required');
+      return;
+    }
+    const dateObj = new Date(paymentDate);
+    const maxDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    if (dateObj > maxDate) {
+      setFormError('Payment date cannot be more than 30 days in the future');
+      return;
+    }
+    if (!allSameVendor) {
+      setFormError('All invoices must be for the same vendor');
+      return;
+    }
+    for (const row of rows) {
+      const amt = parseFloat(row.amount) || 0;
+      const tds = parseFloat(row.tdsAmount) || 0;
+      const ret = parseFloat(row.retentionAmount) || 0;
+      if (amt <= 0) {
+        setFormError(`Invoice ${row.invoiceNumber}: amount must be greater than 0`);
+        return;
+      }
+      const gross = amt + tds + ret;
+      if (gross > row.remaining + 0.01) {
+        setFormError(`Invoice ${row.invoiceNumber}: gross ₹${gross.toLocaleString('en-IN')} exceeds remaining ₹${row.remaining.toLocaleString('en-IN')}`);
+        return;
+      }
+    }
+    setShowConfirm(true);
+  };
+
+  const doSubmit = () => {
+    onSubmit({
+      utrReference: utrReference.trim(),
+      paymentDate,
+      notes: notes.trim(),
+      invoices: rows.map(r => {
+        const amt = parseFloat(r.amount) || 0;
+        const tds = parseFloat(r.tdsAmount) || 0;
+        const ret = parseFloat(r.retentionAmount) || 0;
+        return {
+          invoiceId: r.invoiceId,
+          amount: amt,
+          tdsAmount: tds,
+          retentionAmount: ret,
+          ...(r.isProforma ? { basicAmount: String(amt), gstAmount: '0', paymentType: 'basic_only' } : {}),
+        };
+      }),
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Batch Payment"
+      >
+        {showConfirm ? (
+          <div className="p-6 text-center">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-50 mb-4">
+              <svg className="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Batch Payment</h3>
+            <p className="text-sm text-gray-600 mb-1">
+              You are about to record payment for <strong>{rows.length} invoice{rows.length !== 1 ? 's' : ''}</strong>
+            </p>
+            <p className="text-2xl font-bold text-emerald-700 mb-1">
+              ₹{grandTotal.toLocaleString('en-IN')}
+            </p>
+            <p className="text-xs text-gray-500 mb-1">Net amount to vendor: {vendorName}</p>
+            {(grandTDS > 0 || grandRetention > 0) && (
+              <div className="inline-flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 my-1.5 text-xs">
+                {grandTDS > 0 && <span className="text-red-600 font-medium">TDS: ₹{grandTDS.toLocaleString('en-IN')}</span>}
+                {grandRetention > 0 && <span className="text-amber-600 font-medium">Retention: ₹{grandRetention.toLocaleString('en-IN')}</span>}
+                <span className="text-gray-500">Gross: ₹{grandGross.toLocaleString('en-IN')}</span>
+              </div>
+            )}
+            <p className="text-sm text-gray-500 mb-4">
+              UTR: <strong className="text-gray-700">{utrReference}</strong> · Date: {paymentDate}
+            </p>
+
+            <div className="text-left mb-4 max-h-40 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-500 border-b">
+                    <th className="text-left py-1 px-2">Invoice</th>
+                    <th className="text-right py-1 px-2">Amount</th>
+                    <th className="text-right py-1 px-2">TDS</th>
+                    <th className="text-right py-1 px-2">Retention</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.invoiceId} className="border-b border-gray-50">
+                      <td className="py-1 px-2 font-medium text-gray-700">{r.invoiceNumber}</td>
+                      <td className="py-1 px-2 text-right text-emerald-700">{formatCurrency(r.amount)}</td>
+                      <td className="py-1 px-2 text-right text-red-600">{parseFloat(r.tdsAmount) ? formatCurrency(r.tdsAmount) : '—'}</td>
+                      <td className="py-1 px-2 text-right text-amber-600">{parseFloat(r.retentionAmount) ? formatCurrency(r.retentionAmount) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="text-xs text-amber-600 mb-5 font-medium">
+              This action cannot be undone. Please verify before confirming.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[44px]"
+              >
+                Go Back
+              </button>
+              <button
+                onClick={doSubmit}
+                disabled={isProcessing}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 min-h-[44px]"
+              >
+                {isProcessing ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Processing…
+                  </span>
+                ) : (
+                  `Yes, Pay ${rows.length} Invoice${rows.length !== 1 ? 's' : ''}`
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Batch Payment</h3>
+                <p className="text-xs text-gray-500">{rows.length} invoice{rows.length !== 1 ? 's' : ''} · {vendorName}</p>
+              </div>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">×</button>
+            </div>
+
+            {formError && (
+              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2">
+                <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                {formError}
+              </div>
+            )}
+
+            {/* Shared fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">UTR / Reference *</label>
+                <input
+                  type="text"
+                  value={utrReference}
+                  onChange={(e) => setUtrReference(e.target.value)}
+                  placeholder="e.g. UTR1234567890"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Payment Date *</label>
+                <input
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px]"
+                />
+              </div>
+            </div>
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Payment notes..."
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px]"
+              />
+            </div>
+
+            {/* Per-invoice amounts table */}
+            <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-3 py-2 text-gray-500 font-semibold">Invoice</th>
+                      <th className="text-right px-3 py-2 text-gray-500 font-semibold">Remaining</th>
+                      <th className="text-right px-3 py-2 text-gray-500 font-semibold w-28">Amount *</th>
+                      <th className="text-right px-3 py-2 text-gray-500 font-semibold w-24">TDS</th>
+                      <th className="text-right px-3 py-2 text-gray-500 font-semibold w-24">Retention</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {rows.map((row, idx) => (
+                      <tr key={row.invoiceId} className="hover:bg-gray-50/50">
+                        <td className="px-3 py-2">
+                          <span className="font-medium text-gray-800">{row.invoiceNumber}</span>
+                          {row.isProforma && (
+                            <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-amber-100 text-amber-700">P</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right text-gray-600 whitespace-nowrap">
+                          {formatCurrency(row.remaining)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            value={row.amount}
+                            onChange={(e) => updateRow(idx, 'amount', e.target.value)}
+                            className="w-full text-right px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[32px]"
+                            min="0"
+                            step="0.01"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            value={row.tdsAmount}
+                            onChange={(e) => updateRow(idx, 'tdsAmount', e.target.value)}
+                            placeholder="0"
+                            className="w-full text-right px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[32px]"
+                            min="0"
+                            step="0.01"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            value={row.retentionAmount}
+                            onChange={(e) => updateRow(idx, 'retentionAmount', e.target.value)}
+                            placeholder="0"
+                            className="w-full text-right px-2 py-1.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[32px]"
+                            min="0"
+                            step="0.01"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 border-t border-gray-200 font-semibold text-xs">
+                      <td className="px-3 py-2 text-gray-700" colSpan={2}>Grand Total</td>
+                      <td className="px-3 py-2 text-right text-emerald-700">{formatCurrency(grandTotal)}</td>
+                      <td className="px-3 py-2 text-right text-red-600">{grandTDS > 0 ? formatCurrency(grandTDS) : '—'}</td>
+                      <td className="px-3 py-2 text-right text-amber-600">{grandRetention > 0 ? formatCurrency(grandRetention) : '—'}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Submit */}
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-500">
+                Total: <strong className="text-emerald-700">{formatCurrency(grandTotal)}</strong>
+                {grandGross > grandTotal && (
+                  <> · Gross: <strong className="text-gray-700">{formatCurrency(grandGross)}</strong></>
+                )}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[40px]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={validateAndConfirm}
+                  disabled={isProcessing || grandTotal <= 0}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 min-h-[40px]"
+                >
+                  Review & Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* =====================================================================
    REJECT MODAL
    ===================================================================== */
 
@@ -1347,6 +1732,11 @@ export default function AccountsDashboard() {
   const [fileViewer, setFileViewer] = useState<{ title: string; url: string; fileName?: string } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Batch payment
+  const [selectedForBatch, setSelectedForBatch] = useState<Set<string>>(new Set());
+  const [batchPayOpen, setBatchPayOpen] = useState(false);
+  const [batchProcessing, setBatchProcessing] = useState(false);
+
   // Cost tag inline editing
   const [editingCostTagId, setEditingCostTagId] = useState<string | null>(null);
   const [costTagForm, setCostTagForm] = useState({ costCategory: '', costSubCategory: '', costType: '' });
@@ -1616,6 +2006,77 @@ export default function AccountsDashboard() {
       await fetchPaymentSummary(inv.id);
     },
     [fetchPaymentSummary]
+  );
+
+  // ─── Batch payment helpers ───
+  const payableInvoices = useMemo(
+    () => filteredInvoices.filter(i => i.status === 'approved' || i.status === 'partially_paid'),
+    [filteredInvoices]
+  );
+
+  const toggleBatchSelect = useCallback((invoiceId: string) => {
+    setSelectedForBatch(prev => {
+      const next = new Set(prev);
+      if (next.has(invoiceId)) next.delete(invoiceId);
+      else next.add(invoiceId);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedForBatch(prev => {
+      if (prev.size === payableInvoices.length && payableInvoices.length > 0) return new Set();
+      return new Set(payableInvoices.map(i => i.id));
+    });
+  }, [payableInvoices]);
+
+  const selectedInvoices = useMemo(
+    () => invoices.filter(i => selectedForBatch.has(i.id)),
+    [invoices, selectedForBatch]
+  );
+
+  const handleBatchPayment = useCallback(
+    async (data: {
+      utrReference: string;
+      paymentDate: string;
+      notes: string;
+      invoices: Array<{
+        invoiceId: string;
+        amount: number;
+        tdsAmount: number;
+        retentionAmount: number;
+        basicAmount?: string;
+        gstAmount?: string;
+        paymentType?: string;
+      }>;
+    }) => {
+      setBatchProcessing(true);
+      try {
+        const res = await fetch('/api/payments/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || 'Failed to process batch payment');
+
+        const msg = result.idempotent
+          ? 'Batch payment already recorded (duplicate prevented)'
+          : `Batch payment recorded: ${result.successCount} invoice${result.successCount !== 1 ? 's' : ''} paid${result.failCount > 0 ? `, ${result.failCount} failed` : ''}`;
+
+        setToast({ message: msg, type: result.failCount > 0 ? 'error' : 'success' });
+        setBatchPayOpen(false);
+        setSelectedForBatch(new Set());
+        setPaymentCache({});
+        fetchInvoices();
+        fetchBulkSummaries();
+      } catch (err) {
+        setToast({ message: err instanceof Error ? err.message : 'Failed to process batch payment', type: 'error' });
+      } finally {
+        setBatchProcessing(false);
+      }
+    },
+    [fetchInvoices, fetchBulkSummaries]
   );
 
   const handleSaveCostTag = useCallback(async (invoiceId: string) => {
@@ -2018,6 +2479,19 @@ export default function AccountsDashboard() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="w-10 px-2 py-3 text-center">
+                        {payableInvoices.length > 0 && (
+                          <input
+                            type="checkbox"
+                            checked={selectedForBatch.size > 0 && selectedForBatch.size === payableInvoices.length}
+                            ref={(el) => { if (el) el.indeterminate = selectedForBatch.size > 0 && selectedForBatch.size < payableInvoices.length; }}
+                            onChange={toggleSelectAll}
+                            className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            title="Select all payable invoices"
+                            aria-label="Select all payable invoices"
+                          />
+                        )}
+                      </th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice #</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vendor</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Project</th>
@@ -2057,6 +2531,17 @@ export default function AccountsDashboard() {
                               }
                             }}
                           >
+                            <td className="w-10 px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              {canPay && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedForBatch.has(inv.id)}
+                                  onChange={() => toggleBatchSelect(inv.id)}
+                                  className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                  aria-label={`Select invoice ${inv.invoiceNumber}`}
+                                />
+                              )}
+                            </td>
                             <td className="px-4 py-3">
                               <span className="font-bold text-gray-900">{inv.invoiceNumber}</span>
                               {inv.invoiceType && (
@@ -2191,7 +2676,7 @@ export default function AccountsDashboard() {
                           {/* Expanded detail row */}
                           {isExpanded && (
                             <tr>
-                              <td colSpan={11} className="p-0">
+                              <td colSpan={12} className="p-0">
                                 <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100">
                                   {/* Detail grid */}
                                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs mb-4">
@@ -2476,6 +2961,16 @@ export default function AccountsDashboard() {
                       {/* Header row */}
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
+                          {canPay && (
+                            <input
+                              type="checkbox"
+                              checked={selectedForBatch.has(inv.id)}
+                              onChange={(e) => { e.stopPropagation(); toggleBatchSelect(inv.id); }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer flex-shrink-0"
+                              aria-label={`Select invoice ${inv.invoiceNumber}`}
+                            />
+                          )}
                           {inv.project && (
                             <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
                               {inv.project}
@@ -2731,7 +3226,64 @@ export default function AccountsDashboard() {
         )}
       </main>
 
+      {/* ── Batch Payment Floating Bar ── */}
+      {selectedForBatch.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 text-sm font-bold">
+                {selectedForBatch.size}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">
+                  {selectedForBatch.size} invoice{selectedForBatch.size !== 1 ? 's' : ''} selected
+                </p>
+                <p className="text-xs text-gray-500">
+                  {(() => {
+                    const vendors = new Set(selectedInvoices.map(i => i.vendorName));
+                    return vendors.size === 1 ? `Vendor: ${[...vendors][0]}` : `${vendors.size} vendors (must be same vendor)`;
+                  })()}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedForBatch(new Set())}
+                className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[40px]"
+              >
+                Clear
+              </button>
+              <button
+                onClick={() => {
+                  const vendors = new Set(selectedInvoices.map(i => i.vendorName));
+                  if (vendors.size > 1) {
+                    setToast({ message: 'All selected invoices must be for the same vendor', type: 'error' });
+                    return;
+                  }
+                  setBatchPayOpen(true);
+                }}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors min-h-[40px] flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                </svg>
+                Pay Selected ({selectedForBatch.size})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modals */}
+      {batchPayOpen && selectedInvoices.length > 0 && (
+        <BatchPaymentModal
+          invoices={selectedInvoices}
+          bulkSummaries={bulkSummaries}
+          onClose={() => setBatchPayOpen(false)}
+          onSubmit={handleBatchPayment}
+          isProcessing={batchProcessing}
+        />
+      )}
       {paymentInvoice && (
         <PaymentModal
           invoice={paymentInvoice}

@@ -352,7 +352,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── STEP 2: UPDATE INVOICE STATUS ────────────────────────────────
-    const newStatus = trueTotalPaid >= invoiceAmount ? 'paid' : 'partially_paid';
+    const newStatus = trueTotalConsumed >= invoiceAmount ? 'paid' : 'partially_paid';
 
     try {
       await updateInvoiceStatus(
