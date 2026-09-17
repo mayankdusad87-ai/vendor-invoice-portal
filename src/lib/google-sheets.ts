@@ -729,7 +729,7 @@ export async function addInvoice(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:AP',
+    range: 'Invoices!A:AV',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -2289,19 +2289,24 @@ export async function initializeSheetHeaders(): Promise<void> {
     'Document Stage', 'Tax Invoice File URL', 'Tax Invoice File Name',
     'Tax Invoice Number', 'Tax Invoice Date', 'Tax Invoice Uploaded At',
     'Tax Invoice Uploaded By', 'Original GST Amount',
+    // REVISION & PHYSICAL COPY (AQ–AV)
+    'Original Amount', 'Revision Reason',
+    'Physical Copy Sent At', 'Physical Copy Sent By',
+    'Physical Copy Received At', 'Physical Copy Received By',
   ];
 
   const invoiceHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A1:AP1',
+    range: 'Invoices!A1:AV1',
   });
 
   const currentHeaders = invoiceHeaders.data.values?.[0] || [];
   if (currentHeaders.length !== expectedInvoiceHeaders.length ||
       currentHeaders.some((h, i) => h !== expectedInvoiceHeaders[i])) {
+    await ensureSheetColumns('Invoices', REQUIRED_INVOICE_COLUMNS);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Invoices!A1:AP1',
+      range: 'Invoices!A1:AV1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedInvoiceHeaders],
