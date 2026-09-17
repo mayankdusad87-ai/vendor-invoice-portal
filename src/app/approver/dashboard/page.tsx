@@ -244,8 +244,10 @@ export default function ApproverDashboard() {
         // Auto-filter to accounts queries (urgent) or pending on first load
         if (!initialFilterApplied) {
           const hasAccountsQuery = loaded.some((i: Invoice) => i.status === 'accounts_query');
+          const hasExtension = loaded.some((i: Invoice) => needsExtension(i));
           const hasPending = loaded.some((i: Invoice) => i.status === 'submitted' || i.status === 'under_review');
           if (hasAccountsQuery) setFilter('accounts_query');
+          else if (hasExtension) setFilter('extension');
           else if (hasPending) setFilter('pending');
           setInitialFilterApplied(true);
         }
@@ -629,6 +631,15 @@ export default function ApproverDashboard() {
   }, [queryResolutionComments, invoices, approverName]);
 
   // Stats
+  const needsExtension = useCallback((inv: Invoice) => {
+    if (inv.documentStage !== 'tax_invoice') return false;
+    const base = parseFloat(inv.amount) || 0;
+    const gst = parseFloat(inv.gstAmount || '') || 0;
+    const total = base + gst;
+    const approved = parseFloat(inv.approvedAmount || '') || total;
+    return approved < total - 0.01;
+  }, []);
+
   const stats = useMemo(() => {
     const pending = invoices.filter((i) => i.status === 'submitted' || i.status === 'under_review');
     const approved = invoices.filter((i) => i.status === 'approved');
@@ -636,6 +647,7 @@ export default function ApproverDashboard() {
     const inPayment = invoices.filter((i) => i.status === 'partially_paid' || i.status === 'paid');
     const accountsQuery = invoices.filter((i) => i.status === 'accounts_query');
     const correctionRequired = invoices.filter((i) => i.status === 'correction_required');
+    const extensionRequired = invoices.filter(needsExtension);
     const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
     return {
       total: invoices.length,
@@ -652,8 +664,15 @@ export default function ApproverDashboard() {
       accountsQueryAmount: sumAmount(accountsQuery),
       correctionCount: correctionRequired.length,
       correctionAmount: sumAmount(correctionRequired),
+      extensionCount: extensionRequired.length,
+      extensionAmount: extensionRequired.reduce((s, i) => {
+        const base = parseFloat(i.amount) || 0;
+        const gst = parseFloat(i.gstAmount || '') || 0;
+        const approved = parseFloat(i.approvedAmount || '') || (base + gst);
+        return s + Math.max(0, (base + gst) - approved);
+      }, 0),
     };
-  }, [invoices]);
+  }, [invoices, needsExtension]);
 
   // Derive unique vendor names
   const vendorNames = useMemo(() => {
@@ -670,6 +689,7 @@ export default function ApproverDashboard() {
       if (filter === 'in_payment') return inv.status === 'partially_paid' || inv.status === 'paid';
       if (filter === 'accounts_query') return inv.status === 'accounts_query';
       if (filter === 'correction') return inv.status === 'correction_required';
+      if (filter === 'extension') return needsExtension(inv);
       return true;
     });
 
@@ -699,7 +719,7 @@ export default function ApproverDashboard() {
   }, [invoices, filter, selectedVendor, searchTerm, sortBy]);
 
   // Label for "Showing X invoices"
-  const filterLabel = filter === 'pending' ? 'pending' : filter === 'approved' ? 'approved' : filter === 'rejected' ? 'rejected' : filter === 'in_payment' ? 'in payment' : filter === 'accounts_query' ? 'accounts queries' : filter === 'correction' ? 'correction required' : 'all';
+  const filterLabel = filter === 'pending' ? 'pending' : filter === 'approved' ? 'approved' : filter === 'rejected' ? 'rejected' : filter === 'in_payment' ? 'in payment' : filter === 'accounts_query' ? 'accounts queries' : filter === 'correction' ? 'correction required' : filter === 'extension' ? 'extension required' : 'all';
 
   if (!isReady) return null;
 
@@ -782,7 +802,7 @@ export default function ApproverDashboard() {
 
       <main className="max-w-5xl mx-auto px-4 py-5 fade-in">
         {/* ── Stat Cards — white with colored bottom borders ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
           {/* Total */}
           <button
             onClick={() => setFilter('all')}
@@ -910,6 +930,29 @@ export default function ApproverDashboard() {
             </p>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-orange-500" />
           </button>
+
+          {/* Extension Required */}
+          {stats.extensionCount > 0 && (
+            <button
+              onClick={() => setFilter('extension')}
+              className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
+                filter === 'extension' ? 'ring-2 ring-pink-500 ring-offset-1' : ''
+              }`}
+              aria-label={`Extension required: ${stats.extensionCount}`}
+            >
+              <div className="flex items-start justify-between">
+                <p className="text-xs font-medium text-gray-500">Extension</p>
+                <div className="w-7 h-7 rounded-lg bg-pink-50 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v6m3-3H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-pink-600 mt-1">{stats.extensionCount}</p>
+              <p className="text-xs text-gray-400 mt-0.5">₹{stats.extensionAmount.toLocaleString('en-IN')} pending</p>
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-pink-500" />
+            </button>
+          )}
         </div>
 
         {/* ── Filter bar: vendor + count + sort ── */}
@@ -1040,6 +1083,9 @@ export default function ApproverDashboard() {
                         {invoice.documentStage === 'tax_invoice' && (
                           <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
                         )}
+                        {needsExtension(invoice) && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200 animate-pulse">Extension Required</span>
+                        )}
                         <StatusBadge status={invoice.status} />
                       </div>
                       <p className="text-sm text-gray-500 mt-0.5 truncate">{invoice.purpose}</p>
@@ -1151,6 +1197,18 @@ export default function ApproverDashboard() {
                             title="Expand to resolve query"
                           >
                             ? Resolve Query
+                          </button>
+                        </div>
+                      )}
+
+                      {needsExtension(invoice) && !isExpanded && (
+                        <div className="hidden lg:flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setExpandedId(invoice.id); }}
+                            className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-pink-50 text-pink-700 hover:bg-pink-100 transition-colors border border-pink-200"
+                            title="Expand to approve extension"
+                          >
+                            + Approve Extension
                           </button>
                         </div>
                       )}
@@ -1278,6 +1336,66 @@ export default function ApproverDashboard() {
                             )}
                           </div>
                         )}
+
+                        {/* Extension Required — tax invoice uploaded, approved < new total */}
+                        {needsExtension(invoice) && (() => {
+                          const baseAmt = parseFloat(invoice.amount) || 0;
+                          const gst = parseFloat(invoice.gstAmount || '') || 0;
+                          const newTotal = baseAmt + gst;
+                          const currentApproved = parseFloat(invoice.approvedAmount || '') || newTotal;
+                          const extensionDelta = Math.max(0, newTotal - currentApproved);
+                          return (
+                            <div className="mb-4 rounded-lg border-2 border-pink-200 bg-pink-50/50 p-4">
+                              <div className="flex items-center gap-2 mb-3">
+                                <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center">
+                                  <svg className="w-4 h-4 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v6m3-3H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                  </svg>
+                                </div>
+                                <div>
+                                  <h4 className="text-sm font-bold text-pink-800">Approval Extension Required</h4>
+                                  <p className="text-xs text-pink-600">Tax invoice received — total amount has increased</p>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-3 gap-3 mb-3">
+                                <div className="bg-white rounded-lg p-2.5 border border-pink-100">
+                                  <p className="text-[10px] font-medium text-gray-500 uppercase">Currently Approved</p>
+                                  <p className="text-sm font-bold text-gray-900">₹{currentApproved.toLocaleString('en-IN')}</p>
+                                </div>
+                                <div className="bg-white rounded-lg p-2.5 border border-pink-100">
+                                  <p className="text-[10px] font-medium text-gray-500 uppercase">New Total (with GST)</p>
+                                  <p className="text-sm font-bold text-gray-900">₹{newTotal.toLocaleString('en-IN')}</p>
+                                  <p className="text-[10px] text-gray-400">₹{baseAmt.toLocaleString('en-IN')} + ₹{gst.toLocaleString('en-IN')} GST</p>
+                                </div>
+                                <div className="bg-white rounded-lg p-2.5 border border-pink-200">
+                                  <p className="text-[10px] font-medium text-pink-600 uppercase">Extension Needed</p>
+                                  <p className="text-sm font-bold text-pink-700">₹{extensionDelta.toLocaleString('en-IN')}</p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (invoice.status === 'approved') {
+                                    setEditApprovalInvoice(invoice);
+                                    setEditApprovedAmount(String(newTotal));
+                                    setEditApprovalComment(`Tax invoice GST extension: ₹${extensionDelta.toLocaleString('en-IN')} (approved ₹${currentApproved.toLocaleString('en-IN')} → ₹${newTotal.toLocaleString('en-IN')})`);
+                                    setEditApprovalError('');
+                                  } else {
+                                    setIncreaseAmountInvoice(invoice);
+                                    setNewApprovedAmount(String(extensionDelta));
+                                    setIncreaseComment(`Tax invoice GST extension: ₹${extensionDelta.toLocaleString('en-IN')}`);
+                                  }
+                                }}
+                                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-pink-600 text-white text-sm font-semibold hover:bg-pink-700 transition-colors min-h-[44px]"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                </svg>
+                                Approve Extension — ₹{extensionDelta.toLocaleString('en-IN')}
+                              </button>
+                            </div>
+                          );
+                        })()}
 
                         {/* Edit Approval button — only for approved invoices not yet in payment */}
                         {invoice.status === 'approved' && !isPaymentPhase && (

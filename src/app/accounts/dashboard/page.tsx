@@ -573,6 +573,31 @@ function PaymentModal({
                 </div>
               )}
 
+              {/* Pending Extension warning */}
+              {(() => {
+                if (invoice.documentStage !== 'tax_invoice') return null;
+                const base = parseFloat(invoice.amount) || 0;
+                const gst = parseFloat(invoice.gstAmount || '') || 0;
+                const newTotal = base + gst;
+                const approved = parseFloat(invoice.approvedAmount || '') || newTotal;
+                if (approved >= newTotal - 0.01) return null;
+                const ext = Math.max(0, newTotal - approved);
+                return (
+                  <div className="rounded-lg border border-pink-300 bg-pink-50 p-3 flex items-start gap-2">
+                    <svg className="w-5 h-5 text-pink-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm font-semibold text-pink-800">Approval Extension Pending</p>
+                      <p className="text-xs text-pink-700 mt-0.5">
+                        Tax invoice received with GST ₹{gst.toLocaleString('en-IN')}, increasing total to ₹{newTotal.toLocaleString('en-IN')}.
+                        Approver needs to extend by ₹{ext.toLocaleString('en-IN')} (currently approved: ₹{approved.toLocaleString('en-IN')}).
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* GST / Basic Split (only shown when invoice has GST and is NOT proforma) */}
               {hasGST && !isProforma && (
                 <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 space-y-3">
@@ -2008,6 +2033,15 @@ export default function AccountsDashboard() {
     [fetchPaymentSummary]
   );
 
+  const invoiceNeedsExtension = useCallback((inv: { amount: string; gstAmount?: string; approvedAmount?: string; documentStage?: string }) => {
+    if (inv.documentStage !== 'tax_invoice') return false;
+    const base = parseFloat(inv.amount) || 0;
+    const gst = parseFloat(inv.gstAmount || '') || 0;
+    const total = base + gst;
+    const approved = parseFloat(inv.approvedAmount || '') || total;
+    return approved < total - 0.01;
+  }, []);
+
   // ─── Batch payment helpers ───
   const payableInvoices = useMemo(
     () => filteredInvoices.filter(i => i.status === 'approved' || i.status === 'partially_paid'),
@@ -2550,6 +2584,9 @@ export default function AccountsDashboard() {
                               {inv.documentStage === 'proforma' && (
                                 <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
                               )}
+                              {invoiceNeedsExtension(inv) && (
+                                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200">Pending Extension</span>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
@@ -2979,6 +3016,9 @@ export default function AccountsDashboard() {
                           <span className="font-bold text-gray-900 text-sm">{inv.invoiceNumber}</span>
                           {inv.documentStage === 'proforma' && (
                             <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                          )}
+                          {invoiceNeedsExtension(inv) && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200">Pending Extension</span>
                           )}
                           <span className="text-gray-400 text-xs">·</span>
                           <span className="text-sm text-gray-600">{inv.vendorName}</span>
