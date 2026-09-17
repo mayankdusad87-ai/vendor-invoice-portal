@@ -39,6 +39,15 @@ interface Invoice {
   documentStage?: 'proforma' | 'tax_invoice' | 'direct' | '';
   taxInvoiceFileUrl?: string;
   taxInvoiceFileName?: string;
+  taxInvoiceNumber?: string;
+  taxInvoiceDate?: string;
+  originalAmount?: string;
+  originalGstAmount?: string;
+  revisionReason?: string;
+  physicalCopySentAt?: string;
+  physicalCopySentBy?: string;
+  physicalCopyReceivedAt?: string;
+  physicalCopyReceivedBy?: string;
 }
 
 /* =====================================================================
@@ -781,9 +790,13 @@ function ExpandedInvoiceDetail({
   const [taxInvoiceNumber, setTaxInvoiceNumber] = useState('');
   const [taxInvoiceDate, setTaxInvoiceDate] = useState('');
   const [revisedGst, setRevisedGst] = useState('');
+  const [revisedBase, setRevisedBase] = useState('');
+  const [revisionReason, setRevisionReason] = useState('');
   const [taxUploadLoading, setTaxUploadLoading] = useState(false);
   const [taxUploadError, setTaxUploadError] = useState('');
   const [taxUploadSuccess, setTaxUploadSuccess] = useState(false);
+  const [physicalCopyLoading, setPhysicalCopyLoading] = useState(false);
+  const [physicalCopySent, setPhysicalCopySent] = useState(!!invoice.physicalCopySentAt);
 
   const handleTaxInvoiceUpload = async () => {
     setTaxUploadError('');
@@ -791,6 +804,17 @@ function ExpandedInvoiceDetail({
     if (!taxInvoiceNumber.trim()) { setTaxUploadError('Tax invoice number is required'); return; }
     if (!taxInvoiceDate) { setTaxUploadError('Tax invoice date is required'); return; }
     if (!revisedGst || parseFloat(revisedGst) <= 0) { setTaxUploadError('GST amount is required for tax invoices'); return; }
+
+    const origBase = parseFloat(invoice.amount) || 0;
+    const origGst = parseFloat(invoice.gstAmount || '0') || 0;
+    const newBase = revisedBase ? parseFloat(revisedBase) || 0 : origBase;
+    const newGst = parseFloat(revisedGst) || 0;
+    const baseChanged = Math.abs(newBase - origBase) > 0.01;
+    const gstChanged = Math.abs(newGst - origGst) > 0.01;
+    if ((baseChanged || gstChanged) && !revisionReason.trim()) {
+      setTaxUploadError('Please provide a reason for the amount revision (base or GST differs from proforma)');
+      return;
+    }
 
     setTaxUploadLoading(true);
     try {
@@ -815,6 +839,8 @@ function ExpandedInvoiceDetail({
           taxInvoiceNumber: taxInvoiceNumber.trim(),
           taxInvoiceDate,
           revisedGstAmount: revisedGst || undefined,
+          revisedAmount: revisedBase || undefined,
+          revisionReason: revisionReason.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -888,23 +914,64 @@ function ExpandedInvoiceDetail({
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  GST Amount *
-                  {parseFloat(invoice.gstAmount || '0') > 0 && (
-                    <span className="text-gray-400 ml-1">(was ₹{parseFloat(invoice.gstAmount || '0').toLocaleString('en-IN')})</span>
-                  )}
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={revisedGst}
-                  onChange={(e) => setRevisedGst(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 focus:ring-2 focus:ring-amber-500 min-h-[40px]"
-                  placeholder="Enter GST amount from tax invoice"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Base Amount
+                    <span className="text-gray-400 ml-1">(Proforma: ₹{parseFloat(invoice.amount || '0').toLocaleString('en-IN')})</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={revisedBase}
+                    onChange={(e) => setRevisedBase(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 focus:ring-2 focus:ring-amber-500 min-h-[40px]"
+                    placeholder={`₹${parseFloat(invoice.amount || '0').toLocaleString('en-IN')} (leave blank if unchanged)`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    GST Amount *
+                    {parseFloat(invoice.gstAmount || '0') > 0 && (
+                      <span className="text-gray-400 ml-1">(was ₹{parseFloat(invoice.gstAmount || '0').toLocaleString('en-IN')})</span>
+                    )}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={revisedGst}
+                    onChange={(e) => setRevisedGst(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 focus:ring-2 focus:ring-amber-500 min-h-[40px]"
+                    placeholder="Enter GST amount from tax invoice"
+                  />
+                </div>
               </div>
+              {/* Revision reason — shown when base or GST has changed */}
+              {(() => {
+                const oBase = parseFloat(invoice.amount || '0') || 0;
+                const oGst = parseFloat(invoice.gstAmount || '0') || 0;
+                const nBase = revisedBase ? parseFloat(revisedBase) || 0 : oBase;
+                const nGst = revisedGst ? parseFloat(revisedGst) || 0 : 0;
+                const changed = Math.abs(nBase - oBase) > 0.01 || (nGst > 0 && Math.abs(nGst - oGst) > 0.01);
+                if (!changed) return null;
+                return (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Revision Reason *
+                      <span className="text-gray-400 ml-1">(why amount differs from proforma)</span>
+                    </label>
+                    <textarea
+                      value={revisionReason}
+                      onChange={(e) => setRevisionReason(e.target.value)}
+                      rows={2}
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 focus:ring-2 focus:ring-amber-500"
+                      placeholder="e.g., Additional scope of work, rate revision, quantity change"
+                    />
+                  </div>
+                );
+              })()}
               {taxUploadError && (
                 <p className="text-xs text-red-600 font-medium">{taxUploadError}</p>
               )}
@@ -1029,6 +1096,124 @@ function ExpandedInvoiceDetail({
               className="inline-flex items-center gap-1 text-xs mt-2 text-blue-600 hover:underline">
               Open in new tab ↗
             </a>
+          )}
+        </div>
+      )}
+
+      {/* Tax Invoice Document (after upload) */}
+      {invoice.taxInvoiceFileUrl && (
+        <div className="rounded-lg p-4 bg-emerald-50/50 border border-emerald-100">
+          <p className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+            <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" />
+            </svg>
+            Tax Invoice — {invoice.taxInvoiceFileName || 'Uploaded file'}
+            {invoice.taxInvoiceNumber && <span className="text-xs text-gray-500 font-normal">#{invoice.taxInvoiceNumber}</span>}
+          </p>
+          {invoice.taxInvoiceDate && (
+            <p className="text-xs text-gray-500 mb-3">Date: {invoice.taxInvoiceDate}</p>
+          )}
+          {(() => {
+            const taxIsImage = isImageUrl(invoice.taxInvoiceFileUrl!, invoice.taxInvoiceFileName || '');
+            const taxPreview = !taxIsImage ? getPreviewUrl(invoice.taxInvoiceFileUrl!) : null;
+            return (
+              <>
+                {taxIsImage && (
+                  <img src={invoice.taxInvoiceFileUrl} alt={`Tax Invoice ${invoice.taxInvoiceNumber || ''}`}
+                    className="w-full max-h-[500px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity bg-white border border-gray-200"
+                    onClick={() => onLightbox(invoice.taxInvoiceFileUrl!)} />
+                )}
+                {taxPreview && (
+                  <iframe src={taxPreview} className="w-full rounded-lg border border-gray-200"
+                    style={{ height: '500px' }} title={`Tax Invoice preview`} allow="autoplay" />
+                )}
+                {!taxIsImage && !taxPreview && (
+                  <a href={invoice.taxInvoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors min-h-[44px]">
+                    Open Tax Invoice in New Tab
+                  </a>
+                )}
+                {(taxIsImage || taxPreview) && (
+                  <a href={invoice.taxInvoiceFileUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs mt-2 text-emerald-600 hover:underline">
+                    Open in new tab ↗
+                  </a>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Revision info */}
+      {invoice.revisionReason && (
+        <div className="rounded-lg p-3 bg-amber-50 border border-amber-200">
+          <p className="text-xs font-semibold text-amber-800 mb-1">Tax Invoice Revision</p>
+          {invoice.originalAmount && (
+            <p className="text-xs text-gray-600">
+              Base: ₹{Number(invoice.originalAmount).toLocaleString('en-IN')} → ₹{Number(invoice.amount).toLocaleString('en-IN')}
+            </p>
+          )}
+          {invoice.originalGstAmount && (
+            <p className="text-xs text-gray-600">
+              GST: ₹{Number(invoice.originalGstAmount).toLocaleString('en-IN')} → ₹{Number(invoice.gstAmount || '0').toLocaleString('en-IN')}
+            </p>
+          )}
+          <p className="text-xs text-gray-700 mt-1"><span className="font-medium">Reason:</span> {invoice.revisionReason}</p>
+        </div>
+      )}
+
+      {/* Physical Copy Tracking */}
+      {(invoice.status === 'approved' || invoice.status === 'partially_paid' || invoice.status === 'paid') && (
+        <div className="rounded-lg p-3 bg-gray-50 border border-gray-200">
+          <p className="text-xs font-semibold text-gray-700 mb-2">Physical Copy Tracking</p>
+          {physicalCopySent || invoice.physicalCopySentAt ? (
+            <div className="flex flex-col gap-1">
+              <p className="text-xs text-gray-600 flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px]">↑</span>
+                Sent to HO on {invoice.physicalCopySentAt} by {invoice.physicalCopySentBy}
+              </p>
+              {invoice.physicalCopyReceivedAt ? (
+                <p className="text-xs text-gray-600 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px]">✓</span>
+                  Received at HO on {invoice.physicalCopyReceivedAt} by {invoice.physicalCopyReceivedBy}
+                </p>
+              ) : (
+                <p className="text-xs text-amber-600 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-[10px]">⏳</span>
+                  Awaiting receipt at Head Office
+                </p>
+              )}
+            </div>
+          ) : (
+            <button
+              disabled={physicalCopyLoading}
+              onClick={async () => {
+                setPhysicalCopyLoading(true);
+                try {
+                  const today = new Date().toISOString().split('T')[0];
+                  const res = await fetch('/api/invoices/physical-copy', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invoiceId: invoice.id, action: 'sent', date: today }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || 'Failed');
+                  setPhysicalCopySent(true);
+                  onInvoicesRefresh?.();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : 'Failed to mark as sent');
+                } finally {
+                  setPhysicalCopyLoading(false);
+                }
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium border border-blue-200 hover:bg-blue-100 transition-colors min-h-[40px]"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+              </svg>
+              {physicalCopyLoading ? 'Marking...' : 'Mark Physical Copy Sent to HO'}
+            </button>
           )}
         </div>
       )}

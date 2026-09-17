@@ -46,6 +46,13 @@ interface Invoice {
   taxInvoiceFileName?: string;
   taxInvoiceNumber?: string;
   originalGstAmount?: string;
+  taxInvoiceDate?: string;
+  originalAmount?: string;
+  revisionReason?: string;
+  physicalCopySentAt?: string;
+  physicalCopySentBy?: string;
+  physicalCopyReceivedAt?: string;
+  physicalCopyReceivedBy?: string;
 }
 
 interface Payment {
@@ -2885,6 +2892,66 @@ export default function AccountsDashboard() {
                                     </div>
                                   )}
 
+                                  {/* Revision info */}
+                                  {inv.revisionReason && (
+                                    <div className="mb-4 rounded-lg p-3 bg-amber-50 border border-amber-200">
+                                      <p className="text-xs font-semibold text-amber-800 mb-1">Tax Invoice Revision</p>
+                                      {inv.originalAmount && (
+                                        <p className="text-xs text-gray-600">Base: ₹{Number(inv.originalAmount).toLocaleString('en-IN')} → ₹{Number(inv.amount).toLocaleString('en-IN')}</p>
+                                      )}
+                                      {inv.originalGstAmount && (
+                                        <p className="text-xs text-gray-600">GST: ₹{Number(inv.originalGstAmount).toLocaleString('en-IN')} → ₹{Number(inv.gstAmount || '0').toLocaleString('en-IN')}</p>
+                                      )}
+                                      <p className="text-xs text-gray-700 mt-1"><span className="font-medium">Reason:</span> {inv.revisionReason}</p>
+                                    </div>
+                                  )}
+
+                                  {/* Physical Copy Tracking */}
+                                  <div className="mb-4 rounded-lg p-3 bg-gray-50 border border-gray-200">
+                                    <p className="text-xs font-semibold text-gray-700 mb-2">Physical Copy Status</p>
+                                    {inv.physicalCopySentAt ? (
+                                      <div className="flex flex-col gap-1.5">
+                                        <p className="text-xs text-gray-600 flex items-center gap-1.5">
+                                          <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px]">↑</span>
+                                          Sent to HO on {inv.physicalCopySentAt} by {inv.physicalCopySentBy}
+                                        </p>
+                                        {inv.physicalCopyReceivedAt ? (
+                                          <p className="text-xs text-gray-600 flex items-center gap-1.5">
+                                            <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px]">✓</span>
+                                            Received at HO on {inv.physicalCopyReceivedAt} by {inv.physicalCopyReceivedBy}
+                                          </p>
+                                        ) : (
+                                          <button
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              const today = new Date().toISOString().split('T')[0];
+                                              try {
+                                                const res = await fetch('/api/invoices/physical-copy', {
+                                                  method: 'PATCH',
+                                                  headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ invoiceId: inv.id, action: 'received', date: today }),
+                                                });
+                                                const data = await res.json();
+                                                if (!res.ok) throw new Error(data.error || 'Failed');
+                                                fetchInvoices();
+                                              } catch (err) {
+                                                alert(err instanceof Error ? err.message : 'Failed to mark as received');
+                                              }
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-medium border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                                          >
+                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                            </svg>
+                                            Mark Physical Copy Received at HO
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-gray-400">Physical copy not yet sent from site</p>
+                                    )}
+                                  </div>
+
                                   {/* No document warning */}
                                   {!inv.invoiceFileUrl && !inv.taxInvoiceFileUrl && (
                                     <div className="mb-4 rounded-lg p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm flex items-center gap-2">
@@ -3143,6 +3210,37 @@ export default function AccountsDashboard() {
                                   className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors min-h-[44px]">
                                   Open Tax Invoice
                                 </a>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Revision info */}
+                          {inv.revisionReason && (
+                            <div className="mb-4 rounded-lg p-3 bg-amber-50 border border-amber-200">
+                              <p className="text-xs font-semibold text-amber-800 mb-1">Tax Invoice Revision</p>
+                              {inv.originalAmount && (
+                                <p className="text-xs text-gray-600">Base: ₹{Number(inv.originalAmount).toLocaleString('en-IN')} → ₹{Number(inv.amount).toLocaleString('en-IN')}</p>
+                              )}
+                              {inv.originalGstAmount && (
+                                <p className="text-xs text-gray-600">GST: ₹{Number(inv.originalGstAmount).toLocaleString('en-IN')} → ₹{Number(inv.gstAmount || '0').toLocaleString('en-IN')}</p>
+                              )}
+                              <p className="text-xs text-gray-700 mt-1"><span className="font-medium">Reason:</span> {inv.revisionReason}</p>
+                            </div>
+                          )}
+
+                          {/* Physical Copy Status */}
+                          {inv.physicalCopySentAt && (
+                            <div className="mb-4 rounded-lg p-3 bg-gray-50 border border-gray-200">
+                              <p className="text-xs font-semibold text-gray-700 mb-1.5">Physical Copy Status</p>
+                              <p className="text-xs text-gray-600 flex items-center gap-1.5">
+                                <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px]">↑</span>
+                                Sent to HO on {inv.physicalCopySentAt} by {inv.physicalCopySentBy}
+                              </p>
+                              {inv.physicalCopyReceivedAt && (
+                                <p className="text-xs text-gray-600 flex items-center gap-1.5 mt-1">
+                                  <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px]">✓</span>
+                                  Received at HO on {inv.physicalCopyReceivedAt} by {inv.physicalCopyReceivedBy}
+                                </p>
                               )}
                             </div>
                           )}

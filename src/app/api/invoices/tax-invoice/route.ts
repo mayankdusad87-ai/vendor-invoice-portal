@@ -35,6 +35,9 @@ export async function PATCH(request: NextRequest) {
     const revisedGstAmount = body.revisedGstAmount !== undefined && body.revisedGstAmount !== ''
       ? sanitizeAmount(body.revisedGstAmount)
       : '';
+    const revisedAmount = body.revisedAmount !== undefined && body.revisedAmount !== ''
+      ? sanitizeAmount(body.revisedAmount)
+      : '';
     const revisionReason = sanitizeString(body.revisionReason, 500) || '';
 
     if (!invoiceId) {
@@ -82,17 +85,31 @@ export async function PATCH(request: NextRequest) {
       ? (session as import('@/lib/auth').EngineerToken).engineerName
       : 'Admin';
 
+    const originalBase = parseFloat(invoice.amount) || 0;
     const originalGst = parseFloat(invoice.gstAmount) || 0;
+    const newBase = revisedAmount ? parseFloat(revisedAmount) || 0 : originalBase;
     const newGst = parseFloat(revisedGstAmount) || 0;
-    const baseAmount = parseFloat(invoice.amount) || 0;
-    const oldTotal = baseAmount + originalGst;
-    const newTotal = baseAmount + newGst;
+    const oldTotal = originalBase + originalGst;
+    const newTotal = newBase + newGst;
     const currentApproved = parseFloat(invoice.approvedAmount) || oldTotal;
     const extensionNeeded = Math.max(0, newTotal - currentApproved);
 
+    const baseChanged = Math.abs(newBase - originalBase) > 0.01;
+    const gstChanged = Math.abs(newGst - originalGst) > 0.01;
+
+    if ((baseChanged || gstChanged) && !revisionReason) {
+      return NextResponse.json(
+        { error: 'Revision reason is mandatory when base amount or GST differs from the proforma invoice.' },
+        { status: 400 }
+      );
+    }
+
+    const baseVarianceNote = baseChanged
+      ? ` | Base revised: ₹${originalBase.toLocaleString('en-IN')} → ₹${newBase.toLocaleString('en-IN')}`
+      : '';
     const gstVariance = originalGst > 0 ? Math.abs(newGst - originalGst) / originalGst : 0;
-    const varianceNote = gstVariance > 0.1
-      ? ` | GST variance: ${(gstVariance * 100).toFixed(1)}% (₹${originalGst.toLocaleString('en-IN')} → ₹${newGst.toLocaleString('en-IN')})`
+    const gstVarianceNote = gstChanged
+      ? ` | GST revised: ₹${originalGst.toLocaleString('en-IN')} → ₹${newGst.toLocaleString('en-IN')} (${(gstVariance * 100).toFixed(1)}%)`
       : '';
 
     await updateInvoiceDocumentStage(invoiceId, {
@@ -102,6 +119,8 @@ export async function PATCH(request: NextRequest) {
       taxInvoiceDate,
       uploadedBy,
       revisedGstAmount,
+      revisedAmount: baseChanged ? revisedAmount : undefined,
+      revisionReason: (baseChanged || gstChanged) ? revisionReason : undefined,
     });
 
     // Recalculate status: if invoice was 'paid' but new total > consumed, revert to partially_paid
@@ -140,17 +159,21 @@ export async function PATCH(request: NextRequest) {
       amount: '0',
       cumulativeTotal: invoice.approvedAmount || '0',
       approvedBy: uploadedBy,
-      comments: `[TAX_INVOICE] Uploaded tax invoice #${taxInvoiceNumber} (proforma → tax_invoice). GST: ₹${newGst.toLocaleString('en-IN')}${varianceNote}${extensionNote}${statusNote}${revisionReason ? ` | Reason: ${revisionReason}` : ''}`,
+      comments: `[TAX_INVOICE] Uploaded tax invoice #${taxInvoiceNumber} (proforma → tax_invoice). Base: ₹${newBase.toLocaleString('en-IN')}, GST: ₹${newGst.toLocaleString('en-IN')}, Total: ₹${newTotal.toLocaleString('en-IN')}${baseVarianceNote}${gstVarianceNote}${extensionNote}${statusNote}${revisionReason ? ` | Reason: ${revisionReason}` : ''}`,
     });
 
     return NextResponse.json({
       success: true,
       documentStage: 'tax_invoice',
+      baseAmount: newBase,
       gstAmount: newGst,
       newTotal,
       extensionNeeded,
       statusChanged,
-      gstVariancePercent: gstVariance > 0 ? (gstVariance * 100).toFixed(1) : null,
+      baseChanged,
+      gstChanged,
+      originalBase: baseChanged ? originalBase : undefined,
+      originalGst: gstChanged ? originalGst : undefined,
     });
   } catch (error) {
     if (error instanceof SyntaxError) {

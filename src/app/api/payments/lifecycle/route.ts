@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     // And correctly EXCLUDES:
     //   - Payments: "[PAYMENT] ₹100 paid (UTR: ...) (approved → partially_paid)"
     //     (which previously matched "→ partially_paid" and was misclassified as an approval)
-    const NON_APPROVAL_TAGS = ['[PAYMENT]', '[ACCOUNTS_QUERY]', '[QUERY_ACCEPTED]', '[QUERY_DISAGREED]', '[REJECTED]', '[RESUBMITTED]', '[SUBMITTED]', '[AMENDED]', '[RECALLED]', '[TAX_INVOICE]', '[BATCH PAYMENT]'];
+    const NON_APPROVAL_TAGS = ['[PAYMENT]', '[ACCOUNTS_QUERY]', '[QUERY_ACCEPTED]', '[QUERY_DISAGREED]', '[REJECTED]', '[RESUBMITTED]', '[SUBMITTED]', '[AMENDED]', '[RECALLED]', '[TAX_INVOICE]', '[BATCH PAYMENT]', '[PHYSICAL_COPY_SENT]', '[PHYSICAL_COPY_RECEIVED]'];
 
     interface ApprovalEvent {
       date: string;
