@@ -243,10 +243,10 @@ export async function POST(request: NextRequest) {
 
     await addApprovalHistory({
       invoiceId: invoice.id,
-      amount: amount || '0',
+      amount: invoice.totalAmount || amount || '0',
       cumulativeTotal: '0',
       approvedBy: `Engineer: ${submittedBy}`,
-      comments: `[SUBMITTED] Invoice #${invoiceNumber} submitted for ₹${amount}${gstAmount ? ` + ₹${gstAmount} GST` : ''} | ${vendorName} | ${project}${effectiveDocumentStage ? ` | ${effectiveDocumentStage}` : ''}`,
+      comments: `[SUBMITTED] Invoice #${invoiceNumber} submitted for ₹${amount}${gstAmount ? ` + ₹${gstAmount} GST` : ''} (Total: ₹${invoice.totalAmount}) | ${vendorName} | ${project}${effectiveDocumentStage ? ` | ${effectiveDocumentStage}` : ''}`,
     });
 
     return NextResponse.json({ success: true, invoice });
