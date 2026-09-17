@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     // And correctly EXCLUDES:
     //   - Payments: "[PAYMENT] ₹100 paid (UTR: ...) (approved → partially_paid)"
     //     (which previously matched "→ partially_paid" and was misclassified as an approval)
-    const NON_APPROVAL_TAGS = ['[PAYMENT]', '[ACCOUNTS_QUERY]', '[QUERY_ACCEPTED]', '[QUERY_DISAGREED]', '[REJECTED]', '[RESUBMITTED]'];
+    const NON_APPROVAL_TAGS = ['[PAYMENT]', '[ACCOUNTS_QUERY]', '[QUERY_ACCEPTED]', '[QUERY_DISAGREED]', '[REJECTED]', '[RESUBMITTED]', '[SUBMITTED]', '[AMENDED]', '[RECALLED]', '[TAX_INVOICE]', '[BATCH PAYMENT]'];
 
     interface ApprovalEvent {
       date: string;
@@ -311,7 +311,11 @@ export async function GET(request: NextRequest) {
     }));
 
     // Summary — include deduction totals from payment records
-    const totalApproved = approvalEvents.reduce((sum, e) => sum + e.trancheAmount, 0);
+    // Use invoice.approvedAmount as ground truth (it's the actual cap in the sheet).
+    // Fall back to summing tranche amounts only if the invoice field is missing.
+    const invoiceApproved = invoice.approvedAmount ? parseFloat(invoice.approvedAmount) || 0 : 0;
+    const trancheSumApproved = approvalEvents.reduce((sum, e) => sum + e.trancheAmount, 0);
+    const totalApproved = invoiceApproved > 0 ? invoiceApproved : trancheSumApproved;
     const totalPaid = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     const totalBasicPaid = payments.reduce((sum, p) => sum + (parseFloat(p.basicAmount) || 0), 0);
     const totalGSTPaid = payments.reduce((sum, p) => sum + (parseFloat(p.gstAmount) || 0), 0);

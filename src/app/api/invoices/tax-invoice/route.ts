@@ -70,6 +70,14 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    const blockedStatuses = ['rejected', 'correction_required', 'accounts_query'];
+    if (blockedStatuses.includes(invoice.status)) {
+      return NextResponse.json(
+        { error: `Cannot upload tax invoice: invoice status is "${invoice.status}". Please resolve the current status before uploading a tax invoice.` },
+        { status: 400 }
+      );
+    }
+
     const uploadedBy = session.type === 'engineer'
       ? (session as import('@/lib/auth').EngineerToken).engineerName
       : 'Admin';
