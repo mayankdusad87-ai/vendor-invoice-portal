@@ -31,6 +31,32 @@ function getSheets() {
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 
+const REQUIRED_INVOICE_COLUMNS = 48; // A(1) through AV(48)
+
+async function ensureSheetColumns(sheetName: string, requiredCols: number): Promise<void> {
+  const sheets = getSheets();
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId: SHEET_ID,
+    fields: 'sheets.properties',
+  });
+  const sheet = meta.data.sheets?.find(s => s.properties?.title === sheetName);
+  if (!sheet) return;
+  const currentCols = sheet.properties?.gridProperties?.columnCount || 0;
+  if (currentCols >= requiredCols) return;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: {
+      requests: [{
+        appendDimension: {
+          sheetId: sheet.properties?.sheetId,
+          dimension: 'COLUMNS',
+          length: requiredCols - currentCols,
+        },
+      }],
+    },
+  });
+}
+
 // ==================== DATE HELPERS (IST) ====================
 
 /**
@@ -934,6 +960,7 @@ export async function updateInvoiceDocumentStage(
     revisionReason?: string;
   },
 ): Promise<boolean> {
+  await ensureSheetColumns('Invoices', REQUIRED_INVOICE_COLUMNS);
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
@@ -1023,6 +1050,7 @@ export async function updatePhysicalCopyTracking(
   date: string,
   expectedUpdatedAt?: string,
 ): Promise<boolean> {
+  await ensureSheetColumns('Invoices', REQUIRED_INVOICE_COLUMNS);
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
