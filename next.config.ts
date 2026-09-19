@@ -22,8 +22,24 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // API routes — no caching, no framing
-        source: '/api/(.*)',
+        // R2 file proxy — allow same-origin iframe embedding for PDF/image previews
+        source: '/api/r2/(.*)',
+        headers: [
+          { key: 'Cache-Control', value: 'private, max-age=3600' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        ],
+      },
+      {
+        // Drive file proxy — allow same-origin iframe embedding for previews
+        source: '/api/files/(.*)',
+        headers: [
+          { key: 'Cache-Control', value: 'private, max-age=3600' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        ],
+      },
+      {
+        // Other API routes — no caching, no framing
+        source: '/api/((?!r2/|files/).*)',
         headers: [
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' },
           { key: 'X-Frame-Options', value: 'DENY' },
