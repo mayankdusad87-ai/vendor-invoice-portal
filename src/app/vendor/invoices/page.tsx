@@ -572,6 +572,9 @@ export default function VendorInvoices() {
                                 {invoice.documentStage === 'proforma' && (
                                   <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
                                 )}
+                                {invoice.documentStage === 'tax_invoice' && (
+                                  <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
+                                )}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-right">
@@ -713,6 +716,9 @@ export default function VendorInvoices() {
                         {invoice.invoiceType && <TypeBadge type={invoice.invoiceType} />}
                         {invoice.documentStage === 'proforma' && (
                           <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                        )}
+                        {invoice.documentStage === 'tax_invoice' && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
                         )}
                         <span>{formatDate(invoice.invoiceDate)}</span>
                       </div>

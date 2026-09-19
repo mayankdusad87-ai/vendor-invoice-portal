@@ -2591,6 +2591,9 @@ export default function AccountsDashboard() {
                               {inv.documentStage === 'proforma' && (
                                 <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
                               )}
+                              {inv.documentStage === 'tax_invoice' && (
+                                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
+                              )}
                               {invoiceNeedsExtension(inv) && (
                                 <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200">Pending Extension</span>
                               )}
@@ -3083,6 +3086,9 @@ export default function AccountsDashboard() {
                           <span className="font-bold text-gray-900 text-sm">{inv.invoiceNumber}</span>
                           {inv.documentStage === 'proforma' && (
                             <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                          )}
+                          {inv.documentStage === 'tax_invoice' && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
                           )}
                           {invoiceNeedsExtension(inv) && (
                             <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200">Pending Extension</span>
