@@ -879,6 +879,11 @@ select.input-field {
   animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Drawer slide-in from right */
+.animate-slide-in-right {
+  animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 @keyframes slideInRight {
   from {
     opacity: 0;
@@ -965,6 +970,61 @@ select.input-field {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* ========================================
+   LIGHT THEME — reusable across vendor + admin pages
+   Override dark :root tokens with light palette
+   ======================================== */
+
+.light-theme {
+  --background: #f8fafc;
+  --background-subtle: #f1f5f9;
+  --foreground: #111827;
+  --surface: #ffffff;
+  --surface-hover: #f8fafc;
+  --surface-muted: #f1f5f9;
+  --surface-glass: rgba(255, 255, 255, 0.85);
+  --border: #e2e8f0;
+  --border-muted: #f1f5f9;
+  --border-glass: rgba(0, 0, 0, 0.06);
+
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-light: rgba(59, 130, 246, 0.08);
+  --primary-ring: rgba(59, 130, 246, 0.2);
+  --primary-glow: rgba(59, 130, 246, 0.1);
+
+  --accent: #0891b2;
+  --accent-hover: #0e7490;
+  --accent-light: rgba(8, 145, 178, 0.08);
+
+  --success: #059669;
+  --success-light: rgba(5, 150, 105, 0.08);
+  --success-border: rgba(5, 150, 105, 0.2);
+  --warning: #d97706;
+  --warning-light: rgba(217, 119, 6, 0.08);
+  --warning-border: rgba(217, 119, 6, 0.2);
+  --danger: #dc2626;
+  --danger-light: rgba(220, 38, 38, 0.06);
+  --danger-border: rgba(220, 38, 38, 0.2);
+  --info: #3b82f6;
+  --info-light: rgba(59, 130, 246, 0.06);
+  --info-border: rgba(59, 130, 246, 0.15);
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-on-primary: #ffffff;
+  --text-accent: #3b82f6;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  --shadow-glow: none;
+
+  color: var(--foreground);
+  background: var(--background);
 }
 
 /* ========================================

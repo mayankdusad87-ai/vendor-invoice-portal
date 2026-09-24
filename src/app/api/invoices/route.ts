@@ -149,6 +149,8 @@ export async function POST(request: NextRequest) {
     const costType = sanitizeString(body.costType, 20) || '';
     // Document stage for proforma workflow
     const documentStage = sanitizeString(body.documentStage, 20) || '';
+    // Invoice due date (mandatory — must be >= invoiceDate)
+    const dueDate = sanitizeDate(body.dueDate);
 
     // Derive submittedBy from authenticated session — never from client
     const submittedBy = session.type === 'engineer'
@@ -176,6 +178,18 @@ export async function POST(request: NextRequest) {
     if (!invoiceDate || !invoiceNumber || !purpose || amount === '0.00') {
       return NextResponse.json(
         { error: 'Invoice date, number, purpose, and a valid amount are required' },
+        { status: 400 }
+      );
+    }
+    if (!dueDate) {
+      return NextResponse.json(
+        { error: 'Invoice due date is required' },
+        { status: 400 }
+      );
+    }
+    if (new Date(dueDate) < new Date(invoiceDate)) {
+      return NextResponse.json(
+        { error: 'Due date cannot be before the invoice date' },
         { status: 400 }
       );
     }
@@ -239,6 +253,7 @@ export async function POST(request: NextRequest) {
       costSubCategory,
       costType,
       documentStage: effectiveDocumentStage as 'proforma' | 'tax_invoice' | 'direct',
+      dueDate,
     });
 
     await addApprovalHistory({
@@ -599,6 +614,7 @@ export async function PATCH(request: NextRequest) {
       workPhotos: sanitizeString(body.workPhotos, 5000),
       measurementSheetUrl: sanitizeString(body.measurementSheetUrl, 2000),
       measurementSheetName: sanitizeString(body.measurementSheetName, 200),
+      dueDate: sanitizeDate(body.dueDate) || undefined,
     }, invoice.updatedAt); // optimistic concurrency
 
     if (!success) {

@@ -80,6 +80,7 @@ export async function POST(request: NextRequest) {
           invoiceFileName: updates.invoiceFileName ? sanitizeString(updates.invoiceFileName, 200) : undefined,
           measurementSheetUrl: updates.measurementSheetUrl ? sanitizeString(updates.measurementSheetUrl, 2000) : undefined,
           measurementSheetName: updates.measurementSheetName ? sanitizeString(updates.measurementSheetName, 200) : undefined,
+          dueDate: sanitizeDate(updates.dueDate) || undefined,
         };
 
         // Check if file URLs changed (not tracked in the text-based changes list)

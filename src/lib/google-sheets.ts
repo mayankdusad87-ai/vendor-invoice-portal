@@ -31,7 +31,7 @@ function getSheets() {
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 
-const REQUIRED_INVOICE_COLUMNS = 48; // A(1) through AV(48)
+const REQUIRED_INVOICE_COLUMNS = 49; // A(1) through AW(49)
 
 async function ensureSheetColumns(sheetName: string, requiredCols: number): Promise<void> {
   const sheets = getSheets();
@@ -640,13 +640,15 @@ export interface Invoice {
   physicalCopySentBy: string;    // Col AT — Who dispatched it
   physicalCopyReceivedAt: string; // Col AU — When accounts received physical copy at HO
   physicalCopyReceivedBy: string; // Col AV — Who received it
+  // INVOICE DUE DATE (AW)
+  dueDate: string;               // Col AW — Invoice payment due date (dd/mm/yyyy)
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AV',
+    range: 'Invoices!A2:AW',
   });
 
   const rows = response.data.values || [];
@@ -703,6 +705,7 @@ export async function getInvoices(): Promise<Invoice[]> {
     physicalCopySentBy: row[45] || '',  // AT
     physicalCopyReceivedAt: row[46] || '', // AU
     physicalCopyReceivedBy: row[47] || '', // AV
+    dueDate: row[48] || '',               // AW
   }));
 }
 
@@ -729,7 +732,7 @@ export async function addInvoice(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:AV',
+    range: 'Invoices!A:AW',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -784,11 +787,12 @@ export async function addInvoice(
         '',                                   // AT: Physical Copy Sent By
         '',                                   // AU: Physical Copy Received At
         '',                                   // AV: Physical Copy Received By
+        invoice.dueDate ? toIndianDateFormat(invoice.dueDate) : '', // AW: Invoice Due Date
       ]],
     },
   });
 
-  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount, accountsQueryBy: '', accountsQueryReason: '', accountsQueryAt: '', previousStatus: '', costCategory: invoice.costCategory || '', costSubCategory: invoice.costSubCategory || '', costType: invoice.costType || '', documentStage: invoice.documentStage || '', taxInvoiceFileUrl: '', taxInvoiceFileName: '', taxInvoiceNumber: '', taxInvoiceDate: '', taxInvoiceUploadedAt: '', taxInvoiceUploadedBy: '', originalGstAmount: '', originalAmount: '', revisionReason: '', physicalCopySentAt: '', physicalCopySentBy: '', physicalCopyReceivedAt: '', physicalCopyReceivedBy: '' };
+  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount, accountsQueryBy: '', accountsQueryReason: '', accountsQueryAt: '', previousStatus: '', costCategory: invoice.costCategory || '', costSubCategory: invoice.costSubCategory || '', costType: invoice.costType || '', documentStage: invoice.documentStage || '', taxInvoiceFileUrl: '', taxInvoiceFileName: '', taxInvoiceNumber: '', taxInvoiceDate: '', taxInvoiceUploadedAt: '', taxInvoiceUploadedBy: '', originalGstAmount: '', originalAmount: '', revisionReason: '', physicalCopySentAt: '', physicalCopySentBy: '', physicalCopyReceivedAt: '', physicalCopyReceivedBy: '', dueDate: invoice.dueDate || '' };
 }
 
 export async function updateInvoiceStatus(
@@ -964,7 +968,7 @@ export async function updateInvoiceDocumentStage(
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AV',
+    range: 'Invoices!A2:AW',
   });
 
   const rows = response.data.values || [];
@@ -1054,7 +1058,7 @@ export async function updatePhysicalCopyTracking(
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AV',
+    range: 'Invoices!A2:AW',
   });
 
   const rows = response.data.values || [];
@@ -1114,6 +1118,7 @@ export async function resubmitInvoice(
     poNumber?: string;
     challanUrl?: string;
     challanName?: string;
+    dueDate?: string;
   },
   expectedUpdatedAt?: string,
 ): Promise<boolean> {
@@ -1195,6 +1200,15 @@ export async function resubmitInvoice(
     requestBody: { values: [updatedRow] },
   });
 
+  if (updates.dueDate) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `Invoices!AW${rowIndex + 2}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[toIndianDateFormat(updates.dueDate)]] },
+    });
+  }
+
   return true;
 }
 
@@ -1211,6 +1225,7 @@ export async function amendInvoiceFields(
     invoiceFileName?: string;
     measurementSheetUrl?: string;
     measurementSheetName?: string;
+    dueDate?: string;
   },
   expectedUpdatedAt?: string,
 ): Promise<boolean> {
@@ -1278,6 +1293,15 @@ export async function amendInvoiceFields(
     valueInputOption: 'RAW',
     requestBody: { values: [updatedRow] },
   });
+
+  if (updates.dueDate) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `Invoices!AW${rowIndex + 2}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[toIndianDateFormat(updates.dueDate)]] },
+    });
+  }
 
   return true;
 }

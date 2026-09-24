@@ -28,6 +28,7 @@ interface Invoice {
   invoiceType: string;
   submittedBy: string;
   documentStage?: string;
+  dueDate?: string;
 }
 
 const STATUS_TABS: { key: string; label: string }[] = [

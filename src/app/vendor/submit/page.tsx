@@ -45,6 +45,7 @@ function SubmitInvoice() {
 
   const [form, setForm] = useState({
     invoiceDate: '',
+    dueDate: '',
     invoiceNumber: '',
     invoiceType: '',
     documentType: '' as '' | 'proforma' | 'tax_invoice',
@@ -137,8 +138,13 @@ function SubmitInvoice() {
         const ddmmMatch = isoDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
         if (ddmmMatch) isoDate = `${ddmmMatch[3]}-${ddmmMatch[2]}-${ddmmMatch[1]}`;
 
+        let isoDueDate = invoice.dueDate || '';
+        const ddmmDueMatch = isoDueDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (ddmmDueMatch) isoDueDate = `${ddmmDueMatch[3]}-${ddmmDueMatch[2]}-${ddmmDueMatch[1]}`;
+
         setForm({
           invoiceDate: isoDate,
+          dueDate: isoDueDate,
           invoiceNumber: invoice.invoiceNumber,
           invoiceType: invoice.invoiceType || '',
           documentType: invoice.documentStage === 'proforma' ? 'proforma' : invoice.documentStage === 'tax_invoice' ? 'tax_invoice' : '',
@@ -191,8 +197,13 @@ function SubmitInvoice() {
       const ddmmMatch = isoDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
       if (ddmmMatch) isoDate = `${ddmmMatch[3]}-${ddmmMatch[2]}-${ddmmMatch[1]}`;
 
+      let isoDueDate = invoice.dueDate || '';
+      const ddmmDueMatch = isoDueDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (ddmmDueMatch) isoDueDate = `${ddmmDueMatch[3]}-${ddmmDueMatch[2]}-${ddmmDueMatch[1]}`;
+
       setForm({
         invoiceDate: isoDate,
+        dueDate: isoDueDate,
         invoiceNumber: invoice.invoiceNumber,
         invoiceType: invoice.invoiceType || '',
         documentType: invoice.documentStage === 'proforma' ? 'proforma' : invoice.documentStage === 'tax_invoice' ? 'tax_invoice' : '',
@@ -330,6 +341,20 @@ function SubmitInvoice() {
       return;
     }
 
+    if (!form.dueDate) {
+      showError('Invoice due date is required');
+      return;
+    }
+    const dueDateObj = new Date(form.dueDate);
+    if (isNaN(dueDateObj.getTime())) {
+      showError('Invalid due date');
+      return;
+    }
+    if (dueDateObj < invoiceDateObj) {
+      showError('Due date cannot be before the invoice date');
+      return;
+    }
+
     if (!trimmedNumber || trimmedNumber.length < 2) {
       showError('Invoice number must be at least 2 characters');
       return;
@@ -461,6 +486,7 @@ function SubmitInvoice() {
             invoiceId: amendId,
             updates: {
               invoiceDate: form.invoiceDate,
+              dueDate: form.dueDate,
               invoiceNumber: form.invoiceNumber,
               purpose: form.purpose,
               amount: form.amount,
@@ -555,7 +581,7 @@ function SubmitInvoice() {
       }
 
       setSuccess(true);
-      setForm({ invoiceDate: '', invoiceNumber: '', invoiceType: '', documentType: '', purpose: '', amount: '', gstAmount: '', remarks: '', costCategory: '', costSubCategory: '', costType: '' });
+      setForm({ invoiceDate: '', dueDate: '', invoiceNumber: '', invoiceType: '', documentType: '', purpose: '', amount: '', gstAmount: '', remarks: '', costCategory: '', costSubCategory: '', costType: '' });
       setSelectedProject('');
       setInvoiceFile(null);
       setWorkPhotos([]);
@@ -786,7 +812,7 @@ function SubmitInvoice() {
               </div>
 
               {/* Basic Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Invoice Date *
@@ -798,6 +824,26 @@ function SubmitInvoice() {
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
                     required
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Due Date *
+                  </label>
+                  <input
+                    type="date"
+                    value={form.dueDate}
+                    onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+                    min={form.invoiceDate || undefined}
+                    className={`w-full px-3 py-2.5 rounded-lg border bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px] ${
+                      form.dueDate && form.invoiceDate && form.dueDate < form.invoiceDate
+                        ? 'border-red-400 ring-1 ring-red-300'
+                        : 'border-gray-300'
+                    }`}
+                    required
+                  />
+                  {form.dueDate && form.invoiceDate && form.dueDate < form.invoiceDate && (
+                    <p className="text-xs text-red-600 mt-1">Due date cannot be before invoice date</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">

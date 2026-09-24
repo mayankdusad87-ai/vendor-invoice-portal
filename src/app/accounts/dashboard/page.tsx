@@ -53,6 +53,7 @@ interface Invoice {
   physicalCopySentBy?: string;
   physicalCopyReceivedAt?: string;
   physicalCopyReceivedBy?: string;
+  dueDate?: string;
 }
 
 interface Payment {
@@ -1740,7 +1741,7 @@ export default function AccountsDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
-  const [sortBy, setSortBy] = useState<'date' | 'amount' | 'vendor'>('date');
+  const [sortBy, setSortBy] = useState<'date' | 'amount' | 'vendor' | 'dueDate'>('date');
 
   // Vendor outstanding summary
   const [vendorSummary, setVendorSummary] = useState<Array<{
@@ -1902,12 +1903,23 @@ export default function AccountsDashboard() {
     }
 
     const sorted = [...filtered];
+    const parseDDMMYYYY = (d: string) => {
+      const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      return m ? new Date(`${m[3]}-${m[2]}-${m[1]}`).getTime() : 0;
+    };
     switch (sortBy) {
       case 'amount':
         sorted.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
         break;
       case 'vendor':
         sorted.sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+        break;
+      case 'dueDate':
+        sorted.sort((a, b) => {
+          const da = a.dueDate ? parseDDMMYYYY(a.dueDate) : Infinity;
+          const db = b.dueDate ? parseDDMMYYYY(b.dueDate) : Infinity;
+          return da - db;
+        });
         break;
       default:
         sorted.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
@@ -2479,6 +2491,7 @@ export default function AccountsDashboard() {
             aria-label="Sort invoices"
           >
             <option value="date">Sort by date</option>
+            <option value="dueDate">Sort by due date</option>
             <option value="amount">Sort by amount</option>
             <option value="vendor">Sort by vendor</option>
           </select>
@@ -2537,6 +2550,7 @@ export default function AccountsDashboard() {
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vendor</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Project</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Due Date</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice Amt</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Approved</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Paid</th>
@@ -2610,6 +2624,23 @@ export default function AccountsDashboard() {
                               {inv.project || <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              {inv.dueDate ? (
+                                (() => {
+                                  const m = inv.dueDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+                                  const dueDateMs = m ? new Date(`${m[3]}-${m[2]}-${m[1]}`).getTime() : 0;
+                                  const isOverdue = dueDateMs > 0 && dueDateMs < Date.now() && inv.status !== 'paid';
+                                  return (
+                                    <span className={isOverdue ? 'text-red-600 font-semibold' : 'text-gray-500'}>
+                                      {formatDate(inv.dueDate)}
+                                      {isOverdue && <span className="ml-1 text-[10px] font-bold text-red-500">OVERDUE</span>}
+                                    </span>
+                                  );
+                                })()
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-right whitespace-nowrap">
                               {(() => {
                                 const gst = parseFloat(inv.gstAmount || '') || 0;
@@ -3155,7 +3186,11 @@ export default function AccountsDashboard() {
                         </div>
                       </div>
 
-                      <p className="text-xs text-gray-400 mt-2">{formatDate(inv.invoiceDate)} · {inv.purpose}</p>
+                      <p className="text-xs text-gray-400 mt-2">
+                        {formatDate(inv.invoiceDate)}
+                        {inv.dueDate && <> · Due: {formatDate(inv.dueDate)}</>}
+                        {' · '}{inv.purpose}
+                      </p>
                     </div>
 
                     {/* Expanded detail */}

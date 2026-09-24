@@ -55,6 +55,7 @@ interface Invoice {
   physicalCopySentBy?: string;
   physicalCopyReceivedAt?: string;
   physicalCopyReceivedBy?: string;
+  dueDate?: string;
 }
 
 interface BulkSummary {
@@ -194,6 +195,7 @@ export default function ApproverDashboard() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionError, setActionError] = useState<Record<string, string>>({});
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
 
   // Payment data cache (for partially_paid / paid invoices)
   const [paymentCache, setPaymentCache] = useState<Record<string, PaymentSummary>>({});
@@ -567,6 +569,7 @@ export default function ApproverDashboard() {
         setReason(invoiceId, '');
         setApprovedAmounts((prev) => { const next = { ...prev }; delete next[invoiceId]; return next; });
         setExpandedId(null);
+        setRejectingId(null);
 
         // Toast notification
         if (action === 'approved') {
@@ -1045,6 +1048,7 @@ export default function ApproverDashboard() {
                     onClick={() => {
                       const newExpanded = isExpanded ? null : invoice.id;
                       setExpandedId(newExpanded);
+                      setRejectingId(null);
                       // Fetch payment data for payment-phase invoices when expanding
                       if (newExpanded && isPaymentPhase && !paymentCache[invoice.id]) {
                         fetchPaymentSummary(invoice.id);
@@ -1062,6 +1066,7 @@ export default function ApproverDashboard() {
                         e.preventDefault();
                         const newExpanded = isExpanded ? null : invoice.id;
                         setExpandedId(newExpanded);
+                        setRejectingId(null);
                         if (newExpanded && isPaymentPhase && !paymentCache[invoice.id]) {
                           fetchPaymentSummary(invoice.id);
                         }
@@ -1728,23 +1733,6 @@ export default function ApproverDashboard() {
 
                             <div>
                               <label className="block text-xs font-medium text-gray-500 mb-1">
-                                Rejection Reason <span className="text-red-500">*</span>
-                                <span className="font-normal text-gray-400"> (required to reject)</span>
-                              </label>
-                              <select
-                                value={getReason(invoice.id)}
-                                onChange={(e) => { setReason(invoice.id, e.target.value); clearError(invoice.id); }}
-                                className="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-                                aria-label="Select rejection reason"
-                              >
-                                <option value="">— Select reason —</option>
-                                {rejectionReasons.map((r) => (
-                                  <option key={r.id} value={r.reason}>{r.reason}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-500 mb-1">
                                 Remarks / Comments <span className="text-red-500">*</span>
                                 <span className="font-normal text-gray-400"> (required to approve or reject)</span>
                               </label>
@@ -1766,35 +1754,80 @@ export default function ApproverDashboard() {
                               </div>
                             )}
 
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'approved', invoice.amount, invoice.gstAmount)}
-                                disabled={actionLoading === invoice.id}
-                                className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                </svg>
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'rejected')}
-                                disabled={actionLoading === invoice.id}
-                                className="flex-1 inline-flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                                Reject
-                              </button>
-                              <button
-                                onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'under_review')}
-                                disabled={actionLoading === invoice.id}
-                                className="inline-flex items-center justify-center gap-1 bg-amber-500 text-white px-3 py-2.5 rounded-lg font-semibold text-sm hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-                              >
-                                Review
-                              </button>
-                            </div>
+                            {/* Rejection reason — shown only after clicking Reject */}
+                            {rejectingId === invoice.id && (
+                              <div className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-3">
+                                <div className="flex items-center gap-2">
+                                  <svg className="w-4 h-4 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                                  </svg>
+                                  <p className="text-sm font-semibold text-red-800">Select a rejection reason</p>
+                                </div>
+                                <select
+                                  value={getReason(invoice.id)}
+                                  onChange={(e) => { setReason(invoice.id, e.target.value); clearError(invoice.id); }}
+                                  className="w-full px-3 py-2.5 rounded-lg border border-red-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 min-h-[44px]"
+                                  aria-label="Select rejection reason"
+                                  autoFocus
+                                >
+                                  <option value="">— Select reason —</option>
+                                  {rejectionReasons.map((r) => (
+                                    <option key={r.id} value={r.reason}>{r.reason}</option>
+                                  ))}
+                                </select>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => { setRejectingId(null); setReason(invoice.id, ''); clearError(invoice.id); }}
+                                    className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors min-h-[44px]"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'rejected')}
+                                    disabled={actionLoading === invoice.id}
+                                    className="flex-1 inline-flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                    Confirm Reject
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Action buttons — hide when in reject mode */}
+                            {rejectingId !== invoice.id && (
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'approved', invoice.amount, invoice.gstAmount)}
+                                  disabled={actionLoading === invoice.id}
+                                  className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => { clearError(invoice.id); setRejectingId(invoice.id); }}
+                                  disabled={actionLoading === invoice.id}
+                                  className="flex-1 inline-flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                  Reject
+                                </button>
+                                <button
+                                  onClick={() => requestAction(invoice.id, invoice.invoiceNumber, 'under_review')}
+                                  disabled={actionLoading === invoice.id}
+                                  className="inline-flex items-center justify-center gap-1 bg-amber-500 text-white px-3 py-2.5 rounded-lg font-semibold text-sm hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                                >
+                                  Review
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )}
 
