@@ -668,16 +668,17 @@ function InvoiceDetailContent({
       const uploadData = await uploadRes.json();
       if (!uploadRes.ok) throw new Error(uploadData.error || 'File upload failed');
 
+      const uploaded = uploadData.files?.[0] || uploadData;
       const res = await fetch('/api/invoices/tax-invoice', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           invoiceId: invoice.id,
-          taxInvoiceFileUrl: uploadData.url,
-          taxInvoiceFileName: uploadData.fileName || taxFile.name,
+          taxInvoiceFileUrl: uploaded.url,
+          taxInvoiceFileName: uploaded.fileName || taxFile.name,
           taxInvoiceNumber,
           taxInvoiceDate,
-          revisedGst,
+          revisedGstAmount: revisedGst,
           revisedAmount: revisedBase || undefined,
           revisionReason: revisionReason.trim() || undefined,
         }),
