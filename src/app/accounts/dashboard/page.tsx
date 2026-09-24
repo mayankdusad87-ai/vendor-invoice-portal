@@ -1888,6 +1888,12 @@ export default function AccountsDashboard() {
         }
         return false;
       });
+    } else if (activeTab === 'partially_paid') {
+      filtered = filtered.filter((inv) => {
+        if (inv.status !== 'partially_paid') return false;
+        const bulk = bulkSummaries[inv.id];
+        return !bulk?.hasNewAuthorization;
+      });
     } else if (activeTab !== 'all') {
       filtered = filtered.filter((inv) => inv.status === activeTab);
     }
