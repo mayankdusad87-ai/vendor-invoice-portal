@@ -1719,7 +1719,7 @@ function FileViewerModal({
    MAIN DASHBOARD — TABLE LAYOUT
    ===================================================================== */
 
-type FilterTab = 'all' | 'approved' | 'partially_paid' | 'paid' | 'rejected' | 'accounts_query';
+type FilterTab = 'action_required' | 'partially_paid' | 'accounts_query' | 'paid' | 'all';
 
 export default function AccountsDashboard() {
   const { accountsName, isReady, logout } = useAccountsAuth();
@@ -1737,7 +1737,7 @@ export default function AccountsDashboard() {
   const [paymentCache, setPaymentCache] = useState<Record<string, PaymentSummary>>({});
 
   // Filters & search
-  const [activeTab, setActiveTab] = useState<FilterTab>('all');
+  const [activeTab, setActiveTab] = useState<FilterTab>('action_required');
   const [searchQuery, setSearchQuery] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
@@ -1879,7 +1879,16 @@ export default function AccountsDashboard() {
   const filteredInvoices = useMemo(() => {
     let filtered = invoices;
 
-    if (activeTab !== 'all') {
+    if (activeTab === 'action_required') {
+      filtered = filtered.filter((inv) => {
+        if (inv.status === 'approved') return true;
+        if (inv.status === 'partially_paid') {
+          const bulk = bulkSummaries[inv.id];
+          return bulk?.hasNewAuthorization === true;
+        }
+        return false;
+      });
+    } else if (activeTab !== 'all') {
       filtered = filtered.filter((inv) => inv.status === activeTab);
     }
 
@@ -1926,7 +1935,7 @@ export default function AccountsDashboard() {
     }
 
     return sorted;
-  }, [invoices, activeTab, vendorFilter, projectFilter, searchQuery, sortBy]);
+  }, [invoices, activeTab, vendorFilter, projectFilter, searchQuery, sortBy, bulkSummaries]);
 
   // Stats — filtered by vendor when vendorFilter is active
   const stats = useMemo(() => {
@@ -1952,6 +1961,27 @@ export default function AccountsDashboard() {
       outstandingAmount: sumAmount(outstanding),
       totalDisbursed,
     };
+  }, [invoices, bulkSummaries, vendorFilter]);
+
+  // Tab counts
+  const tabCounts = useMemo(() => {
+    const base = vendorFilter ? invoices.filter(i => i.vendorName === vendorFilter) : invoices;
+    const actionRequired = base.filter((inv) => {
+      if (inv.status === 'approved') return true;
+      if (inv.status === 'partially_paid') {
+        const bulk = bulkSummaries[inv.id];
+        return bulk?.hasNewAuthorization === true;
+      }
+      return false;
+    }).length;
+    const partiallyPaid = base.filter(i => {
+      if (i.status !== 'partially_paid') return false;
+      const bulk = bulkSummaries[i.id];
+      return !bulk?.hasNewAuthorization;
+    }).length;
+    const accountsQuery = base.filter(i => i.status === 'accounts_query').length;
+    const paid = base.filter(i => i.status === 'paid').length;
+    return { action_required: actionRequired, partially_paid: partiallyPaid, accounts_query: accountsQuery, paid, all: base.length };
   }, [invoices, bulkSummaries, vendorFilter]);
 
   // Payment submission — generates a unique idempotency key per attempt
@@ -2252,23 +2282,23 @@ export default function AccountsDashboard() {
         {/* ── Stat Cards ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
           <button
-            onClick={() => setActiveTab('approved')}
+            onClick={() => setActiveTab('action_required')}
             className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
-              activeTab === 'approved' ? 'ring-2 ring-amber-500 ring-offset-1' : ''
+              activeTab === 'action_required' ? 'ring-2 ring-amber-500 ring-offset-1' : ''
             }`}
-            aria-label={`Pending payment: ${stats.approvedCount}`}
+            aria-label={`Action required: ${tabCounts.action_required}`}
           >
             <div className="flex items-start justify-between">
-              <p className="text-xs font-medium text-gray-500">Pending payment</p>
-              <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
-                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <p className="text-xs font-medium text-gray-500">Action Required</p>
+              <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
                 </svg>
               </div>
             </div>
-            <p className="text-2xl font-bold text-amber-600 mt-1">{stats.approvedCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">worth {formatCurrency(stats.approvedAmount)}</p>
-            <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
+            <p className="text-2xl font-bold text-red-600 mt-1">{tabCounts.action_required}</p>
+            <p className="text-xs text-gray-400 mt-0.5">need payment action</p>
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-red-500" />
           </button>
 
           <button
@@ -2316,24 +2346,51 @@ export default function AccountsDashboard() {
           </button>
 
           <button
-            onClick={() => setActiveTab('all')}
+            onClick={() => setActiveTab('accounts_query')}
             className={`bg-white rounded-xl p-4 text-left transition-all border border-gray-200 relative overflow-hidden group hover:shadow-md ${
-              activeTab === 'all' ? 'ring-2 ring-blue-500 ring-offset-1' : ''
+              activeTab === 'accounts_query' ? 'ring-2 ring-orange-500 ring-offset-1' : ''
             }`}
-            aria-label={`Unpaid invoices: ${stats.approvedCount + stats.partiallyPaidCount}`}
+            aria-label={`Queries raised: ${tabCounts.accounts_query}`}
           >
             <div className="flex items-start justify-between">
-              <p className="text-xs font-medium text-gray-500">Unpaid Invoices</p>
-              <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center">
-                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+              <p className="text-xs font-medium text-gray-500">Query Raised</p>
+              <div className="w-7 h-7 rounded-lg bg-orange-50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
                 </svg>
               </div>
             </div>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{stats.approvedCount + stats.partiallyPaidCount}</p>
-            <p className="text-xs text-gray-400 mt-0.5">worth {formatCurrency(stats.outstandingAmount)}</p>
-            <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500" />
+            <p className="text-2xl font-bold text-orange-600 mt-1">{tabCounts.accounts_query}</p>
+            <p className="text-xs text-gray-400 mt-0.5">awaiting response</p>
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-orange-500" />
           </button>
+        </div>
+
+        {/* ── Workflow Tabs ── */}
+        <div className="flex items-center gap-1 mb-5 bg-gray-100/80 rounded-xl p-1 overflow-x-auto">
+          {([
+            { key: 'action_required' as FilterTab, label: 'Action Required', color: 'text-red-600 bg-red-50 border-red-200', activeColor: 'bg-white text-red-700 shadow-sm' },
+            { key: 'partially_paid' as FilterTab, label: 'Partially Paid', color: 'text-violet-600 bg-violet-50 border-violet-200', activeColor: 'bg-white text-violet-700 shadow-sm' },
+            { key: 'accounts_query' as FilterTab, label: 'Query Raised', color: 'text-orange-600 bg-orange-50 border-orange-200', activeColor: 'bg-white text-orange-700 shadow-sm' },
+            { key: 'paid' as FilterTab, label: 'Paid', color: 'text-emerald-600 bg-emerald-50 border-emerald-200', activeColor: 'bg-white text-emerald-700 shadow-sm' },
+            { key: 'all' as FilterTab, label: 'All Invoices', color: 'text-gray-600 bg-gray-50 border-gray-200', activeColor: 'bg-white text-gray-800 shadow-sm' },
+          ]).map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                activeTab === tab.key ? tab.activeColor : 'text-gray-500 hover:text-gray-700 hover:bg-white/50'
+              }`}
+              aria-label={`${tab.label}: ${tabCounts[tab.key]} invoices`}
+            >
+              {tab.label}
+              <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold ${
+                activeTab === tab.key ? tab.color : 'bg-gray-200/80 text-gray-500'
+              }`}>
+                {tabCounts[tab.key]}
+              </span>
+            </button>
+          ))}
         </div>
 
         {/* ── Vendor Outstanding Summary ── */}
@@ -2490,7 +2547,7 @@ export default function AccountsDashboard() {
           <div className="flex-1" />
           <p className="text-sm text-gray-500 hidden sm:block">
             Showing <strong className="text-gray-700">{filteredInvoices.length}</strong> invoice{filteredInvoices.length !== 1 ? 's' : ''}
-            {activeTab !== 'all' && ` · ${activeTab.replace('_', ' ')}`}
+            {activeTab !== 'all' && ` · ${activeTab === 'action_required' ? 'action required' : activeTab === 'accounts_query' ? 'query raised' : activeTab.replace('_', ' ')}`}
             {vendorFilter && ` · ${vendorFilter}`}
             {projectFilter && ` · ${projectFilter}`}
           </p>
@@ -2512,17 +2569,29 @@ export default function AccountsDashboard() {
           <LoadingSkeleton variant="card" count={4} />
         ) : filteredInvoices.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm text-center py-16 px-6">
-            {activeTab === 'paid' && !searchQuery ? (
+            {activeTab === 'action_required' && !searchQuery ? (
               <>
-                <div className="text-4xl mb-3">🎉</div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">All payments complete!</h3>
-                <p className="text-gray-500 text-sm">Every invoice has been fully paid.</p>
+                <svg className="w-10 h-10 mx-auto mb-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">All caught up!</h3>
+                <p className="text-gray-500 text-sm">No invoices need payment action right now.</p>
               </>
-            ) : activeTab === 'approved' && !searchQuery ? (
+            ) : activeTab === 'paid' && !searchQuery ? (
               <>
-                <div className="text-4xl mb-3">✅</div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">No pending payments</h3>
-                <p className="text-gray-500 text-sm">All approved invoices have been processed.</p>
+                <svg className="w-10 h-10 mx-auto mb-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">No paid invoices yet</h3>
+                <p className="text-gray-500 text-sm">Paid invoices will appear here for reference.</p>
+              </>
+            ) : activeTab === 'accounts_query' && !searchQuery ? (
+              <>
+                <svg className="w-10 h-10 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">No pending queries</h3>
+                <p className="text-gray-500 text-sm">No invoices have open queries right now.</p>
               </>
             ) : (
               <>

@@ -174,7 +174,7 @@ export default function ApproverDashboard() {
   const { approverName, isReady, logout } = useApproverAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>('all');
+  const [filter, setFilter] = useState<string>('pending');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVendor, setSelectedVendor] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'amount'>('date');
@@ -967,6 +967,35 @@ export default function ApproverDashboard() {
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-pink-500" />
             </button>
           )}
+        </div>
+
+        {/* ── Workflow Tabs ── */}
+        <div className="flex items-center gap-1 mb-5 bg-gray-100/80 rounded-xl p-1 overflow-x-auto">
+          {([
+            { key: 'pending', label: 'Needs Review', count: stats.pendingCount, activeColor: 'bg-white text-amber-700 shadow-sm', badgeColor: 'text-amber-600 bg-amber-50 border-amber-200' },
+            { key: 'approved', label: 'Approved', count: stats.approvedCount, activeColor: 'bg-white text-emerald-700 shadow-sm', badgeColor: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+            { key: 'in_payment', label: 'In Payment', count: stats.inPaymentCount, activeColor: 'bg-white text-violet-700 shadow-sm', badgeColor: 'text-violet-600 bg-violet-50 border-violet-200' },
+            { key: 'accounts_query', label: 'Queries', count: stats.accountsQueryCount + stats.correctionCount, activeColor: 'bg-white text-orange-700 shadow-sm', badgeColor: 'text-orange-600 bg-orange-50 border-orange-200' },
+            ...(stats.extensionCount > 0 ? [{ key: 'extension', label: 'Extension', count: stats.extensionCount, activeColor: 'bg-white text-pink-700 shadow-sm', badgeColor: 'text-pink-600 bg-pink-50 border-pink-200' }] : []),
+            { key: 'rejected', label: 'Rejected', count: stats.rejectedCount, activeColor: 'bg-white text-red-700 shadow-sm', badgeColor: 'text-red-600 bg-red-50 border-red-200' },
+            { key: 'all', label: 'All', count: stats.total, activeColor: 'bg-white text-gray-800 shadow-sm', badgeColor: 'text-gray-600 bg-gray-50 border-gray-200' },
+          ]).map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setFilter(tab.key)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                filter === tab.key ? tab.activeColor : 'text-gray-500 hover:text-gray-700 hover:bg-white/50'
+              }`}
+              aria-label={`${tab.label}: ${tab.count} invoices`}
+            >
+              {tab.label}
+              <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold ${
+                filter === tab.key ? tab.badgeColor : 'bg-gray-200/80 text-gray-500'
+              }`}>
+                {tab.count}
+              </span>
+            </button>
+          ))}
         </div>
 
         {/* ── Filter bar: vendor + count + sort ── */}
