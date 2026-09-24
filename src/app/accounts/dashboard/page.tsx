@@ -1928,15 +1928,20 @@ export default function AccountsDashboard() {
     return sorted;
   }, [invoices, activeTab, vendorFilter, projectFilter, searchQuery, sortBy]);
 
-  // Stats
+  // Stats — filtered by vendor when vendorFilter is active
   const stats = useMemo(() => {
-    const approved = invoices.filter((i) => i.status === 'approved');
-    const partiallyPaid = invoices.filter((i) => i.status === 'partially_paid');
-    const paid = invoices.filter((i) => i.status === 'paid');
+    const base = vendorFilter ? invoices.filter(i => i.vendorName === vendorFilter) : invoices;
+    const approved = base.filter((i) => i.status === 'approved');
+    const partiallyPaid = base.filter((i) => i.status === 'partially_paid');
+    const paid = base.filter((i) => i.status === 'paid');
     const outstanding = [...approved, ...partiallyPaid];
     const sumAmount = (arr: Invoice[]) => arr.reduce((s, i) => s + (parseFloat(i.amount) || 0) + (parseFloat(i.gstAmount || '0') || 0), 0);
-    // Total disbursed across all invoices from bulk summaries
-    const totalDisbursed = Object.values(bulkSummaries).reduce((sum, s) => sum + s.totalPaid, 0);
+    // Total disbursed — filter bulk summaries to only matching invoices when vendor is selected
+    const baseIds = new Set(base.map(i => i.id));
+    const relevantSummaries = vendorFilter
+      ? Object.entries(bulkSummaries).filter(([id]) => baseIds.has(id))
+      : Object.entries(bulkSummaries);
+    const totalDisbursed = relevantSummaries.reduce((sum, [, s]) => sum + s.totalPaid, 0);
     return {
       approvedCount: approved.length,
       approvedAmount: sumAmount(approved),
@@ -1947,7 +1952,7 @@ export default function AccountsDashboard() {
       outstandingAmount: sumAmount(outstanding),
       totalDisbursed,
     };
-  }, [invoices, bulkSummaries]);
+  }, [invoices, bulkSummaries, vendorFilter]);
 
   // Payment submission — generates a unique idempotency key per attempt
   // so that double-clicks, retries, and network timeouts are safe.
@@ -2381,7 +2386,7 @@ export default function AccountsDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {vendorSummary.map((v) => (
+                      {(vendorFilter ? vendorSummary.filter(v => v.vendorName === vendorFilter) : vendorSummary).map((v) => (
                         <tr key={v.vendorName} className="hover:bg-gray-50/50">
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
@@ -2424,17 +2429,22 @@ export default function AccountsDashboard() {
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr className="bg-gray-50 border-t border-gray-200 font-semibold text-xs">
-                        <td className="px-4 py-2.5 text-gray-700">Total</td>
-                        <td className="px-3 py-2.5 text-center text-gray-600">{vendorSummary.reduce((s, v) => s + v.invoiceCount, 0)}</td>
-                        <td className="px-3 py-2.5 text-right text-emerald-700">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalApproved, 0))}</td>
-                        <td className="px-3 py-2.5 text-right text-red-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalTDS, 0))}</td>
-                        <td className="px-3 py-2.5 text-right text-amber-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalRetention, 0))}</td>
-                        <td className="px-3 py-2.5 text-right text-violet-700">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalPaidToVendor, 0))}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-600">{formatCurrency(vendorSummary.reduce((s, v) => s + v.totalConsumed, 0))}</td>
-                        <td className="px-3 py-2.5 text-right text-blue-700">{formatCurrency(vendorSummary.reduce((s, v) => s + Math.max(0, v.outstanding), 0))}</td>
-                        <td className="px-3 py-2.5"></td>
-                      </tr>
+                      {(() => {
+                        const vs = vendorFilter ? vendorSummary.filter(v => v.vendorName === vendorFilter) : vendorSummary;
+                        return (
+                          <tr className="bg-gray-50 border-t border-gray-200 font-semibold text-xs">
+                            <td className="px-4 py-2.5 text-gray-700">Total</td>
+                            <td className="px-3 py-2.5 text-center text-gray-600">{vs.reduce((s, v) => s + v.invoiceCount, 0)}</td>
+                            <td className="px-3 py-2.5 text-right text-emerald-700">{formatCurrency(vs.reduce((s, v) => s + v.totalApproved, 0))}</td>
+                            <td className="px-3 py-2.5 text-right text-red-600">{formatCurrency(vs.reduce((s, v) => s + v.totalTDS, 0))}</td>
+                            <td className="px-3 py-2.5 text-right text-amber-600">{formatCurrency(vs.reduce((s, v) => s + v.totalRetention, 0))}</td>
+                            <td className="px-3 py-2.5 text-right text-violet-700">{formatCurrency(vs.reduce((s, v) => s + v.totalPaidToVendor, 0))}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600">{formatCurrency(vs.reduce((s, v) => s + v.totalConsumed, 0))}</td>
+                            <td className="px-3 py-2.5 text-right text-blue-700">{formatCurrency(vs.reduce((s, v) => s + Math.max(0, v.outstanding), 0))}</td>
+                            <td className="px-3 py-2.5"></td>
+                          </tr>
+                        );
+                      })()}
                     </tfoot>
                   </table>
                 </div>
@@ -2533,7 +2543,7 @@ export default function AccountsDashboard() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="w-10 px-2 py-3 text-center">
+                      <th className="w-8 px-1 py-2.5 text-center">
                         {payableInvoices.length > 0 && (
                           <input
                             type="checkbox"
@@ -2546,18 +2556,17 @@ export default function AccountsDashboard() {
                           />
                         )}
                       </th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice #</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vendor</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Project</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Due Date</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice Amt</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Approved</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Paid</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Remaining</th>
-                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Docs</th>
-                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="text-left px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Invoice #</th>
+                      <th className="text-left px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Vendor</th>
+                      <th className="text-left px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider hidden xl:table-cell">Project</th>
+                      <th className="text-left px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                      <th className="text-left px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Due Date</th>
+                      <th className="text-right px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Inv Amt</th>
+                      <th className="text-right px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Approved</th>
+                      <th className="text-right px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Paid</th>
+                      <th className="text-right px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Remaining</th>
+                      <th className="text-center px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="text-center px-2 py-2.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -2586,7 +2595,7 @@ export default function AccountsDashboard() {
                               }
                             }}
                           >
-                            <td className="w-10 px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <td className="w-8 px-1 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                               {canPay && (
                                 <input
                                   type="checkbox"
@@ -2597,34 +2606,34 @@ export default function AccountsDashboard() {
                                 />
                               )}
                             </td>
-                            <td className="px-4 py-3">
-                              <span className="font-bold text-gray-900">{inv.invoiceNumber}</span>
+                            <td className="px-2 py-2.5">
+                              <span className="font-bold text-gray-900 text-xs">{inv.invoiceNumber}</span>
                               {inv.invoiceType && (
-                                <span className="ml-1.5"><TypeBadge type={inv.invoiceType} /></span>
+                                <span className="ml-1"><TypeBadge type={inv.invoiceType} /></span>
                               )}
                               {inv.documentStage === 'proforma' && (
-                                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 border border-amber-200">Proforma</span>
+                                <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-amber-100 text-amber-700">P</span>
                               )}
                               {inv.documentStage === 'tax_invoice' && (
-                                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
+                                <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-emerald-100 text-emerald-700">TI</span>
                               )}
                               {invoiceNeedsExtension(inv) && (
-                                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200">Pending Extension</span>
+                                <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-pink-100 text-pink-700">Ext</span>
                               )}
                             </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                            <td className="px-2 py-2.5">
+                              <div className="flex items-center gap-1.5">
+                                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-[9px] font-bold text-gray-500">
                                   {getInitials(inv.vendorName)}
                                 </div>
-                                <span className="text-gray-700 truncate max-w-[140px]">{inv.vendorName}</span>
+                                <span className="text-gray-700 truncate max-w-[100px] text-xs">{inv.vendorName}</span>
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-sm">
+                            <td className="px-2 py-2.5 text-gray-600 whitespace-nowrap text-xs hidden xl:table-cell">
                               {inv.project || <span className="text-gray-300">—</span>}
                             </td>
-                            <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
-                            <td className="px-4 py-3 whitespace-nowrap">
+                            <td className="px-2 py-2.5 text-gray-500 whitespace-nowrap text-xs">{formatDate(inv.invoiceDate)}</td>
+                            <td className="px-2 py-2.5 whitespace-nowrap text-xs">
                               {inv.dueDate ? (
                                 (() => {
                                   const m = inv.dueDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -2633,7 +2642,7 @@ export default function AccountsDashboard() {
                                   return (
                                     <span className={isOverdue ? 'text-red-600 font-semibold' : 'text-gray-500'}>
                                       {formatDate(inv.dueDate)}
-                                      {isOverdue && <span className="ml-1 text-[10px] font-bold text-red-500">OVERDUE</span>}
+                                      {isOverdue && <span className="ml-0.5 text-[9px] font-bold text-red-500">OD</span>}
                                     </span>
                                   );
                                 })()
@@ -2641,15 +2650,15 @@ export default function AccountsDashboard() {
                                 <span className="text-gray-300">—</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <td className="px-2 py-2.5 text-right whitespace-nowrap text-xs">
                               {(() => {
                                 const gst = parseFloat(inv.gstAmount || '') || 0;
                                 const total = invoiceAmt + gst;
                                 return gst > 0 ? (
                                   <>
                                     <span className="font-semibold text-gray-900">{formatCurrency(total)}</span>
-                                    <span className="block text-[10px] text-gray-400">
-                                      {formatCurrency(invoiceAmt)} + GST {formatCurrency(inv.gstAmount!)}
+                                    <span className="block text-[9px] text-gray-400">
+                                      {formatCurrency(invoiceAmt)}+GST
                                     </span>
                                   </>
                                 ) : (
@@ -2657,12 +2666,12 @@ export default function AccountsDashboard() {
                                 );
                               })()}
                             </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <td className="px-2 py-2.5 text-right whitespace-nowrap text-xs">
                               <span className={approvedAmt !== invoiceAmt ? 'text-emerald-700 font-semibold' : 'text-gray-600'}>
                                 {formatCurrency(approvedAmt)}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <td className="px-2 py-2.5 text-right whitespace-nowrap text-xs">
                               {summariesLoading ? (
                                 <span className="text-gray-300">…</span>
                               ) : totalPaid > 0 ? (
@@ -2671,7 +2680,7 @@ export default function AccountsDashboard() {
                                 <span className="text-gray-300">₹0</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <td className="px-2 py-2.5 text-right whitespace-nowrap text-xs">
                               {summariesLoading ? (
                                 <span className="text-gray-300">…</span>
                               ) : remaining > 0 ? (
@@ -2680,66 +2689,58 @@ export default function AccountsDashboard() {
                                 <span className="text-emerald-500 font-medium">₹0</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-center">
-                              <div className="flex flex-col items-center gap-1">
-                                <AccountsStatusBadge status={inv.status} />
-                                {bulk?.hasNewAuthorization && (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 animate-pulse">
-                                    <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                                    </svg>
-                                    New +₹{parseFloat(bulk.newAuthorizationAmount || '0').toLocaleString('en-IN')}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              {hasAttachments ? (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (inv.invoiceFileUrl) {
-                                      setFileViewer({ title: `Invoice ${inv.invoiceNumber}`, url: inv.invoiceFileUrl, fileName: inv.invoiceFileName });
-                                    } else {
-                                      setExpandedId(inv.id);
-                                    }
-                                  }}
-                                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                  title="View attachments"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
-                                  </svg>
-                                  View
-                                </button>
-                              ) : (
-                                <span className="text-gray-300 text-xs">—</span>
+                            <td className="px-2 py-2.5 text-center">
+                              <AccountsStatusBadge status={inv.status} />
+                              {bulk?.hasNewAuthorization && (
+                                <span className="block mt-0.5 text-[9px] font-semibold text-blue-700 animate-pulse">
+                                  +₹{parseFloat(bulk.newAuthorizationAmount || '0').toLocaleString('en-IN')}
+                                </span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-center">
-                              <div className="flex items-center justify-center gap-1.5">
+                            <td className="px-2 py-2.5 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                {hasAttachments && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (inv.invoiceFileUrl) {
+                                        setFileViewer({ title: `Invoice ${inv.invoiceNumber}`, url: inv.invoiceFileUrl, fileName: inv.invoiceFileName });
+                                      } else {
+                                        setExpandedId(inv.id);
+                                      }
+                                    }}
+                                    className="p-1 rounded text-blue-500 hover:bg-blue-50 transition-colors"
+                                    title="View attachments"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+                                    </svg>
+                                  </button>
+                                )}
                                 {canPay && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); openPaymentModal(inv); }}
-                                    className="px-2 py-1 rounded text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
                                     title="Record payment"
                                   >
-                                    ₹ Pay
+                                    ₹Pay
                                   </button>
                                 )}
                                 {canReject && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setRejectInvoice(inv); }}
-                                    className="px-2 py-1 rounded text-xs font-medium bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200 transition-colors"
+                                    className="p-1 rounded text-orange-600 hover:bg-orange-50 transition-colors"
                                     title="Raise Query"
                                   >
-                                    ?
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+                                    </svg>
                                   </button>
                                 )}
                                 {(inv.status === 'partially_paid' || inv.status === 'paid') && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); openHistoryModal(inv); }}
-                                    className="px-2 py-1 rounded text-xs font-medium bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 transition-colors"
+                                    className="p-1 rounded text-gray-500 hover:bg-gray-100 transition-colors"
                                     title="Payment history"
                                   >
                                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

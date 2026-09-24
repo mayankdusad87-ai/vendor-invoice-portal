@@ -229,6 +229,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Vendor not found' }, { status: 400 });
     }
 
+    // Duplicate check: same invoice number + invoice date + vendor name
+    const invoiceDateDDMMYYYY = invoiceDate.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3/$2/$1');
+    const existingInvoices = await getInvoices();
+    const duplicate = existingInvoices.find(
+      (inv) =>
+        inv.invoiceNumber.toLowerCase() === invoiceNumber.toLowerCase() &&
+        inv.invoiceDate === invoiceDateDDMMYYYY &&
+        inv.vendorName.toLowerCase() === matchedVendor.name.toLowerCase()
+    );
+    if (duplicate) {
+      return NextResponse.json(
+        { error: `Duplicate invoice: Invoice #${invoiceNumber} with date ${invoiceDate} already exists for ${matchedVendor.name}` },
+        { status: 409 }
+      );
+    }
+
     const invoice = await addInvoice({
       project,
       vendorName: matchedVendor.name, // Use exact DB name
