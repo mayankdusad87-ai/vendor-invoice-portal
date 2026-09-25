@@ -54,6 +54,21 @@ interface Invoice {
   physicalCopyReceivedAt?: string;
   physicalCopyReceivedBy?: string;
   dueDate?: string;
+  settlementType?: string;
+  linkedInvoiceIds?: string;
+}
+
+interface SettlementDetail {
+  id: string;
+  advanceInvoiceId: string;
+  advanceInvoiceNumber: string;
+  consumedAmount: string;
+  advanceInvoice?: {
+    id: string; invoiceNumber: string; invoiceDate: string;
+    amount: string; gstAmount: string; totalAmount: string;
+    approvedAmount: string; status: string;
+  } | null;
+  totalDisbursed: number;
 }
 
 interface Payment {
@@ -198,12 +213,14 @@ function getPreviewUrl(url: string): string | null {
 function PaymentModal({
   invoice,
   paymentSummary,
+  settlementInfo,
   onClose,
   onSubmit,
   isSubmitting,
 }: {
   invoice: Invoice;
   paymentSummary: PaymentSummary | null;
+  settlementInfo?: SettlementDetail[];
   onClose: () => void;
   onSubmit: (data: { amount: string; utrReference: string; paymentDate: string; notes: string; basicAmount?: string; gstAmount?: string; paymentType?: string; tdsAmount?: string; retentionAmount?: string }) => void;
   isSubmitting: boolean;
@@ -235,7 +252,9 @@ function PaymentModal({
   const retentionNum = parseFloat(retentionInput) || 0;
 
   const invoiceRemaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
-  const availableToPay = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
+  const totalSettled = settlementInfo ? settlementInfo.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0) : 0;
+  const rawAvailable = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
+  const availableToPay = invoice.settlementType === 'settlement' ? Math.max(0, rawAvailable - totalSettled) : rawAvailable;
 
   // Gross = net to vendor + TDS + retention; must fit within approved cap
   const parsedAmount = parseFloat(amount) || 0;
@@ -440,6 +459,101 @@ function PaymentModal({
                 </>
               )}
             </div>
+
+            {/* Settlement Breakdown — for settlement invoices */}
+            {invoice.settlementType === 'settlement' && settlementInfo && settlementInfo.length > 0 && (
+              <div className="mb-4 rounded-lg p-3 bg-blue-50 border border-blue-200">
+                <p className="text-xs font-semibold text-blue-800 mb-2 flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
+                  </svg>
+                  Settlement Against Advances
+                </p>
+                {/* Deviation table */}
+                {(() => {
+                  const proformaBase = settlementInfo.reduce((s, si) => s + (parseFloat(si.advanceInvoice?.amount || '0') || 0), 0);
+                  const taxBase = parseFloat(invoice.amount) || 0;
+                  const taxGst = parseFloat(invoice.gstAmount || '') || 0;
+                  const baseDeviation = taxBase - proformaBase;
+                  const baseDeviationPct = proformaBase > 0 ? ((baseDeviation / proformaBase) * 100) : 0;
+                  const hasBaseDeviation = Math.abs(baseDeviation) > 0.01;
+                  return hasBaseDeviation ? (
+                    <div className="mb-2 rounded bg-white border border-blue-100 overflow-hidden">
+                      <table className="w-full text-[10px]">
+                        <thead><tr className="bg-blue-100/50">
+                          <th className="text-left px-2 py-1 text-gray-500"></th>
+                          <th className="text-right px-2 py-1 text-gray-500">Proforma</th>
+                          <th className="text-right px-2 py-1 text-gray-500">Tax Invoice</th>
+                          <th className="text-right px-2 py-1 text-gray-500">Deviation</th>
+                        </tr></thead>
+                        <tbody>
+                          <tr className="border-t border-blue-50">
+                            <td className="px-2 py-1 text-gray-600">Base</td>
+                            <td className="px-2 py-1 text-right text-gray-500">{formatCurrency(proformaBase)}</td>
+                            <td className="px-2 py-1 text-right text-gray-900 font-medium">{formatCurrency(taxBase)}</td>
+                            <td className={`px-2 py-1 text-right font-semibold ${baseDeviation > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                              {baseDeviation > 0 ? '+' : ''}{formatCurrency(baseDeviation)} ({baseDeviationPct > 0 ? '+' : ''}{baseDeviationPct.toFixed(0)}%)
+                            </td>
+                          </tr>
+                          {taxGst > 0 && (
+                            <tr className="border-t border-blue-50">
+                              <td className="px-2 py-1 text-gray-600">GST</td>
+                              <td className="px-2 py-1 text-right text-gray-400">—</td>
+                              <td className="px-2 py-1 text-right text-gray-900 font-medium">{formatCurrency(taxGst)}</td>
+                              <td className="px-2 py-1 text-right text-gray-500">+{formatCurrency(taxGst)}</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null;
+                })()}
+                <div className="space-y-1.5">
+                  {settlementInfo.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between bg-white rounded p-2 text-xs border border-blue-100">
+                      <div>
+                        <span className="font-medium text-gray-900">{s.advanceInvoiceNumber}</span>
+                        <span className="text-gray-400 ml-1">{s.advanceInvoice?.status || ''}</span>
+                      </div>
+                      <span className="font-semibold text-orange-600">-{formatCurrency(s.consumedAmount)}</span>
+                    </div>
+                  ))}
+                </div>
+                {(() => {
+                  const stlConsumed = settlementInfo.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0);
+                  const taxTotal = (parseFloat(invoice.amount) || 0) + (parseFloat(invoice.gstAmount || '') || 0);
+                  const approvedAmt = parseFloat(invoice.approvedAmount || '') || taxTotal;
+                  const netPayable = Math.max(0, approvedAmt - stlConsumed);
+                  const isDebit = stlConsumed > approvedAmt;
+                  const debitAmount = Math.max(0, stlConsumed - approvedAmt);
+                  return (
+                    <div className="mt-2 pt-2 border-t border-blue-200 text-xs space-y-0.5">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Approved Amount:</span>
+                        <span className="font-medium text-gray-900">{formatCurrency(approvedAmt)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Advances Recovered:</span>
+                        <span className="font-medium text-orange-600">-{formatCurrency(stlConsumed)}</span>
+                      </div>
+                      <div className="flex justify-between font-bold pt-1 border-t border-blue-100">
+                        {isDebit ? (
+                          <>
+                            <span className="text-red-700">Debit Note (Vendor Owes):</span>
+                            <span className="text-red-700">{formatCurrency(debitAmount)}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-green-700">Max Payable (Net):</span>
+                            <span className="text-green-700">{formatCurrency(netPayable)}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Payment form */}
             <div className="space-y-4">
@@ -1765,6 +1879,9 @@ export default function AccountsDashboard() {
   const [fileViewer, setFileViewer] = useState<{ title: string; url: string; fileName?: string } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Settlement data cache
+  const [settlementCache, setSettlementCache] = useState<Record<string, SettlementDetail[]>>({});
+
   // Batch payment
   const [selectedForBatch, setSelectedForBatch] = useState<Set<string>>(new Set());
   const [batchPayOpen, setBatchPayOpen] = useState(false);
@@ -1788,6 +1905,22 @@ export default function AccountsDashboard() {
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // Fetch settlement data when expanding a settlement invoice
+  useEffect(() => {
+    if (!expandedId) return;
+    const inv = invoices.find(i => i.id === expandedId);
+    if (!inv || inv.settlementType !== 'settlement' || settlementCache[expandedId]) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/settlements?taxInvoiceId=${encodeURIComponent(expandedId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSettlementCache(prev => ({ ...prev, [expandedId]: data.settlements || [] }));
+        }
+      } catch { /* non-critical */ }
+    })();
+  }, [expandedId, invoices, settlementCache]);
 
   // Fetch invoices
   const fetchInvoices = useCallback(async () => {
@@ -2075,13 +2208,22 @@ export default function AccountsDashboard() {
     [rejectInvoice, fetchInvoices]
   );
 
-  // Open payment modal (pre-fetch payment data)
+  // Open payment modal (pre-fetch payment data + settlement info)
   const openPaymentModal = useCallback(
     async (inv: Invoice) => {
       setPaymentInvoice(inv);
       await fetchPaymentSummary(inv.id);
+      if (inv.settlementType === 'settlement' && !settlementCache[inv.id]) {
+        try {
+          const res = await fetch(`/api/settlements?taxInvoiceId=${encodeURIComponent(inv.id)}`);
+          if (res.ok) {
+            const data = await res.json();
+            setSettlementCache(prev => ({ ...prev, [inv.id]: data.settlements || [] }));
+          }
+        } catch { /* settlement info is supplementary */ }
+      }
     },
-    [fetchPaymentSummary]
+    [fetchPaymentSummary, settlementCache]
   );
 
   // Open history modal
@@ -2692,6 +2834,9 @@ export default function AccountsDashboard() {
                               {inv.documentStage === 'tax_invoice' && (
                                 <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-emerald-100 text-emerald-700">TI</span>
                               )}
+                              {inv.settlementType === 'settlement' && (
+                                <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-blue-100 text-blue-700">Sett</span>
+                              )}
                               {invoiceNeedsExtension(inv) && (
                                 <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-pink-100 text-pink-700">Ext</span>
                               )}
@@ -3197,6 +3342,9 @@ export default function AccountsDashboard() {
                           {inv.documentStage === 'tax_invoice' && (
                             <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
                           )}
+                          {inv.settlementType === 'settlement' && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 border border-blue-200">Settlement</span>
+                          )}
                           {invoiceNeedsExtension(inv) && (
                             <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200">Pending Extension</span>
                           )}
@@ -3342,6 +3490,61 @@ export default function AccountsDashboard() {
                                 <p className="text-xs text-gray-600">GST: ₹{Number(inv.originalGstAmount).toLocaleString('en-IN')} → ₹{Number(inv.gstAmount || '0').toLocaleString('en-IN')}</p>
                               )}
                               <p className="text-xs text-gray-700 mt-1"><span className="font-medium">Reason:</span> {inv.revisionReason}</p>
+                            </div>
+                          )}
+
+                          {/* Settlement Breakdown (expanded detail) */}
+                          {inv.settlementType === 'settlement' && settlementCache[inv.id] && settlementCache[inv.id].length > 0 && (
+                            <div className="mb-4 rounded-lg p-3 bg-blue-50 border border-blue-200">
+                              <p className="text-xs font-semibold text-blue-800 mb-2 flex items-center gap-1.5">
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
+                                </svg>
+                                Settlement Against Advances
+                              </p>
+                              <div className="space-y-1.5">
+                                {settlementCache[inv.id].map((s: SettlementDetail) => (
+                                  <div key={s.id} className="flex items-center justify-between bg-white rounded p-2 text-xs border border-blue-100">
+                                    <div>
+                                      <span className="font-medium text-gray-900">{s.advanceInvoiceNumber}</span>
+                                      <span className="text-gray-400 ml-1">{s.advanceInvoice?.status || ''}</span>
+                                    </div>
+                                    <span className="font-semibold text-orange-600">-{formatCurrency(s.consumedAmount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              {(() => {
+                                const stlConsumed = settlementCache[inv.id].reduce((sum: number, s: SettlementDetail) => sum + (parseFloat(s.consumedAmount) || 0), 0);
+                                const approvedAmt = parseFloat(inv.approvedAmount || '') || ((parseFloat(inv.amount) || 0) + (parseFloat(inv.gstAmount || '') || 0));
+                                const netPayable = Math.max(0, approvedAmt - stlConsumed);
+                                const isDebit = stlConsumed > approvedAmt;
+                                const debitAmount = Math.max(0, stlConsumed - approvedAmt);
+                                return (
+                                  <div className="mt-2 pt-2 border-t border-blue-200 text-xs space-y-0.5">
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-600">Approved:</span>
+                                      <span className="font-medium text-gray-900">{formatCurrency(approvedAmt)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-600">Advances Recovered:</span>
+                                      <span className="font-medium text-orange-600">-{formatCurrency(stlConsumed)}</span>
+                                    </div>
+                                    <div className="flex justify-between font-bold pt-1 border-t border-blue-100">
+                                      {isDebit ? (
+                                        <>
+                                          <span className="text-red-700">Debit Note:</span>
+                                          <span className="text-red-700">{formatCurrency(debitAmount)}</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="text-green-700">Net Payable:</span>
+                                          <span className="text-green-700">{formatCurrency(netPayable)}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
 
@@ -3543,6 +3746,7 @@ export default function AccountsDashboard() {
         <PaymentModal
           invoice={paymentInvoice}
           paymentSummary={paymentCache[paymentInvoice.id] || null}
+          settlementInfo={settlementCache[paymentInvoice.id]}
           onClose={() => setPaymentInvoice(null)}
           onSubmit={handleRecordPayment}
           isSubmitting={isSubmitting}

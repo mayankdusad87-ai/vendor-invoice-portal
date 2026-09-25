@@ -634,66 +634,10 @@ function InvoiceDetailContent({
   invoice: Invoice;
   onInvoicesRefresh: () => Promise<void>;
 }) {
-  const [showTaxUpload, setShowTaxUpload] = useState(false);
-  const [taxFile, setTaxFile] = useState<File | null>(null);
-  const [taxInvoiceNumber, setTaxInvoiceNumber] = useState('');
-  const [taxInvoiceDate, setTaxInvoiceDate] = useState('');
-  const [revisedGst, setRevisedGst] = useState('');
-  const [revisedBase, setRevisedBase] = useState('');
-  const [revisionReason, setRevisionReason] = useState('');
-  const [taxUploadLoading, setTaxUploadLoading] = useState(false);
-  const [taxUploadError, setTaxUploadError] = useState('');
-  const [taxUploadSuccess, setTaxUploadSuccess] = useState(false);
   const [physicalCopySent, setPhysicalCopySent] = useState(false);
   const [physicalCopyLoading, setPhysicalCopyLoading] = useState(false);
 
   const photoUrls = invoice.workPhotos ? invoice.workPhotos.split(',').filter(Boolean) : [];
-
-  const handleTaxInvoiceUpload = async () => {
-    if (!taxFile || !taxInvoiceNumber || !taxInvoiceDate) {
-      setTaxUploadError('Please fill in all required fields');
-      return;
-    }
-    if (!revisedGst) {
-      setTaxUploadError('Please enter the GST amount from the tax invoice');
-      return;
-    }
-    setTaxUploadLoading(true);
-    setTaxUploadError('');
-
-    try {
-      const formData = new FormData();
-      formData.append('file', taxFile);
-      const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok) throw new Error(uploadData.error || 'File upload failed');
-
-      const uploaded = uploadData.files?.[0] || uploadData;
-      const res = await fetch('/api/invoices/tax-invoice', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId: invoice.id,
-          taxInvoiceFileUrl: uploaded.url,
-          taxInvoiceFileName: uploaded.fileName || taxFile.name,
-          taxInvoiceNumber,
-          taxInvoiceDate,
-          revisedGstAmount: revisedGst,
-          revisedAmount: revisedBase || undefined,
-          revisionReason: revisionReason.trim() || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to upload tax invoice');
-
-      setTaxUploadSuccess(true);
-      onInvoicesRefresh?.();
-    } catch (err) {
-      setTaxUploadError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setTaxUploadLoading(false);
-    }
-  };
 
   const handlePhysicalCopySend = async () => {
     setPhysicalCopyLoading(true);
@@ -767,140 +711,15 @@ function InvoiceDetailContent({
         )}
       </DrawerSection>
 
-      {/* Proforma → Tax Invoice Upload */}
-      {invoice.documentStage === 'proforma' && !taxUploadSuccess && !['rejected', 'correction_required', 'accounts_query'].includes(invoice.status) && (
-        <DrawerSection title="Tax Invoice Upload" badge={<DocStageBadge stage="proforma" />}>
-          <div className="rounded-lg border border-[var(--warning-border)] bg-[var(--warning-light)] p-3 mb-3">
-            <p className="text-xs" style={{ color: 'var(--warning)' }}>
-              {parseFloat(invoice.gstAmount || '0') > 0
-                ? `GST payment of ₹${parseFloat(invoice.gstAmount || '0').toLocaleString('en-IN')} is locked until the actual tax invoice is uploaded.`
-                : 'This is a proforma invoice. If you have the final tax invoice with GST, upload it here.'}
+      {/* Proforma info — settlement flow replaces Upload Tax Invoice */}
+      {invoice.documentStage === 'proforma' && !['rejected', 'correction_required', 'accounts_query'].includes(invoice.status) && (
+        <DrawerSection title="Proforma Status" badge={<DocStageBadge stage="proforma" />}>
+          <div className="rounded-lg border border-[var(--info-border,#bfdbfe)] bg-[var(--info-light,#eff6ff)] p-3">
+            <p className="text-xs" style={{ color: 'var(--info,#2563eb)' }}>
+              This is a proforma invoice. When the final tax invoice arrives, submit it as a <strong>new Tax Invoice</strong> through the Submit Invoice form and link it to this proforma using the settlement feature.
             </p>
           </div>
-          <button
-            onClick={() => setShowTaxUpload(!showTaxUpload)}
-            className="w-full py-2 text-xs font-semibold rounded-lg transition-colors"
-            style={{
-              background: showTaxUpload ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.15)',
-              color: showTaxUpload ? 'var(--danger)' : 'var(--warning)',
-              border: `1px solid ${showTaxUpload ? 'var(--danger-border)' : 'var(--warning-border)'}`,
-            }}
-          >
-            {showTaxUpload ? 'Cancel' : 'Upload Tax Invoice'}
-          </button>
-
-          {showTaxUpload && (
-            <div className="mt-3 space-y-3 p-3 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
-              <div>
-                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Tax Invoice File *</label>
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.heic"
-                  onChange={(e) => setTaxFile(e.target.files?.[0] || null)}
-                  className="w-full text-sm text-[var(--text-secondary)] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[var(--warning-light)] file:text-[var(--warning)]"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Tax Invoice Number *</label>
-                  <input
-                    type="text"
-                    value={taxInvoiceNumber}
-                    onChange={(e) => setTaxInvoiceNumber(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] text-sm text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--primary)] focus:outline-none min-h-[40px]"
-                    placeholder="e.g., TAX-001"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Tax Invoice Date *</label>
-                  <input
-                    type="date"
-                    value={taxInvoiceDate}
-                    onChange={(e) => setTaxInvoiceDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] text-sm text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--primary)] focus:outline-none min-h-[40px]"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                    Base Amount
-                    <span className="text-[var(--text-muted)] ml-1">(Proforma: ₹{parseFloat(invoice.amount || '0').toLocaleString('en-IN')})</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    value={revisedBase}
-                    onChange={(e) => setRevisedBase(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] text-sm text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--primary)] focus:outline-none min-h-[40px]"
-                    placeholder="Leave blank if unchanged"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                    GST Amount *
-                    {parseFloat(invoice.gstAmount || '0') > 0 && (
-                      <span className="text-[var(--text-muted)] ml-1">(was ₹{parseFloat(invoice.gstAmount || '0').toLocaleString('en-IN')})</span>
-                    )}
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    value={revisedGst}
-                    onChange={(e) => setRevisedGst(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] text-sm text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--primary)] focus:outline-none min-h-[40px]"
-                    placeholder="Enter GST amount"
-                  />
-                </div>
-              </div>
-              {(() => {
-                const oBase = parseFloat(invoice.amount || '0') || 0;
-                const oGst = parseFloat(invoice.gstAmount || '0') || 0;
-                const nBase = revisedBase ? parseFloat(revisedBase) || 0 : oBase;
-                const nGst = revisedGst ? parseFloat(revisedGst) || 0 : 0;
-                const changed = Math.abs(nBase - oBase) > 0.01 || (nGst > 0 && Math.abs(nGst - oGst) > 0.01);
-                if (!changed) return null;
-                return (
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                      Revision Reason *
-                      <span className="text-[var(--text-muted)] ml-1">(why amount differs from proforma)</span>
-                    </label>
-                    <textarea
-                      value={revisionReason}
-                      onChange={(e) => setRevisionReason(e.target.value)}
-                      rows={2}
-                      className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] text-sm text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--primary)] focus:outline-none"
-                      placeholder="e.g., Additional scope, rate revision, quantity change"
-                    />
-                  </div>
-                );
-              })()}
-              {taxUploadError && (
-                <p className="text-xs font-medium" style={{ color: 'var(--danger)' }}>{taxUploadError}</p>
-              )}
-              <button
-                onClick={handleTaxInvoiceUpload}
-                disabled={taxUploadLoading}
-                className="w-full py-2.5 rounded-lg font-semibold text-sm text-white disabled:opacity-50 transition-colors"
-                style={{ background: 'var(--warning)' }}
-              >
-                {taxUploadLoading ? 'Uploading...' : 'Submit Tax Invoice'}
-              </button>
-            </div>
-          )}
         </DrawerSection>
-      )}
-
-      {taxUploadSuccess && (
-        <div className="mx-5 my-3 rounded-lg border p-3 flex items-center gap-2" style={{ borderColor: 'var(--success-border)', background: 'var(--success-light)' }}>
-          <svg className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--success)' }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-          </svg>
-          <span className="text-sm font-semibold" style={{ color: 'var(--success)' }}>Tax invoice uploaded successfully! GST payment is now unlocked.</span>
-        </div>
       )}
 
       {/* Documents */}

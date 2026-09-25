@@ -58,6 +58,16 @@ function SubmitInvoice() {
     costType: '',
   });
 
+  // Settlement state
+  const [isSettlement, setIsSettlement] = useState(false);
+  const [availableAdvances, setAvailableAdvances] = useState<Array<{
+    id: string; invoiceNumber: string; invoiceDate: string; invoiceType: string;
+    amount: string; gstAmount: string; totalAmount: string; approvedAmount: string;
+    status: string; totalDisbursed: number; totalConsumed: number; availableForSettlement: number;
+  }>>([]);
+  const [selectedAdvances, setSelectedAdvances] = useState<Record<string, number>>({});
+  const [loadingAdvances, setLoadingAdvances] = useState(false);
+
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [workPhotos, setWorkPhotos] = useState<File[]>([]);
   const [measurementSheet, setMeasurementSheet] = useState<File | null>(null);
@@ -291,6 +301,52 @@ function SubmitInvoice() {
     }
     return null;
   };
+
+  // Fetch available advances when settlement toggle is on
+  useEffect(() => {
+    if (!isSettlement || !selectedVendor || !selectedProject) {
+      setAvailableAdvances([]);
+      return;
+    }
+    const fetchAdvances = async () => {
+      setLoadingAdvances(true);
+      try {
+        const res = await fetch(`/api/settlements?vendorName=${encodeURIComponent(selectedVendor)}&project=${encodeURIComponent(selectedProject)}`);
+        const data = await res.json();
+        setAvailableAdvances(data.advances || []);
+      } catch {
+        console.error('Failed to fetch advances');
+      }
+      setLoadingAdvances(false);
+    };
+    fetchAdvances();
+  }, [isSettlement, selectedVendor, selectedProject]);
+
+  // Reset settlement state when invoice type changes away from tax_invoice
+  useEffect(() => {
+    if (form.invoiceType !== 'tax_invoice') {
+      setIsSettlement(false);
+      setSelectedAdvances({});
+      setAvailableAdvances([]);
+    }
+  }, [form.invoiceType]);
+
+  const toggleAdvanceSelection = (advId: string, maxAmount: number) => {
+    setSelectedAdvances((prev) => {
+      if (prev[advId] !== undefined) {
+        const next = { ...prev };
+        delete next[advId];
+        return next;
+      }
+      return { ...prev, [advId]: maxAmount };
+    });
+  };
+
+  const totalAdvanceConsumed = Object.values(selectedAdvances).reduce((sum, v) => sum + v, 0);
+  const taxInvoiceTotal = (parseFloat(form.amount) || 0) + (parseFloat(form.gstAmount) || 0);
+  const netPayable = Math.max(0, taxInvoiceTotal - totalAdvanceConsumed);
+  const isDebitNote = totalAdvanceConsumed > taxInvoiceTotal;
+  const debitNoteAmount = Math.max(0, totalAdvanceConsumed - taxInvoiceTotal);
 
   /** Set error message and scroll it into view */
   const showError = (msg: string) => {
@@ -547,6 +603,12 @@ function SubmitInvoice() {
           ? 'direct'
           : form.documentType || '';
 
+        // Settlement fields
+        const settlementType = isSettlement && Object.keys(selectedAdvances).length > 0
+          ? 'settlement' : '';
+        const linkedInvoiceIds = isSettlement
+          ? Object.keys(selectedAdvances).join(',') : '';
+
         // 1. Create invoice first (without work photos) to get invoiceId
         setUploadProgress('Submitting invoice...');
         const res = await fetch('/api/invoices', {
@@ -557,6 +619,8 @@ function SubmitInvoice() {
             project: selectedProject,
             ...form,
             documentStage,
+            settlementType,
+            linkedInvoiceIds,
             invoiceFileUrl,
             invoiceFileName,
             workPhotos: '', // photos uploaded separately after getting invoiceId
@@ -578,6 +642,27 @@ function SubmitInvoice() {
           setUploadProgress(`Uploading ${workPhotos.length} work photo(s)...`);
           await uploadWorkPhotosToR2(data.invoice.id, workPhotos);
         }
+
+        // 3. Create settlement records if this is a settlement invoice
+        if (settlementType === 'settlement' && data.invoice?.id) {
+          setUploadProgress('Creating settlement records...');
+          const settleEntries = Object.entries(selectedAdvances).map(([advId, consumed]) => ({
+            advanceInvoiceId: advId,
+            consumedAmount: consumed,
+          }));
+          const settleRes = await fetch('/api/settlements', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taxInvoiceId: data.invoice.id,
+              settlements: settleEntries,
+            }),
+          });
+          if (!settleRes.ok) {
+            const settleData = await settleRes.json();
+            console.error('Settlement creation error:', settleData.error);
+          }
+        }
       }
 
       setSuccess(true);
@@ -587,6 +672,9 @@ function SubmitInvoice() {
       setWorkPhotos([]);
       setMeasurementSheet(null);
       setExistingFiles({ invoiceFileUrl: '', invoiceFileName: '', workPhotos: '', measurementSheetUrl: '', measurementSheetName: '' });
+      setIsSettlement(false);
+      setSelectedAdvances({});
+      setAvailableAdvances([]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong';
       showError(message + '. Please try again.');
@@ -911,6 +999,155 @@ function SubmitInvoice() {
                         ? 'This is the final tax invoice — GST can be paid immediately after approval.'
                         : 'Select Proforma if the tax invoice will arrive later, or Tax Invoice if this is the final document.'}
                   </p>
+                </div>
+              )}
+
+              {/* Settlement Section — shown for Tax Invoice type */}
+              {form.invoiceType === 'tax_invoice' && !isResubmit && !isAmend && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isSettlement}
+                      onChange={(e) => setIsSettlement(e.target.checked)}
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-semibold text-blue-800">
+                      Settle against existing advance invoices
+                    </span>
+                  </label>
+                  <p className="text-xs text-blue-600 mt-1.5 ml-8">
+                    Enable this if this tax invoice replaces/settles previously paid advance or proforma invoices.
+                  </p>
+
+                  {isSettlement && (
+                    <div className="mt-4 space-y-3">
+                      {!selectedVendor || !selectedProject ? (
+                        <p className="text-sm text-amber-700 bg-amber-50 rounded p-2">
+                          Please select a vendor and project first to see available advances.
+                        </p>
+                      ) : loadingAdvances ? (
+                        <div className="flex items-center gap-2 text-sm text-blue-600">
+                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                          </svg>
+                          Loading available advances...
+                        </div>
+                      ) : availableAdvances.length === 0 ? (
+                        <p className="text-sm text-gray-600 bg-gray-50 rounded p-2">
+                          No paid/approved advance invoices found for this vendor and project.
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-xs font-medium text-blue-700">
+                            Select advances to settle ({availableAdvances.length} available):
+                          </p>
+                          <div className="space-y-2 max-h-64 overflow-y-auto">
+                            {availableAdvances.map((adv) => {
+                              const isSelected = selectedAdvances[adv.id] !== undefined;
+                              return (
+                                <div
+                                  key={adv.id}
+                                  className={`rounded-lg border p-3 cursor-pointer transition-all ${
+                                    isSelected
+                                      ? 'border-blue-500 bg-white ring-1 ring-blue-500'
+                                      : 'border-gray-200 bg-white hover:border-blue-300'
+                                  }`}
+                                  onClick={() => toggleAdvanceSelection(adv.id, adv.availableForSettlement)}
+                                >
+                                  <div className="flex items-start justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        readOnly
+                                        className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                                      />
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-900">
+                                          {adv.invoiceNumber}
+                                        </p>
+                                        <p className="text-xs text-gray-500">
+                                          {adv.invoiceDate} &middot; {adv.invoiceType === 'advance' ? 'Advance' : 'RA'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-sm font-semibold text-gray-900">
+                                        &#8377;{Number(adv.availableForSettlement).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                      </p>
+                                      <p className="text-xs text-gray-500">available</p>
+                                    </div>
+                                  </div>
+                                  {isSelected && (
+                                    <div className="mt-2 ml-6">
+                                      <label className="text-xs text-gray-600">Amount to settle:</label>
+                                      <input
+                                        type="number"
+                                        value={selectedAdvances[adv.id] || ''}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          const val = parseFloat(e.target.value) || 0;
+                                          const capped = Math.min(val, adv.availableForSettlement);
+                                          setSelectedAdvances((prev) => ({ ...prev, [adv.id]: capped }));
+                                        }}
+                                        className="w-full mt-1 px-2 py-1.5 rounded border border-gray-300 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                        min="0"
+                                        max={adv.availableForSettlement}
+                                        step="0.01"
+                                      />
+                                      <p className="text-xs text-gray-400 mt-0.5">
+                                        Disbursed: &#8377;{adv.totalDisbursed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        {' '}&middot; Max: &#8377;{adv.availableForSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Settlement Summary */}
+                          {Object.keys(selectedAdvances).length > 0 && (
+                            <div className="mt-3 rounded-lg bg-white border border-blue-200 p-3">
+                              <h4 className="text-sm font-semibold text-gray-900 mb-2">Settlement Summary</h4>
+                              <div className="space-y-1 text-sm">
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Tax Invoice Total:</span>
+                                  <span className="font-medium">&#8377;{taxInvoiceTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Advances Settled ({Object.keys(selectedAdvances).length}):</span>
+                                  <span className="font-medium text-orange-600">
+                                    -&#8377;{totalAdvanceConsumed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                                <div className="border-t border-gray-200 pt-1 mt-1">
+                                  {isDebitNote ? (
+                                    <div className="flex justify-between">
+                                      <span className="font-semibold text-red-700">Debit Note (Vendor Owes):</span>
+                                      <span className="font-bold text-red-700">
+                                        &#8377;{debitNoteAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex justify-between">
+                                      <span className="font-semibold text-green-700">Net Payable:</span>
+                                      <span className="font-bold text-green-700">
+                                        &#8377;{netPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

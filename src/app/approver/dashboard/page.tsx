@@ -56,6 +56,21 @@ interface Invoice {
   physicalCopyReceivedAt?: string;
   physicalCopyReceivedBy?: string;
   dueDate?: string;
+  settlementType?: string;
+  linkedInvoiceIds?: string;
+}
+
+interface SettlementInfo {
+  id: string;
+  advanceInvoiceId: string;
+  advanceInvoiceNumber: string;
+  consumedAmount: string;
+  advanceInvoice?: {
+    id: string; invoiceNumber: string; invoiceDate: string;
+    amount: string; gstAmount: string; totalAmount: string;
+    approvedAmount: string; status: string;
+  } | null;
+  totalDisbursed: number;
 }
 
 interface BulkSummary {
@@ -207,6 +222,9 @@ export default function ApproverDashboard() {
     approvedBy: string; comments: string; createdAt: string;
   }>>>({});
 
+  // Settlement info cache
+  const [settlementCache, setSettlementCache] = useState<Record<string, SettlementInfo[]>>({});
+
   // Increase approved amount modal
   const [increaseAmountInvoice, setIncreaseAmountInvoice] = useState<Invoice | null>(null);
   const [newApprovedAmount, setNewApprovedAmount] = useState('');
@@ -326,6 +344,19 @@ export default function ApproverDashboard() {
       // Silently fail — history is supplementary
     }
   }, [approvalHistoryCache]);
+
+  const fetchSettlementInfo = useCallback(async (invoiceId: string) => {
+    if (settlementCache[invoiceId]) return;
+    try {
+      const res = await fetch(`/api/settlements?taxInvoiceId=${invoiceId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSettlementCache((prev) => ({ ...prev, [invoiceId]: data.settlements || [] }));
+      }
+    } catch {
+      // Silently fail
+    }
+  }, [settlementCache]);
 
   // Handle increase approved amount
   const [increaseError, setIncreaseError] = useState('');
@@ -1086,6 +1117,10 @@ export default function ApproverDashboard() {
                       if (newExpanded && (invoice.status === 'submitted' || invoice.status === 'approved' || isPaymentPhase)) {
                         fetchApprovalHistory(invoice.id);
                       }
+                      // Fetch settlement info for settlement invoices
+                      if (newExpanded && invoice.settlementType === 'settlement') {
+                        fetchSettlementInfo(invoice.id);
+                      }
                     }}
                     role="button"
                     aria-expanded={isExpanded}
@@ -1127,6 +1162,9 @@ export default function ApproverDashboard() {
                         )}
                         {invoice.documentStage === 'tax_invoice' && (
                           <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
+                        )}
+                        {invoice.settlementType === 'settlement' && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 border border-blue-200">Settlement</span>
                         )}
                         {needsExtension(invoice) && (
                           <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200 animate-pulse">Extension Required</span>
@@ -1423,6 +1461,132 @@ export default function ApproverDashboard() {
                             <p className="text-xs text-gray-700 mt-1">
                               <span className="font-medium">Reason:</span> {invoice.revisionReason}
                             </p>
+                          </div>
+                        )}
+
+                        {/* Settlement Breakdown with Deviation Comparison */}
+                        {invoice.settlementType === 'settlement' && (
+                          <div className="mb-4 rounded-lg p-4 bg-blue-50 border border-blue-200">
+                            <p className="text-sm font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
+                              </svg>
+                              Settlement Against Advances
+                            </p>
+                            {settlementCache[invoice.id] ? (
+                              (() => {
+                                const settlements = settlementCache[invoice.id];
+                                const totalConsumed = settlements.reduce((s, st) => s + (parseFloat(st.consumedAmount) || 0), 0);
+                                const taxBase = parseFloat(invoice.amount) || 0;
+                                const taxGst = parseFloat(invoice.gstAmount || '') || 0;
+                                const taxTotal = taxBase + taxGst;
+                                const proformaBase = settlements.reduce((s, st) => s + (parseFloat(st.advanceInvoice?.amount || '0') || 0), 0);
+                                const proformaGst = settlements.reduce((s, st) => s + (parseFloat(st.advanceInvoice?.gstAmount || '0') || 0), 0);
+                                const proformaTotal = proformaBase + proformaGst;
+                                const baseDeviation = taxBase - proformaBase;
+                                const baseDeviationPct = proformaBase > 0 ? ((baseDeviation / proformaBase) * 100) : 0;
+                                const netPayable = Math.max(0, taxTotal - totalConsumed);
+                                const isDebit = totalConsumed > taxTotal;
+                                const debitAmount = Math.max(0, totalConsumed - taxTotal);
+                                const hasBaseDeviation = Math.abs(baseDeviation) > 0.01;
+                                return (
+                                  <>
+                                    {/* Proforma vs Tax Invoice Deviation */}
+                                    <div className="mb-3 rounded-lg bg-white border border-blue-100 overflow-hidden">
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr className="bg-blue-100/50">
+                                            <th className="text-left px-3 py-1.5 text-gray-600 font-medium"></th>
+                                            <th className="text-right px-3 py-1.5 text-gray-600 font-medium">Proforma</th>
+                                            <th className="text-right px-3 py-1.5 text-gray-600 font-medium">Tax Invoice</th>
+                                            <th className="text-right px-3 py-1.5 text-gray-600 font-medium">Deviation</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          <tr className="border-t border-blue-50">
+                                            <td className="px-3 py-1.5 text-gray-700">Base</td>
+                                            <td className="px-3 py-1.5 text-right text-gray-600">₹{proformaBase.toLocaleString('en-IN')}</td>
+                                            <td className="px-3 py-1.5 text-right text-gray-900 font-medium">₹{taxBase.toLocaleString('en-IN')}</td>
+                                            <td className={`px-3 py-1.5 text-right font-semibold ${hasBaseDeviation ? (baseDeviation > 0 ? 'text-red-600' : 'text-green-600') : 'text-gray-400'}`}>
+                                              {hasBaseDeviation ? `${baseDeviation > 0 ? '+' : ''}₹${baseDeviation.toLocaleString('en-IN')} (${baseDeviationPct > 0 ? '+' : ''}${baseDeviationPct.toFixed(0)}%)` : '—'}
+                                            </td>
+                                          </tr>
+                                          <tr className="border-t border-blue-50">
+                                            <td className="px-3 py-1.5 text-gray-700">GST</td>
+                                            <td className="px-3 py-1.5 text-right text-gray-600">{proformaGst > 0 ? `₹${proformaGst.toLocaleString('en-IN')}` : '—'}</td>
+                                            <td className="px-3 py-1.5 text-right text-gray-900 font-medium">{taxGst > 0 ? `₹${taxGst.toLocaleString('en-IN')}` : '—'}</td>
+                                            <td className="px-3 py-1.5 text-right text-gray-500">{taxGst > 0 ? `+₹${taxGst.toLocaleString('en-IN')}` : '—'}</td>
+                                          </tr>
+                                          <tr className="border-t border-blue-200 bg-blue-50/50 font-semibold">
+                                            <td className="px-3 py-1.5 text-gray-800">Total</td>
+                                            <td className="px-3 py-1.5 text-right text-gray-700">₹{proformaTotal.toLocaleString('en-IN')}</td>
+                                            <td className="px-3 py-1.5 text-right text-gray-900">₹{taxTotal.toLocaleString('en-IN')}</td>
+                                            <td className={`px-3 py-1.5 text-right ${taxTotal - proformaTotal > 0.01 ? 'text-red-600' : taxTotal - proformaTotal < -0.01 ? 'text-green-600' : 'text-gray-400'}`}>
+                                              {Math.abs(taxTotal - proformaTotal) > 0.01 ? `${taxTotal > proformaTotal ? '+' : ''}₹${(taxTotal - proformaTotal).toLocaleString('en-IN')}` : '—'}
+                                            </td>
+                                          </tr>
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                    {hasBaseDeviation && Math.abs(baseDeviationPct) >= 10 && (
+                                      <div className={`mb-3 p-2 rounded-lg border text-xs flex items-center gap-1.5 ${baseDeviation > 0 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'}`}>
+                                        <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                                        </svg>
+                                        Base amount {baseDeviation > 0 ? 'increased' : 'decreased'} by {Math.abs(baseDeviationPct).toFixed(0)}% from proforma estimate
+                                      </div>
+                                    )}
+                                    {/* Linked Advances */}
+                                    <div className="space-y-2">
+                                      {settlements.map((s) => (
+                                        <div key={s.id} className="flex items-center justify-between bg-white rounded-lg p-2.5 border border-blue-100">
+                                          <div>
+                                            <p className="text-sm font-medium text-gray-900">{s.advanceInvoiceNumber}</p>
+                                            <p className="text-xs text-gray-500">
+                                              {s.advanceInvoice?.invoiceDate || ''} &middot; {s.advanceInvoice?.status || ''}
+                                            </p>
+                                          </div>
+                                          <div className="text-right">
+                                            <p className="text-sm font-semibold text-orange-600">
+                                              -₹{Number(s.consumedAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                            </p>
+                                            {s.totalDisbursed > 0 && (
+                                              <p className="text-xs text-gray-400">Disbursed: ₹{s.totalDisbursed.toLocaleString('en-IN')}</p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {/* Net Summary */}
+                                    <div className="mt-3 pt-3 border-t border-blue-200 space-y-1">
+                                      <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Tax Invoice Total:</span>
+                                        <span className="font-medium">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Total Advances Paid:</span>
+                                        <span className="font-medium text-orange-600">-₹{totalConsumed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="flex justify-between text-sm font-bold pt-1 border-t border-blue-100">
+                                        {isDebit ? (
+                                          <>
+                                            <span className="text-red-700">Debit Note (Vendor Owes):</span>
+                                            <span className="text-red-700">₹{debitAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <span className="text-green-700">Net Payable:</span>
+                                            <span className="text-green-700">₹{netPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </>
+                                );
+                              })()
+                            ) : (
+                              <p className="text-xs text-blue-600">Loading settlement details...</p>
+                            )}
                           </div>
                         )}
 

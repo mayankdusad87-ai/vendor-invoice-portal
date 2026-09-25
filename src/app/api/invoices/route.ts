@@ -151,6 +151,9 @@ export async function POST(request: NextRequest) {
     const documentStage = sanitizeString(body.documentStage, 20) || '';
     // Invoice due date (mandatory — must be >= invoiceDate)
     const dueDate = sanitizeDate(body.dueDate);
+    // Settlement fields
+    const settlementType = sanitizeString(body.settlementType, 20) || '';
+    const linkedInvoiceIds = sanitizeString(body.linkedInvoiceIds, 2000) || '';
 
     // Derive submittedBy from authenticated session — never from client
     const submittedBy = session.type === 'engineer'
@@ -270,6 +273,8 @@ export async function POST(request: NextRequest) {
       costType,
       documentStage: effectiveDocumentStage as 'proforma' | 'tax_invoice' | 'direct',
       dueDate,
+      settlementType: settlementType || undefined,
+      linkedInvoiceIds: linkedInvoiceIds || undefined,
     });
 
     await addApprovalHistory({
@@ -277,7 +282,7 @@ export async function POST(request: NextRequest) {
       amount: invoice.totalAmount || amount || '0',
       cumulativeTotal: '0',
       approvedBy: `Engineer: ${submittedBy}`,
-      comments: `[SUBMITTED] Invoice #${invoiceNumber} submitted for ₹${amount}${gstAmount ? ` + ₹${gstAmount} GST` : ''} (Total: ₹${invoice.totalAmount}) | ${vendorName} | ${project}${effectiveDocumentStage ? ` | ${effectiveDocumentStage}` : ''}`,
+      comments: `[SUBMITTED] Invoice #${invoiceNumber} submitted for ₹${amount}${gstAmount ? ` + ₹${gstAmount} GST` : ''} (Total: ₹${invoice.totalAmount}) | ${vendorName} | ${project}${effectiveDocumentStage ? ` | ${effectiveDocumentStage}` : ''}${settlementType === 'settlement' ? ` | SETTLEMENT against ${linkedInvoiceIds.split(',').length} advance(s)` : ''}`,
     });
 
     return NextResponse.json({ success: true, invoice });

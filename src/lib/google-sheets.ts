@@ -31,7 +31,7 @@ function getSheets() {
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 
-const REQUIRED_INVOICE_COLUMNS = 49; // A(1) through AW(49)
+const REQUIRED_INVOICE_COLUMNS = 51; // A(1) through AY(51)
 
 async function ensureSheetColumns(sheetName: string, requiredCols: number): Promise<void> {
   const sheets = getSheets();
@@ -642,13 +642,16 @@ export interface Invoice {
   physicalCopyReceivedBy: string; // Col AV — Who received it
   // INVOICE DUE DATE (AW)
   dueDate: string;               // Col AW — Invoice payment due date (dd/mm/yyyy)
+  // SETTLEMENT (AX–AY) — advance settlement workflow
+  settlementType: string;        // Col AX — 'standalone' | 'settlement' | 'debit_note' (empty = standalone)
+  linkedInvoiceIds: string;      // Col AY — comma-separated advance invoice IDs linked via settlement
 }
 
 export async function getInvoices(): Promise<Invoice[]> {
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AW',
+    range: 'Invoices!A2:AY',
   });
 
   const rows = response.data.values || [];
@@ -706,6 +709,9 @@ export async function getInvoices(): Promise<Invoice[]> {
     physicalCopyReceivedAt: row[46] || '', // AU
     physicalCopyReceivedBy: row[47] || '', // AV
     dueDate: row[48] || '',               // AW
+    // SETTLEMENT (AX–AY)
+    settlementType: row[49] || '',         // AX
+    linkedInvoiceIds: row[50] || '',       // AY
   }));
 }
 
@@ -720,7 +726,7 @@ export async function getInvoiceById(id: string): Promise<Invoice | null> {
 }
 
 export async function addInvoice(
-  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount' | 'totalAmount' | 'accountsQueryBy' | 'accountsQueryReason' | 'accountsQueryAt' | 'previousStatus' | 'costCategory' | 'costSubCategory' | 'costType' | 'documentStage' | 'taxInvoiceFileUrl' | 'taxInvoiceFileName' | 'taxInvoiceNumber' | 'taxInvoiceDate' | 'taxInvoiceUploadedAt' | 'taxInvoiceUploadedBy' | 'originalGstAmount' | 'originalAmount' | 'revisionReason' | 'physicalCopySentAt' | 'physicalCopySentBy' | 'physicalCopyReceivedAt' | 'physicalCopyReceivedBy'> & { gstAmount?: string; costCategory?: string; costSubCategory?: string; costType?: string; documentStage?: Invoice['documentStage'] }
+  invoice: Omit<Invoice, 'id' | 'submittedAt' | 'updatedAt' | 'approvedDate' | 'approvalComments' | 'approvedBy' | 'approvedAmount' | 'totalAmount' | 'accountsQueryBy' | 'accountsQueryReason' | 'accountsQueryAt' | 'previousStatus' | 'costCategory' | 'costSubCategory' | 'costType' | 'documentStage' | 'taxInvoiceFileUrl' | 'taxInvoiceFileName' | 'taxInvoiceNumber' | 'taxInvoiceDate' | 'taxInvoiceUploadedAt' | 'taxInvoiceUploadedBy' | 'originalGstAmount' | 'originalAmount' | 'revisionReason' | 'physicalCopySentAt' | 'physicalCopySentBy' | 'physicalCopyReceivedAt' | 'physicalCopyReceivedBy' | 'settlementType' | 'linkedInvoiceIds'> & { gstAmount?: string; costCategory?: string; costSubCategory?: string; costType?: string; documentStage?: Invoice['documentStage']; settlementType?: string; linkedInvoiceIds?: string }
 ): Promise<Invoice> {
   const sheets = getSheets();
   const id = `INV${Date.now()}`;
@@ -732,7 +738,7 @@ export async function addInvoice(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A:AW',
+    range: 'Invoices!A:AY',
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -788,11 +794,14 @@ export async function addInvoice(
         '',                                   // AU: Physical Copy Received At
         '',                                   // AV: Physical Copy Received By
         invoice.dueDate ? toIndianDateFormat(invoice.dueDate) : '', // AW: Invoice Due Date
+        // SETTLEMENT (AX–AY)
+        invoice.settlementType || '',         // AX: Settlement Type
+        invoice.linkedInvoiceIds || '',       // AY: Linked Invoice IDs
       ]],
     },
   });
 
-  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount, accountsQueryBy: '', accountsQueryReason: '', accountsQueryAt: '', previousStatus: '', costCategory: invoice.costCategory || '', costSubCategory: invoice.costSubCategory || '', costType: invoice.costType || '', documentStage: invoice.documentStage || '', taxInvoiceFileUrl: '', taxInvoiceFileName: '', taxInvoiceNumber: '', taxInvoiceDate: '', taxInvoiceUploadedAt: '', taxInvoiceUploadedBy: '', originalGstAmount: '', originalAmount: '', revisionReason: '', physicalCopySentAt: '', physicalCopySentBy: '', physicalCopyReceivedAt: '', physicalCopyReceivedBy: '', dueDate: invoice.dueDate || '' };
+  return { ...invoice, id, approvalComments: '', approvedBy: '', submittedAt: now, updatedAt: now, approvedDate: '', approvedAmount: '', gstAmount: gst, totalAmount, accountsQueryBy: '', accountsQueryReason: '', accountsQueryAt: '', previousStatus: '', costCategory: invoice.costCategory || '', costSubCategory: invoice.costSubCategory || '', costType: invoice.costType || '', documentStage: invoice.documentStage || '', taxInvoiceFileUrl: '', taxInvoiceFileName: '', taxInvoiceNumber: '', taxInvoiceDate: '', taxInvoiceUploadedAt: '', taxInvoiceUploadedBy: '', originalGstAmount: '', originalAmount: '', revisionReason: '', physicalCopySentAt: '', physicalCopySentBy: '', physicalCopyReceivedAt: '', physicalCopyReceivedBy: '', dueDate: invoice.dueDate || '', settlementType: invoice.settlementType || '', linkedInvoiceIds: invoice.linkedInvoiceIds || '' };
 }
 
 export async function updateInvoiceStatus(
@@ -968,7 +977,7 @@ export async function updateInvoiceDocumentStage(
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AW',
+    range: 'Invoices!A2:AY',
   });
 
   const rows = response.data.values || [];
@@ -1058,7 +1067,7 @@ export async function updatePhysicalCopyTracking(
   const sheets = getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A2:AW',
+    range: 'Invoices!A2:AY',
   });
 
   const rows = response.data.values || [];
@@ -2262,6 +2271,9 @@ export async function initializeSheetHeaders(): Promise<void> {
   if (!existingSheets.includes('Deductions')) {
     requests.push({ addSheet: { properties: { title: 'Deductions' } } });
   }
+  if (!existingSheets.includes('Settlements')) {
+    requests.push({ addSheet: { properties: { title: 'Settlements' } } });
+  }
 
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
@@ -2317,11 +2329,15 @@ export async function initializeSheetHeaders(): Promise<void> {
     'Original Amount', 'Revision Reason',
     'Physical Copy Sent At', 'Physical Copy Sent By',
     'Physical Copy Received At', 'Physical Copy Received By',
+    // DUE DATE (AW)
+    'Due Date',
+    // SETTLEMENT (AX–AY)
+    'Settlement Type', 'Linked Invoice IDs',
   ];
 
   const invoiceHeaders = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: 'Invoices!A1:AV1',
+    range: 'Invoices!A1:AY1',
   });
 
   const currentHeaders = invoiceHeaders.data.values?.[0] || [];
@@ -2330,7 +2346,7 @@ export async function initializeSheetHeaders(): Promise<void> {
     await ensureSheetColumns('Invoices', REQUIRED_INVOICE_COLUMNS);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: 'Invoices!A1:AV1',
+      range: 'Invoices!A1:AY1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedInvoiceHeaders],
@@ -2470,6 +2486,28 @@ export async function initializeSheetHeaders(): Promise<void> {
       valueInputOption: 'RAW',
       requestBody: {
         values: [expectedDeductionHeaders],
+      },
+    });
+  }
+
+  // Always set correct headers for Settlements tab
+  const expectedSettlementHeaders = [
+    'ID', 'Tax Invoice ID', 'Advance Invoice ID', 'Advance Invoice Number',
+    'Consumed Amount', 'Vendor Name', 'Project', 'Created At', 'Created By',
+  ];
+  const settlementHeaders = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'Settlements!A1:I1',
+  });
+  const currentSettlementHeaders = settlementHeaders.data.values?.[0] || [];
+  if (currentSettlementHeaders.length !== expectedSettlementHeaders.length ||
+      currentSettlementHeaders.some((h, i) => h !== expectedSettlementHeaders[i])) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'Settlements!A1:I1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [expectedSettlementHeaders],
       },
     });
   }
@@ -2761,4 +2799,131 @@ export async function setUserProjectAccess(
       }
     }
   }
+}
+
+// ==================== SETTLEMENTS ====================
+
+export interface Settlement {
+  id: string;
+  taxInvoiceId: string;
+  advanceInvoiceId: string;
+  advanceInvoiceNumber: string;
+  consumedAmount: string;
+  vendorName: string;
+  project: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+async function ensureSettlementsSheet(): Promise<void> {
+  const sheets = getSheets();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: 'sheets.properties' });
+  const exists = meta.data.sheets?.some(s => s.properties?.title === 'Settlements');
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title: 'Settlements' } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: 'Settlements!A1:I1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['ID', 'Tax Invoice ID', 'Advance Invoice ID', 'Advance Invoice Number', 'Consumed Amount', 'Vendor Name', 'Project', 'Created At', 'Created By']],
+      },
+    });
+  }
+}
+
+export async function getSettlements(): Promise<Settlement[]> {
+  const sheets = getSheets();
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'Settlements!A2:I',
+    });
+    const rows = response.data.values || [];
+    return rows.map((row) => ({
+      id: row[0] || '',
+      taxInvoiceId: row[1] || '',
+      advanceInvoiceId: row[2] || '',
+      advanceInvoiceNumber: row[3] || '',
+      consumedAmount: row[4] || '',
+      vendorName: row[5] || '',
+      project: row[6] || '',
+      createdAt: row[7] || '',
+      createdBy: row[8] || '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function addSettlement(settlement: Omit<Settlement, 'id' | 'createdAt'>): Promise<Settlement> {
+  await ensureSettlementsSheet();
+  const sheets = getSheets();
+  const id = `SETT${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  const createdAt = getISTTimestamp().combined;
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: 'Settlements!A:I',
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[
+        id,
+        settlement.taxInvoiceId,
+        settlement.advanceInvoiceId,
+        settlement.advanceInvoiceNumber,
+        settlement.consumedAmount,
+        settlement.vendorName,
+        settlement.project,
+        createdAt,
+        settlement.createdBy,
+      ]],
+    },
+  });
+
+  return { ...settlement, id, createdAt };
+}
+
+export async function getSettlementsByTaxInvoiceId(taxInvoiceId: string): Promise<Settlement[]> {
+  const settlements = await getSettlements();
+  return settlements.filter((s) => s.taxInvoiceId === taxInvoiceId);
+}
+
+export async function getSettlementsByAdvanceId(advanceInvoiceId: string): Promise<Settlement[]> {
+  const settlements = await getSettlements();
+  return settlements.filter((s) => s.advanceInvoiceId === advanceInvoiceId);
+}
+
+export async function getAvailableAdvancesForSettlement(
+  vendorName: string,
+  project: string,
+): Promise<(Invoice & { totalDisbursed: number; totalConsumed: number; availableForSettlement: number })[]> {
+  const invoices = await getInvoices();
+  const payments = await getPayments();
+  const settlements = await getSettlements();
+
+  const advances = invoices.filter((inv) =>
+    inv.vendorName === vendorName &&
+    inv.project === project &&
+    (inv.invoiceType === 'advance' || inv.invoiceType === 'ra') &&
+    inv.documentStage === 'proforma' &&
+    (inv.status === 'paid' || inv.status === 'partially_paid' || inv.status === 'approved')
+  );
+
+  return advances.map((adv) => {
+    const advPayments = payments.filter((p) => p.invoiceId === adv.id);
+    const totalDisbursed = advPayments.reduce((sum, p) =>
+      sum + (parseFloat(p.amount) || 0) + (parseFloat(p.tdsAmount) || 0) + (parseFloat(p.retentionAmount) || 0), 0);
+
+    const advSettlements = settlements.filter((s) => s.advanceInvoiceId === adv.id);
+    const totalConsumed = advSettlements.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0);
+
+    const approvedAmount = parseFloat(adv.approvedAmount) || parseFloat(adv.totalAmount) || 0;
+    const availableForSettlement = Math.max(0, approvedAmount - totalConsumed);
+
+    return { ...adv, totalDisbursed, totalConsumed, availableForSettlement };
+  }).filter((adv) => adv.availableForSettlement > 0);
 }
