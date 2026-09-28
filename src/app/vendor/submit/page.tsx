@@ -331,22 +331,20 @@ function SubmitInvoice() {
     }
   }, [form.invoiceType]);
 
-  const toggleAdvanceSelection = (advId: string, maxAmount: number) => {
+  const toggleAdvanceSelection = (advId: string, disbursedAmount: number) => {
     setSelectedAdvances((prev) => {
       if (prev[advId] !== undefined) {
         const next = { ...prev };
         delete next[advId];
         return next;
       }
-      return { ...prev, [advId]: maxAmount };
+      return { ...prev, [advId]: disbursedAmount };
     });
   };
 
   const totalAdvanceConsumed = Object.values(selectedAdvances).reduce((sum, v) => sum + v, 0);
   const taxInvoiceTotal = (parseFloat(form.amount) || 0) + (parseFloat(form.gstAmount) || 0);
   const netPayable = Math.max(0, taxInvoiceTotal - totalAdvanceConsumed);
-  const isDebitNote = totalAdvanceConsumed > taxInvoiceTotal;
-  const debitNoteAmount = Math.max(0, totalAdvanceConsumed - taxInvoiceTotal);
 
   /** Set error message and scroll it into view */
   const showError = (msg: string) => {
@@ -1047,8 +1045,11 @@ function SubmitInvoice() {
                             {availableAdvances.map((adv) => {
                               const isSelected = selectedAdvances[adv.id] !== undefined;
                               const isPaid = adv.totalDisbursed > 0;
-                              const statusLabel = adv.status === 'paid' ? 'Paid' : adv.status === 'partially_paid' ? 'Partially Paid' : adv.status === 'approved' ? 'Approved' : 'Pending Approval';
+                              const statusLabel = adv.status === 'paid' ? 'Paid' : adv.status === 'partially_paid' ? 'Partially Paid' : adv.status === 'approved' ? 'Approved (Not Paid)' : 'Pending Approval';
                               const statusColor = isPaid ? 'text-green-600' : adv.status === 'approved' ? 'text-blue-600' : 'text-amber-600';
+                              const baseAmt = parseFloat(adv.amount) || 0;
+                              const gstAmt = parseFloat(adv.gstAmount || '0') || 0;
+                              const invoiceTotal = baseAmt + gstAmt;
                               return (
                                 <div
                                   key={adv.id}
@@ -1057,7 +1058,7 @@ function SubmitInvoice() {
                                       ? 'border-blue-500 bg-white ring-1 ring-blue-500'
                                       : 'border-gray-200 bg-white hover:border-blue-300'
                                   }`}
-                                  onClick={() => toggleAdvanceSelection(adv.id, adv.availableForSettlement)}
+                                  onClick={() => toggleAdvanceSelection(adv.id, adv.totalDisbursed)}
                                 >
                                   <div className="flex items-start justify-between">
                                     <div className="flex items-center gap-2">
@@ -1078,50 +1079,37 @@ function SubmitInvoice() {
                                       </div>
                                     </div>
                                     <div className="text-right">
-                                      {isPaid ? (
-                                        <>
-                                          <p className="text-sm font-semibold text-gray-900">
-                                            &#8377;{Number(adv.availableForSettlement).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                          </p>
-                                          <p className="text-xs text-gray-500">available to settle</p>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <p className="text-sm font-semibold text-amber-600">₹0.00</p>
-                                          <p className="text-xs text-amber-500">not yet paid</p>
-                                        </>
-                                      )}
+                                      <p className="text-sm font-semibold text-gray-900">
+                                        &#8377;{invoiceTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                      </p>
+                                      <p className="text-xs text-gray-500">invoice total</p>
                                     </div>
                                   </div>
-                                  {isSelected && isPaid && (
-                                    <div className="mt-2 ml-6">
-                                      <label className="text-xs text-gray-600">Amount to settle:</label>
-                                      <input
-                                        type="number"
-                                        value={selectedAdvances[adv.id] || ''}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onChange={(e) => {
-                                          e.stopPropagation();
-                                          const val = parseFloat(e.target.value) || 0;
-                                          const capped = Math.min(val, adv.availableForSettlement);
-                                          setSelectedAdvances((prev) => ({ ...prev, [adv.id]: capped }));
-                                        }}
-                                        className="w-full mt-1 px-2 py-1.5 rounded border border-gray-300 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                        min="0"
-                                        max={adv.availableForSettlement}
-                                        step="0.01"
-                                      />
-                                      <p className="text-xs text-gray-400 mt-0.5">
-                                        Disbursed: &#8377;{adv.totalDisbursed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                        {' '}&middot; Max: &#8377;{adv.availableForSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                      </p>
-                                    </div>
-                                  )}
-                                  {isSelected && !isPaid && (
-                                    <div className="mt-2 ml-6">
-                                      <p className="text-xs text-amber-600 bg-amber-50 rounded p-2 border border-amber-200">
-                                        Linked for reference only — no payment has been made against this proforma yet. Settlement amount will be ₹0.
-                                      </p>
+                                  {isSelected && (
+                                    <div className="mt-2 ml-6 rounded bg-gray-50 border border-gray-200 p-2 space-y-1">
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500">Invoice Total (Base + GST)</span>
+                                        <span className="text-gray-700">₹{invoiceTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500">Amount Paid to Vendor</span>
+                                        <span className={isPaid ? 'text-green-700 font-medium' : 'text-amber-600'}>
+                                          ₹{adv.totalDisbursed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                          {!isPaid && ' (not yet paid)'}
+                                        </span>
+                                      </div>
+                                      {adv.totalConsumed > 0 && (
+                                        <div className="flex justify-between text-xs">
+                                          <span className="text-gray-500">Already Settled</span>
+                                          <span className="text-orange-600">-₹{adv.totalConsumed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </div>
+                                      )}
+                                      <div className="flex justify-between text-xs font-semibold border-t border-gray-200 pt-1">
+                                        <span className="text-gray-700">Will Recover</span>
+                                        <span className={isPaid ? 'text-blue-700' : 'text-amber-600'}>
+                                          ₹{adv.availableForSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        </span>
+                                      </div>
                                     </div>
                                   )}
                                 </div>
@@ -1139,27 +1127,21 @@ function SubmitInvoice() {
                                   <span className="font-medium">&#8377;{taxInvoiceTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                  <span className="text-gray-600">Advances Settled ({Object.keys(selectedAdvances).length}):</span>
+                                  <span className="text-gray-600">Advances Paid ({Object.keys(selectedAdvances).length} linked):</span>
                                   <span className="font-medium text-orange-600">
                                     -&#8377;{totalAdvanceConsumed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                   </span>
                                 </div>
                                 <div className="border-t border-gray-200 pt-1 mt-1">
-                                  {isDebitNote ? (
-                                    <div className="flex justify-between">
-                                      <span className="font-semibold text-red-700">Debit Note (Vendor Owes):</span>
-                                      <span className="font-bold text-red-700">
-                                        &#8377;{debitNoteAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                      </span>
-                                    </div>
-                                  ) : (
-                                    <div className="flex justify-between">
-                                      <span className="font-semibold text-green-700">Net Payable:</span>
-                                      <span className="font-bold text-green-700">
-                                        &#8377;{netPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                      </span>
-                                    </div>
-                                  )}
+                                  <div className="flex justify-between">
+                                    <span className="font-semibold text-green-700">Estimated Net Payable:</span>
+                                    <span className="font-bold text-green-700">
+                                      &#8377;{netPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-gray-400 mt-1">
+                                    Final net payable will be determined by accounts at payment time.
+                                  </p>
                                 </div>
                               </div>
                             </div>
