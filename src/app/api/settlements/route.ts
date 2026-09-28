@@ -7,6 +7,7 @@ import {
   addSettlement,
   getInvoiceById,
   getPaymentsByInvoiceId,
+  addApprovalHistory,
 } from '@/lib/google-sheets';
 import { sanitizeString } from '@/lib/security';
 
@@ -191,6 +192,28 @@ export async function POST(request: NextRequest) {
       });
 
       created.push(result);
+    }
+
+    // Audit trail — log settlement linkage for both the tax invoice and each proforma
+    const advanceDetails = created.map(s => `${s.advanceInvoiceNumber} (₹${parseFloat(s.consumedAmount).toLocaleString('en-IN')})`).join(', ');
+    const totalConsumed = created.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0);
+
+    await addApprovalHistory({
+      invoiceId: taxInvoiceId,
+      amount: String(totalConsumed),
+      cumulativeTotal: taxInvoice.approvedAmount || taxInvoice.totalAmount || '0',
+      approvedBy: `Engineer: ${createdBy}`,
+      comments: `[SETTLEMENT] Linked to ${created.length} advance(s): ${advanceDetails} | Total recovery: ₹${totalConsumed.toLocaleString('en-IN')} | ${taxInvoice.vendorName} | ${taxInvoice.project}`,
+    });
+
+    for (const entry of created) {
+      await addApprovalHistory({
+        invoiceId: entry.advanceInvoiceId,
+        amount: entry.consumedAmount,
+        cumulativeTotal: '0',
+        approvedBy: `Engineer: ${createdBy}`,
+        comments: `[SETTLEMENT] Tax Invoice #${taxInvoice.invoiceNumber} linked against this proforma. Recovery amount: ₹${parseFloat(entry.consumedAmount).toLocaleString('en-IN')}`,
+      });
     }
 
     return NextResponse.json({ success: true, settlements: created });

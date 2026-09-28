@@ -559,6 +559,15 @@ export async function PUT(request: NextRequest) {
         comments: `[REJECTED] ${approvalComments || ''} (${invoice.status} → rejected)`,
       });
     }
+    if (status === 'under_review') {
+      await addApprovalHistory({
+        invoiceId: id,
+        amount: '0',
+        cumulativeTotal: invoice.approvedAmount || '0',
+        approvedBy,
+        comments: `[UNDER_REVIEW] ${approvalComments || 'Marked for review'} (${invoice.status} → under_review)`,
+      });
+    }
 
     return NextResponse.json({ success: true, approvedAmount });
   } catch (error) {

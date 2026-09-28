@@ -14,14 +14,16 @@ interface AuditEntry {
   createdAt: string;
 }
 
-type ActionType = 'all' | 'submitted' | 'approved' | 'rejected' | 'payment' | 'tax_invoice' | 'accounts_query' | 'resubmitted' | 'deduction' | 'retention' | 'other';
+type ActionType = 'all' | 'submitted' | 'approved' | 'rejected' | 'payment' | 'tax_invoice' | 'accounts_query' | 'resubmitted' | 'deduction' | 'retention' | 'settlement' | 'under_review' | 'cost_tag' | 'other';
 
 const ACTION_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   submitted:      { label: 'Submitted',       color: 'text-blue-700',    bg: 'bg-blue-100' },
   approved:       { label: 'Approved',         color: 'text-green-700',   bg: 'bg-green-100' },
   rejected:       { label: 'Rejected',         color: 'text-red-700',     bg: 'bg-red-100' },
+  under_review:   { label: 'Under Review',     color: 'text-yellow-700',  bg: 'bg-yellow-100' },
   payment:        { label: 'Payment',          color: 'text-purple-700',  bg: 'bg-purple-100' },
   tax_invoice:    { label: 'Tax Invoice',      color: 'text-indigo-700',  bg: 'bg-indigo-100' },
+  settlement:     { label: 'Settlement',       color: 'text-sky-700',     bg: 'bg-sky-100' },
   accounts_query: { label: 'Accounts Query',   color: 'text-amber-700',   bg: 'bg-amber-100' },
   query_accepted: { label: 'Query Accepted',   color: 'text-orange-700',  bg: 'bg-orange-100' },
   query_disagreed:{ label: 'Query Disagreed',  color: 'text-teal-700',    bg: 'bg-teal-100' },
@@ -29,6 +31,7 @@ const ACTION_CONFIG: Record<string, { label: string; color: string; bg: string }
   deduction:      { label: 'Deduction',        color: 'text-slate-700',   bg: 'bg-slate-100' },
   retention:      { label: 'Retention Release', color: 'text-emerald-700', bg: 'bg-emerald-100' },
   increase:       { label: 'Amount Increased', color: 'text-lime-700',    bg: 'bg-lime-100' },
+  cost_tag:       { label: 'Cost Tagged',      color: 'text-violet-700',  bg: 'bg-violet-100' },
   other:          { label: 'Other',            color: 'text-gray-700',    bg: 'bg-gray-100' },
 };
 
@@ -36,8 +39,11 @@ function classifyAction(comments: string): string {
   const c = comments.toUpperCase();
   if (c.includes('[SUBMITTED]'))        return 'submitted';
   if (c.includes('[REJECTED]'))         return 'rejected';
-  if (c.includes('[PAYMENT]'))          return 'payment';
+  if (c.includes('[PAYMENT]') || c.includes('[BATCH PAYMENT]')) return 'payment';
   if (c.includes('[TAX_INVOICE]'))      return 'tax_invoice';
+  if (c.includes('[SETTLEMENT]'))       return 'settlement';
+  if (c.includes('[UNDER_REVIEW]'))     return 'under_review';
+  if (c.includes('[COST_TAG]'))         return 'cost_tag';
   if (c.includes('[ACCOUNTS_QUERY]'))   return 'accounts_query';
   if (c.includes('[QUERY_ACCEPTED]'))   return 'query_accepted';
   if (c.includes('[QUERY_DISAGREED]'))  return 'query_disagreed';
@@ -166,11 +172,14 @@ export default function AccessLogsPage() {
                 <option value="submitted">Submitted</option>
                 <option value="approved">Approved</option>
                 <option value="rejected">Rejected</option>
+                <option value="under_review">Under Review</option>
                 <option value="payment">Payment</option>
                 <option value="tax_invoice">Tax Invoice Upload</option>
+                <option value="settlement">Settlement Linkage</option>
                 <option value="accounts_query">Accounts Query</option>
                 <option value="resubmitted">Resubmitted</option>
                 <option value="deduction">Deductions / Retention</option>
+                <option value="cost_tag">Cost Tagged</option>
                 <option value="other">Other</option>
               </select>
             </div>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth';
-import { getInvoiceById } from '@/lib/google-sheets';
+import { getInvoiceById, addApprovalHistory } from '@/lib/google-sheets';
 import { updateInvoiceCostTag, COST_TYPES } from '@/lib/cost-heads';
 import { sanitizeString } from '@/lib/security';
 
@@ -59,6 +59,21 @@ export async function PATCH(request: NextRequest) {
     if (!updated) {
       return NextResponse.json({ error: 'Failed to update cost tag' }, { status: 500 });
     }
+
+    const actorName = session.type === 'engineer'
+      ? `Engineer: ${(session as import('@/lib/auth').EngineerToken).engineerName}`
+      : session.type === 'accounts'
+        ? `Accounts: ${(session as import('@/lib/auth').AccountsToken).accountsName}`
+        : 'Admin';
+    const oldTag = [invoice.costCategory, invoice.costSubCategory, invoice.costType].filter(Boolean).join(' > ') || 'none';
+    const newTag = [costCategory, costSubCategory, costType].filter(Boolean).join(' > ') || 'cleared';
+    await addApprovalHistory({
+      invoiceId,
+      amount: '0',
+      cumulativeTotal: invoice.approvedAmount || '0',
+      approvedBy: actorName,
+      comments: `[COST_TAG] Cost category changed: ${oldTag} → ${newTag}`,
+    });
 
     return NextResponse.json({
       success: true,
