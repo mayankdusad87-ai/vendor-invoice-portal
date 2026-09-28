@@ -73,6 +73,17 @@ interface SettlementInfo {
   totalDisbursed: number;
 }
 
+interface ReverseSettlementInfo {
+  id: string;
+  taxInvoiceId: string;
+  consumedAmount: string;
+  taxInvoice?: {
+    id: string; invoiceNumber: string; invoiceDate: string;
+    amount: string; gstAmount: string; totalAmount: string;
+    approvedAmount: string; status: string;
+  } | null;
+}
+
 interface BulkSummary {
   totalPaid: number;
   totalTDS: number;
@@ -224,6 +235,7 @@ export default function ApproverDashboard() {
 
   // Settlement info cache
   const [settlementCache, setSettlementCache] = useState<Record<string, SettlementInfo[]>>({});
+  const [reverseSettlementCache, setReverseSettlementCache] = useState<Record<string, ReverseSettlementInfo[]>>({});
 
   // Increase approved amount modal
   const [increaseAmountInvoice, setIncreaseAmountInvoice] = useState<Invoice | null>(null);
@@ -357,6 +369,19 @@ export default function ApproverDashboard() {
       // Silently fail
     }
   }, [settlementCache]);
+
+  const fetchReverseSettlementInfo = useCallback(async (invoiceId: string) => {
+    if (reverseSettlementCache[invoiceId]) return;
+    try {
+      const res = await fetch(`/api/settlements?advanceInvoiceId=${invoiceId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setReverseSettlementCache((prev) => ({ ...prev, [invoiceId]: data.settlements || [] }));
+      }
+    } catch {
+      // Silently fail
+    }
+  }, [reverseSettlementCache]);
 
   // Handle increase approved amount
   const [increaseError, setIncreaseError] = useState('');
@@ -1121,6 +1146,10 @@ export default function ApproverDashboard() {
                       if (newExpanded && invoice.settlementType === 'settlement') {
                         fetchSettlementInfo(invoice.id);
                       }
+                      // Fetch reverse settlement info for proformas
+                      if (newExpanded && invoice.documentStage === 'proforma') {
+                        fetchReverseSettlementInfo(invoice.id);
+                      }
                     }}
                     role="button"
                     aria-expanded={isExpanded}
@@ -1586,6 +1615,78 @@ export default function ApproverDashboard() {
                               })()
                             ) : (
                               <p className="text-xs text-blue-600">Loading settlement details...</p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Reverse Settlement: proforma → shows which tax invoices settled against it */}
+                        {invoice.documentStage === 'proforma' && (
+                          <div className="mb-4 rounded-lg p-4 bg-emerald-50 border border-emerald-200">
+                            <p className="text-sm font-semibold text-emerald-900 mb-3 flex items-center gap-2">
+                              <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
+                              </svg>
+                              Tax Invoices Settled Against This Proforma
+                            </p>
+                            {reverseSettlementCache[invoice.id] ? (
+                              reverseSettlementCache[invoice.id].length > 0 ? (
+                                <div className="space-y-3">
+                                  <div className="space-y-2">
+                                    {reverseSettlementCache[invoice.id].map((s) => {
+                                      const taxBase = parseFloat(s.taxInvoice?.amount || '0') || 0;
+                                      const taxGst = parseFloat(s.taxInvoice?.gstAmount || '0') || 0;
+                                      const taxTotal = taxBase + taxGst;
+                                      return (
+                                        <div key={s.id} className="flex items-center justify-between bg-white rounded-lg p-2.5 border border-emerald-100">
+                                          <div>
+                                            <p className="text-sm font-medium text-gray-900">{s.taxInvoice?.invoiceNumber || s.taxInvoiceId}</p>
+                                            <p className="text-xs text-gray-500">
+                                              {s.taxInvoice?.invoiceDate || ''} &middot; {s.taxInvoice?.status || ''}
+                                            </p>
+                                            <p className="text-[10px] text-gray-400 mt-0.5">
+                                              Total: ₹{taxTotal.toLocaleString('en-IN')}
+                                            </p>
+                                          </div>
+                                          <div className="text-right">
+                                            <p className="text-sm font-semibold text-emerald-700">
+                                              ₹{Number(s.consumedAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                            </p>
+                                            <p className="text-[10px] text-gray-400">recovered</p>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  {(() => {
+                                    const totalRecovered = reverseSettlementCache[invoice.id].reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0);
+                                    const proformaBase = parseFloat(invoice.amount) || 0;
+                                    const proformaGst = parseFloat(invoice.gstAmount || '') || 0;
+                                    const proformaTotal = proformaBase + proformaGst;
+                                    return (
+                                      <div className="pt-3 border-t border-emerald-200 space-y-1">
+                                        <div className="flex justify-between text-sm">
+                                          <span className="text-gray-600">Proforma Total:</span>
+                                          <span className="font-medium">₹{proformaTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                          <span className="text-gray-600">Total Recovered:</span>
+                                          <span className="font-medium text-emerald-600">₹{totalRecovered.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </div>
+                                        {totalRecovered < proformaTotal && (
+                                          <div className="flex justify-between text-sm font-bold pt-1 border-t border-emerald-100">
+                                            <span className="text-amber-600">Remaining Unsettled:</span>
+                                            <span className="text-amber-600">₹{(proformaTotal - totalRecovered).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-emerald-700">No tax invoices have been settled against this proforma yet.</p>
+                              )
+                            ) : (
+                              <p className="text-xs text-emerald-600">Loading settlement details...</p>
                             )}
                           </div>
                         )}

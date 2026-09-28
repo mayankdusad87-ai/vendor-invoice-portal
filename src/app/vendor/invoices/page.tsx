@@ -53,6 +53,8 @@ interface Invoice {
   physicalCopyReceivedAt?: string;
   physicalCopyReceivedBy?: string;
   dueDate?: string;
+  settlementType?: string;
+  linkedInvoiceIds?: string;
 }
 
 /* =====================================================================
@@ -627,6 +629,21 @@ export default function VendorInvoices() {
    INVOICE DETAIL CONTENT (rendered inside drawer)
    ===================================================================== */
 
+interface SettlementEntry {
+  id: string;
+  taxInvoiceId: string;
+  advanceInvoiceId: string;
+  advanceInvoiceNumber: string;
+  consumedAmount: string;
+  vendorName: string;
+  project: string;
+  createdAt: string;
+  createdBy: string;
+  advanceInvoice?: { id: string; invoiceNumber: string; invoiceDate: string; amount: string; gstAmount: string; totalAmount: string; approvedAmount: string; status: string } | null;
+  taxInvoice?: { id: string; invoiceNumber: string; invoiceDate: string; amount: string; gstAmount: string; totalAmount: string; approvedAmount: string; status: string } | null;
+  totalDisbursed?: number;
+}
+
 function InvoiceDetailContent({
   invoice,
   onInvoicesRefresh,
@@ -636,6 +653,24 @@ function InvoiceDetailContent({
 }) {
   const [physicalCopySent, setPhysicalCopySent] = useState(false);
   const [physicalCopyLoading, setPhysicalCopyLoading] = useState(false);
+  const [settlementData, setSettlementData] = useState<SettlementEntry[] | null>(null);
+  const [settlementLoading, setSettlementLoading] = useState(false);
+
+  useEffect(() => {
+    const isSettlementTax = invoice.settlementType === 'settlement';
+    const isProforma = invoice.documentStage === 'proforma';
+    if (!isSettlementTax && !isProforma) return;
+
+    setSettlementLoading(true);
+    const endpoint = isSettlementTax
+      ? `/api/settlements?taxInvoiceId=${invoice.id}`
+      : `/api/settlements?advanceInvoiceId=${invoice.id}`;
+    fetch(endpoint)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setSettlementData(data.settlements || []); })
+      .catch(() => {})
+      .finally(() => setSettlementLoading(false));
+  }, [invoice.id, invoice.settlementType, invoice.documentStage]);
 
   const photoUrls = invoice.workPhotos ? invoice.workPhotos.split(',').filter(Boolean) : [];
 
@@ -711,14 +746,163 @@ function InvoiceDetailContent({
         )}
       </DrawerSection>
 
-      {/* Proforma info — settlement flow replaces Upload Tax Invoice */}
-      {invoice.documentStage === 'proforma' && !['rejected', 'correction_required', 'accounts_query'].includes(invoice.status) && (
+      {/* Settlement: Tax invoice → shows linked proformas/advances */}
+      {invoice.settlementType === 'settlement' && (
+        <DrawerSection title="Settlement — Linked Advances" badge={
+          <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 border border-blue-200">Settlement</span>
+        }>
+          {settlementLoading ? (
+            <p className="text-xs text-[var(--text-muted)]">Loading settlement details...</p>
+          ) : settlementData && settlementData.length > 0 ? (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                {settlementData.map((s) => {
+                  const advBase = parseFloat(s.advanceInvoice?.amount || '0') || 0;
+                  const advGst = parseFloat(s.advanceInvoice?.gstAmount || '0') || 0;
+                  const advTotal = advBase + advGst;
+                  return (
+                    <div key={s.id} className="rounded-lg border border-blue-100 bg-blue-50/50 p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--text-primary)]">{s.advanceInvoiceNumber}</p>
+                          <p className="text-[10px] text-[var(--text-muted)]">
+                            {s.advanceInvoice?.invoiceDate || ''} &middot; <StatusBadge status={s.advanceInvoice?.status as InvoiceStatus || 'submitted'} />
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-orange-600">
+                            -₹{Number(s.consumedAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-[10px] text-[var(--text-muted)]">consumed</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-4 text-[10px] text-[var(--text-muted)] border-t border-blue-100 pt-1.5 mt-1.5">
+                        <span>Base: ₹{advBase.toLocaleString('en-IN')}</span>
+                        {advGst > 0 && <span>GST: ₹{advGst.toLocaleString('en-IN')}</span>}
+                        <span>Total: ₹{advTotal.toLocaleString('en-IN')}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {(() => {
+                const totalConsumed = settlementData.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0);
+                const taxBase = parseFloat(invoice.amount) || 0;
+                const taxGst = parseFloat(invoice.gstAmount || '') || 0;
+                const taxTotal = taxBase + taxGst;
+                const netPayable = Math.max(0, taxTotal - totalConsumed);
+                const isDebit = totalConsumed > taxTotal;
+                const debitAmount = Math.max(0, totalConsumed - taxTotal);
+                return (
+                  <div className="rounded-lg border border-blue-200 bg-white p-3 space-y-1.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[var(--text-muted)]">Tax Invoice Total</span>
+                      <span className="font-medium">₹{taxTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[var(--text-muted)]">Advances Recovered</span>
+                      <span className="font-medium text-orange-600">-₹{totalConsumed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-bold pt-1.5 border-t border-blue-100">
+                      {isDebit ? (
+                        <>
+                          <span className="text-red-700">Debit Note (Vendor Owes)</span>
+                          <span className="text-red-700">₹{debitAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-green-700">Net Payable</span>
+                          <span className="text-green-700">₹{netPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            <p className="text-xs text-[var(--text-muted)]">No settlement records found.</p>
+          )}
+        </DrawerSection>
+      )}
+
+      {/* Proforma: shows which tax invoices are settled against it */}
+      {invoice.documentStage === 'proforma' && (
         <DrawerSection title="Proforma Status" badge={<DocStageBadge stage="proforma" />}>
-          <div className="rounded-lg border border-[var(--info-border,#bfdbfe)] bg-[var(--info-light,#eff6ff)] p-3">
-            <p className="text-xs" style={{ color: 'var(--info,#2563eb)' }}>
-              This is a proforma invoice. When the final tax invoice arrives, submit it as a <strong>new Tax Invoice</strong> through the Submit Invoice form and link it to this proforma using the settlement feature.
-            </p>
-          </div>
+          {settlementLoading ? (
+            <p className="text-xs text-[var(--text-muted)]">Loading settlement details...</p>
+          ) : settlementData && settlementData.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-blue-700 flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
+                </svg>
+                Tax Invoices Settled Against This Proforma
+              </p>
+              <div className="space-y-2">
+                {settlementData.map((s) => {
+                  const taxBase = parseFloat(s.taxInvoice?.amount || '0') || 0;
+                  const taxGst = parseFloat(s.taxInvoice?.gstAmount || '0') || 0;
+                  const taxTotal = taxBase + taxGst;
+                  return (
+                    <div key={s.id} className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--text-primary)]">
+                            {s.taxInvoice?.invoiceNumber || s.taxInvoiceId}
+                          </p>
+                          <p className="text-[10px] text-[var(--text-muted)]">
+                            {s.taxInvoice?.invoiceDate || ''} &middot; <StatusBadge status={s.taxInvoice?.status as InvoiceStatus || 'submitted'} />
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-emerald-700">
+                            ₹{Number(s.consumedAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-[10px] text-[var(--text-muted)]">recovered</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-4 text-[10px] text-[var(--text-muted)] border-t border-emerald-100 pt-1.5 mt-1.5">
+                        <span>Base: ₹{taxBase.toLocaleString('en-IN')}</span>
+                        {taxGst > 0 && <span>GST: ₹{taxGst.toLocaleString('en-IN')}</span>}
+                        <span>Total: ₹{taxTotal.toLocaleString('en-IN')}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {(() => {
+                const totalRecovered = settlementData.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0);
+                const proformaBase = parseFloat(invoice.amount) || 0;
+                const proformaGst = parseFloat(invoice.gstAmount || '') || 0;
+                const proformaTotal = proformaBase + proformaGst;
+                return (
+                  <div className="rounded-lg border border-emerald-200 bg-white p-3 space-y-1.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[var(--text-muted)]">Proforma Total</span>
+                      <span className="font-medium">₹{proformaTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[var(--text-muted)]">Total Recovered via Settlements</span>
+                      <span className="font-medium text-emerald-600">₹{totalRecovered.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    {totalRecovered < proformaTotal && (
+                      <div className="flex justify-between text-xs pt-1.5 border-t border-emerald-100">
+                        <span className="text-amber-600 font-medium">Remaining Unsettled</span>
+                        <span className="text-amber-600 font-medium">₹{(proformaTotal - totalRecovered).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[var(--info-border,#bfdbfe)] bg-[var(--info-light,#eff6ff)] p-3">
+              <p className="text-xs" style={{ color: 'var(--info,#2563eb)' }}>
+                This is a proforma invoice. When the final tax invoice arrives, submit it as a <strong>new Tax Invoice</strong> through the Submit Invoice form and link it to this proforma using the settlement feature.
+              </p>
+            </div>
+          )}
         </DrawerSection>
       )}
 

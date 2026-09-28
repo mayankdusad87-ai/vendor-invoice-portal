@@ -59,7 +59,25 @@ export async function GET(request: NextRequest) {
     if (advanceInvoiceId) {
       const sanitizedId = sanitizeString(advanceInvoiceId, 50);
       const settlements = await getSettlementsByAdvanceId(sanitizedId);
-      return NextResponse.json({ settlements });
+
+      const enriched = await Promise.all(settlements.map(async (s) => {
+        const taxInvoice = await getInvoiceById(s.taxInvoiceId);
+        return {
+          ...s,
+          taxInvoice: taxInvoice ? {
+            id: taxInvoice.id,
+            invoiceNumber: taxInvoice.invoiceNumber,
+            invoiceDate: taxInvoice.invoiceDate,
+            amount: taxInvoice.amount,
+            gstAmount: taxInvoice.gstAmount,
+            totalAmount: taxInvoice.totalAmount,
+            approvedAmount: taxInvoice.approvedAmount,
+            status: taxInvoice.status,
+          } : null,
+        };
+      }));
+
+      return NextResponse.json({ settlements: enriched });
     }
 
     if (vendorName && project) {
