@@ -252,9 +252,12 @@ function PaymentModal({
   const retentionNum = parseFloat(retentionInput) || 0;
 
   const invoiceRemaining = paymentSummary ? paymentSummary.remaining : parseFloat(invoice.amount) || 0;
-  const totalSettled = settlementInfo ? settlementInfo.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0) : 0;
   const rawAvailable = paymentSummary ? (paymentSummary.availableToPay ?? paymentSummary.remaining) : parseFloat(invoice.approvedAmount || invoice.amount) || 0;
-  const availableToPay = invoice.settlementType === 'settlement' ? Math.max(0, rawAvailable - totalSettled) : rawAvailable;
+  const totalAdvancePaid = settlementInfo ? settlementInfo.reduce((sum, s) => sum + (s.totalDisbursed || 0), 0) : 0;
+  const hasPaidAdvances = invoice.settlementType === 'settlement' && totalAdvancePaid > 0;
+  const approvedAmtForSettlement = parseFloat(invoice.approvedAmount || '') || ((parseFloat(invoice.amount) || 0) + (parseFloat(invoice.gstAmount || '') || 0));
+  const isDebitNote = hasPaidAdvances && totalAdvancePaid > approvedAmtForSettlement;
+  const availableToPay = hasPaidAdvances ? Math.max(0, rawAvailable - totalAdvancePaid) : rawAvailable;
 
   // Gross = net to vendor + TDS + retention; must fit within approved cap
   const parsedAmount = parseFloat(amount) || 0;
@@ -461,102 +464,82 @@ function PaymentModal({
             </div>
 
             {/* Settlement Breakdown — for settlement invoices */}
-            {invoice.settlementType === 'settlement' && settlementInfo && settlementInfo.length > 0 && (
-              <div className="mb-4 rounded-lg p-3 bg-blue-50 border border-blue-200">
-                <p className="text-xs font-semibold text-blue-800 mb-2 flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
-                  </svg>
-                  Settlement Against Advances
-                </p>
-                {/* Deviation table */}
-                {(() => {
-                  const proformaBase = settlementInfo.reduce((s, si) => s + (parseFloat(si.advanceInvoice?.amount || '0') || 0), 0);
-                  const taxBase = parseFloat(invoice.amount) || 0;
-                  const taxGst = parseFloat(invoice.gstAmount || '') || 0;
-                  const baseDeviation = taxBase - proformaBase;
-                  const baseDeviationPct = proformaBase > 0 ? ((baseDeviation / proformaBase) * 100) : 0;
-                  const hasBaseDeviation = Math.abs(baseDeviation) > 0.01;
-                  return hasBaseDeviation ? (
-                    <div className="mb-2 rounded bg-white border border-blue-100 overflow-hidden">
-                      <table className="w-full text-[10px]">
-                        <thead><tr className="bg-blue-100/50">
-                          <th className="text-left px-2 py-1 text-gray-500"></th>
-                          <th className="text-right px-2 py-1 text-gray-500">Proforma</th>
-                          <th className="text-right px-2 py-1 text-gray-500">Tax Invoice</th>
-                          <th className="text-right px-2 py-1 text-gray-500">Deviation</th>
-                        </tr></thead>
-                        <tbody>
-                          <tr className="border-t border-blue-50">
-                            <td className="px-2 py-1 text-gray-600">Base</td>
-                            <td className="px-2 py-1 text-right text-gray-500">{formatCurrency(proformaBase)}</td>
-                            <td className="px-2 py-1 text-right text-gray-900 font-medium">{formatCurrency(taxBase)}</td>
-                            <td className={`px-2 py-1 text-right font-semibold ${baseDeviation > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                              {baseDeviation > 0 ? '+' : ''}{formatCurrency(baseDeviation)} ({baseDeviationPct > 0 ? '+' : ''}{baseDeviationPct.toFixed(0)}%)
-                            </td>
-                          </tr>
-                          {taxGst > 0 && (
-                            <tr className="border-t border-blue-50">
-                              <td className="px-2 py-1 text-gray-600">GST</td>
-                              <td className="px-2 py-1 text-right text-gray-400">—</td>
-                              <td className="px-2 py-1 text-right text-gray-900 font-medium">{formatCurrency(taxGst)}</td>
-                              <td className="px-2 py-1 text-right text-gray-500">+{formatCurrency(taxGst)}</td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : null;
-                })()}
-                <div className="space-y-1.5">
-                  {settlementInfo.map((s) => (
-                    <div key={s.id} className="flex items-center justify-between bg-white rounded p-2 text-xs border border-blue-100">
-                      <div>
-                        <span className="font-medium text-gray-900">{s.advanceInvoiceNumber}</span>
-                        <span className="text-gray-400 ml-1">{s.advanceInvoice?.status || ''}</span>
-                      </div>
-                      <span className="font-semibold text-orange-600">-{formatCurrency(s.consumedAmount)}</span>
-                    </div>
-                  ))}
-                </div>
-                {(() => {
-                  const stlConsumed = settlementInfo.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0);
-                  const taxTotal = (parseFloat(invoice.amount) || 0) + (parseFloat(invoice.gstAmount || '') || 0);
-                  const approvedAmt = parseFloat(invoice.approvedAmount || '') || taxTotal;
-                  const netPayable = Math.max(0, approvedAmt - stlConsumed);
-                  const isDebit = stlConsumed > approvedAmt;
-                  const debitAmount = Math.max(0, stlConsumed - approvedAmt);
-                  return (
-                    <div className="mt-2 pt-2 border-t border-blue-200 text-xs space-y-0.5">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Approved Amount:</span>
-                        <span className="font-medium text-gray-900">{formatCurrency(approvedAmt)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Advances Recovered:</span>
-                        <span className="font-medium text-orange-600">-{formatCurrency(stlConsumed)}</span>
-                      </div>
-                      <div className="flex justify-between font-bold pt-1 border-t border-blue-100">
-                        {isDebit ? (
-                          <>
-                            <span className="text-red-700">Debit Note (Vendor Owes):</span>
-                            <span className="text-red-700">{formatCurrency(debitAmount)}</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-green-700">Max Payable (Net):</span>
-                            <span className="text-green-700">{formatCurrency(netPayable)}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
+            {invoice.settlementType === 'settlement' && settlementInfo && settlementInfo.length > 0 && (() => {
+              const totalAdvancePaid = settlementInfo.reduce((sum, s) => sum + (s.totalDisbursed || 0), 0);
+              const hasPaidAdvances = totalAdvancePaid > 0;
+              const approvedAmt = parseFloat(invoice.approvedAmount || '') || ((parseFloat(invoice.amount) || 0) + (parseFloat(invoice.gstAmount || '') || 0));
+              const netPayable = Math.max(0, approvedAmt - totalAdvancePaid);
+              const isDebit = totalAdvancePaid > approvedAmt;
+              const debitAmount = Math.max(0, totalAdvancePaid - approvedAmt);
 
-            {/* Payment form */}
-            <div className="space-y-4">
+              if (!hasPaidAdvances) {
+                return (
+                  <div className="mb-4 rounded-lg p-3 bg-gray-50 border border-gray-200">
+                    <p className="text-xs text-gray-600 flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
+                      </svg>
+                      Linked to {settlementInfo.length === 1 ? `Proforma ${settlementInfo[0].advanceInvoiceNumber}` : `${settlementInfo.length} proformas`} — no advance paid, pay full approved amount.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className={`mb-4 rounded-lg p-3 border ${isDebit ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+                  <p className={`text-xs font-semibold mb-2 flex items-center gap-1.5 ${isDebit ? 'text-red-800' : 'text-blue-800'}`}>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
+                    </svg>
+                    {isDebit ? 'Advance Recovery — Debit Note Required' : 'Advance Recovery'}
+                  </p>
+                  <div className="space-y-1.5">
+                    {settlementInfo.filter(s => s.totalDisbursed > 0).map((s) => (
+                      <div key={s.id} className="flex items-center justify-between bg-white rounded p-2 text-xs border border-blue-100">
+                        <div>
+                          <span className="font-medium text-gray-900">{s.advanceInvoiceNumber}</span>
+                          <span className="text-gray-400 ml-1">&middot; {s.advanceInvoice?.status || ''}</span>
+                        </div>
+                        <span className="font-semibold text-orange-600">Paid {formatCurrency(s.totalDisbursed)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-blue-200 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Approved Amount:</span>
+                      <span className="font-medium text-gray-900">{formatCurrency(approvedAmt)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Advance Already Paid:</span>
+                      <span className="font-medium text-orange-600">-{formatCurrency(totalAdvancePaid)}</span>
+                    </div>
+                    <div className={`flex justify-between font-bold pt-1.5 border-t ${isDebit ? 'border-red-200' : 'border-blue-100'}`}>
+                      {isDebit ? (
+                        <>
+                          <span className="text-red-700">Vendor Owes (Debit Note):</span>
+                          <span className="text-red-700">{formatCurrency(debitAmount)}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-green-700">You Pay:</span>
+                          <span className="text-green-700">{formatCurrency(netPayable)}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {isDebit && (
+                    <div className="mt-2 p-2 rounded bg-red-100 border border-red-200">
+                      <p className="text-[10px] text-red-800 font-medium">
+                        Do not make a payment. The vendor was paid more in advances than the approved amount. Raise a debit note or adjust against the vendor&apos;s next bill.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Payment form — hidden for debit note invoices */}
+            {!isDebitNote && <div className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1.5">
                   Payment Amount <span className="text-red-500">*</span>
@@ -855,10 +838,10 @@ function PaymentModal({
                   placeholder="GST payment, advance, etc."
                 />
               </div>
-            </div>
+            </div>}
 
             {/* Validation error */}
-            {formError && (
+            {!isDebitNote && formError && (
               <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-100 text-red-700 text-sm" role="alert">
                 <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
@@ -869,22 +852,31 @@ function PaymentModal({
 
             <div className="flex items-center gap-3 mt-6">
               <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors min-h-[44px]">
-                Cancel
+                {isDebitNote ? 'Close' : 'Cancel'}
               </button>
-              <button
-                onClick={validateAndConfirm}
-                disabled={isSubmitting || !amount || (parseFloat(amount) || 0) > Math.min(availableToPay, invoiceRemaining) + 0.01 || (parseFloat(amount) || 0) <= 0}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-              >
-                {isSubmitting ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Processing…
-                  </span>
-                ) : (
-                  `Pay ${amount ? formatCurrency(amount) : ''}`
-                )}
-              </button>
+              {isDebitNote ? (
+                <div className="flex-1 px-4 py-2.5 rounded-lg bg-red-100 text-red-700 text-sm font-semibold text-center min-h-[44px] flex items-center justify-center gap-1.5 border border-red-200">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5Z" />
+                  </svg>
+                  Raise Debit Note
+                </div>
+              ) : (
+                <button
+                  onClick={validateAndConfirm}
+                  disabled={isSubmitting || !amount || (parseFloat(amount) || 0) > Math.min(availableToPay, invoiceRemaining) + 0.01 || (parseFloat(amount) || 0) <= 0}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                >
+                  {isSubmitting ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Processing…
+                    </span>
+                  ) : (
+                    `Pay ${amount ? formatCurrency(amount) : ''}`
+                  )}
+                </button>
+              )}
             </div>
           </>
         )}
@@ -2835,7 +2827,7 @@ export default function AccountsDashboard() {
                                 <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-emerald-100 text-emerald-700">TI</span>
                               )}
                               {inv.settlementType === 'settlement' && (
-                                <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-blue-100 text-blue-700">Sett</span>
+                                <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-blue-100 text-blue-700">Linked</span>
                               )}
                               {invoiceNeedsExtension(inv) && (
                                 <span className="ml-1 px-1 py-0.5 text-[9px] font-semibold rounded bg-pink-100 text-pink-700">Ext</span>
@@ -3343,7 +3335,7 @@ export default function AccountsDashboard() {
                             <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
                           )}
                           {inv.settlementType === 'settlement' && (
-                            <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 border border-blue-200">Settlement</span>
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 border border-blue-200">Linked</span>
                           )}
                           {invoiceNeedsExtension(inv) && (
                             <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200">Pending Extension</span>
@@ -3494,59 +3486,81 @@ export default function AccountsDashboard() {
                           )}
 
                           {/* Settlement Breakdown (expanded detail) */}
-                          {inv.settlementType === 'settlement' && settlementCache[inv.id] && settlementCache[inv.id].length > 0 && (
-                            <div className="mb-4 rounded-lg p-3 bg-blue-50 border border-blue-200">
-                              <p className="text-xs font-semibold text-blue-800 mb-2 flex items-center gap-1.5">
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
-                                </svg>
-                                Settlement Against Advances
-                              </p>
-                              <div className="space-y-1.5">
-                                {settlementCache[inv.id].map((s: SettlementDetail) => (
-                                  <div key={s.id} className="flex items-center justify-between bg-white rounded p-2 text-xs border border-blue-100">
-                                    <div>
-                                      <span className="font-medium text-gray-900">{s.advanceInvoiceNumber}</span>
-                                      <span className="text-gray-400 ml-1">{s.advanceInvoice?.status || ''}</span>
+                          {inv.settlementType === 'settlement' && settlementCache[inv.id] && settlementCache[inv.id].length > 0 && (() => {
+                            const sData = settlementCache[inv.id];
+                            const totalAdvPaid = sData.reduce((sum: number, s: SettlementDetail) => sum + (s.totalDisbursed || 0), 0);
+                            const hasAdvPaid = totalAdvPaid > 0;
+                            const approvedAmt = parseFloat(inv.approvedAmount || '') || ((parseFloat(inv.amount) || 0) + (parseFloat(inv.gstAmount || '') || 0));
+
+                            if (!hasAdvPaid) {
+                              return (
+                                <div className="mb-4 rounded-lg p-3 bg-gray-50 border border-gray-200">
+                                  <p className="text-xs text-gray-600 flex items-center gap-1.5">
+                                    <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
+                                    </svg>
+                                    Linked to {sData.length === 1 ? `Proforma ${sData[0].advanceInvoiceNumber}` : `${sData.length} proformas`} — no advance paid.
+                                  </p>
+                                </div>
+                              );
+                            }
+
+                            const netPayable = Math.max(0, approvedAmt - totalAdvPaid);
+                            const isDebit = totalAdvPaid > approvedAmt;
+                            const debitAmount = Math.max(0, totalAdvPaid - approvedAmt);
+
+                            return (
+                              <div className={`mb-4 rounded-lg p-3 border ${isDebit ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+                                <p className={`text-xs font-semibold mb-2 flex items-center gap-1.5 ${isDebit ? 'text-red-800' : 'text-blue-800'}`}>
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.06a4.5 4.5 0 0 0-1.242-7.244l-4.5-4.5a4.5 4.5 0 0 0-6.364 6.364L4.49 8.81" />
+                                  </svg>
+                                  {isDebit ? 'Advance Recovery — Debit Note Required' : 'Advance Recovery'}
+                                </p>
+                                <div className="space-y-1.5">
+                                  {sData.filter((s: SettlementDetail) => s.totalDisbursed > 0).map((s: SettlementDetail) => (
+                                    <div key={s.id} className="flex items-center justify-between bg-white rounded p-2 text-xs border border-blue-100">
+                                      <div>
+                                        <span className="font-medium text-gray-900">{s.advanceInvoiceNumber}</span>
+                                        <span className="text-gray-400 ml-1">&middot; {s.advanceInvoice?.status || ''}</span>
+                                      </div>
+                                      <span className="font-semibold text-orange-600">Paid {formatCurrency(s.totalDisbursed)}</span>
                                     </div>
-                                    <span className="font-semibold text-orange-600">-{formatCurrency(s.consumedAmount)}</span>
+                                  ))}
+                                </div>
+                                <div className="mt-2 pt-2 border-t border-blue-200 text-xs space-y-1">
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-600">Approved:</span>
+                                    <span className="font-medium text-gray-900">{formatCurrency(approvedAmt)}</span>
                                   </div>
-                                ))}
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-600">Advance Already Paid:</span>
+                                    <span className="font-medium text-orange-600">-{formatCurrency(totalAdvPaid)}</span>
+                                  </div>
+                                  <div className={`flex justify-between font-bold pt-1.5 border-t ${isDebit ? 'border-red-200' : 'border-blue-100'}`}>
+                                    {isDebit ? (
+                                      <>
+                                        <span className="text-red-700">Vendor Owes (Debit Note):</span>
+                                        <span className="text-red-700">{formatCurrency(debitAmount)}</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="text-green-700">You Pay:</span>
+                                        <span className="text-green-700">{formatCurrency(netPayable)}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                                {isDebit && (
+                                  <div className="mt-2 p-2 rounded bg-red-100 border border-red-200">
+                                    <p className="text-[10px] text-red-800 font-medium">
+                                      Do not make a payment. Raise a debit note or adjust against the vendor&apos;s next bill.
+                                    </p>
+                                  </div>
+                                )}
                               </div>
-                              {(() => {
-                                const stlConsumed = settlementCache[inv.id].reduce((sum: number, s: SettlementDetail) => sum + (parseFloat(s.consumedAmount) || 0), 0);
-                                const approvedAmt = parseFloat(inv.approvedAmount || '') || ((parseFloat(inv.amount) || 0) + (parseFloat(inv.gstAmount || '') || 0));
-                                const netPayable = Math.max(0, approvedAmt - stlConsumed);
-                                const isDebit = stlConsumed > approvedAmt;
-                                const debitAmount = Math.max(0, stlConsumed - approvedAmt);
-                                return (
-                                  <div className="mt-2 pt-2 border-t border-blue-200 text-xs space-y-0.5">
-                                    <div className="flex justify-between">
-                                      <span className="text-gray-600">Approved:</span>
-                                      <span className="font-medium text-gray-900">{formatCurrency(approvedAmt)}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-gray-600">Advances Recovered:</span>
-                                      <span className="font-medium text-orange-600">-{formatCurrency(stlConsumed)}</span>
-                                    </div>
-                                    <div className="flex justify-between font-bold pt-1 border-t border-blue-100">
-                                      {isDebit ? (
-                                        <>
-                                          <span className="text-red-700">Debit Note:</span>
-                                          <span className="text-red-700">{formatCurrency(debitAmount)}</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <span className="text-green-700">Net Payable:</span>
-                                          <span className="text-green-700">{formatCurrency(netPayable)}</span>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          )}
+                            );
+                          })()}
 
                           {/* Physical Copy Status */}
                           {inv.physicalCopySentAt && (

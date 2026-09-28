@@ -256,6 +256,7 @@ export default function ApproverDashboard() {
     invoiceNumber: string;
     action: InvoiceStatus;
     message: string;
+    warning?: string;
   } | null>(null);
 
   // Accounts query resolution state
@@ -523,7 +524,7 @@ export default function ApproverDashboard() {
   const clearError = (id: string) =>
     setActionError((prev) => { const next = { ...prev }; delete next[id]; return next; });
 
-  const requestAction = (invoiceId: string, invoiceNumber: string, status: InvoiceStatus, invoiceAmount?: string, gstAmount?: string) => {
+  const requestAction = async (invoiceId: string, invoiceNumber: string, status: InvoiceStatus, invoiceAmount?: string, gstAmount?: string) => {
     clearError(invoiceId);
     const comment = getComment(invoiceId).trim();
     const reason = getReason(invoiceId);
@@ -567,11 +568,36 @@ export default function ApproverDashboard() {
       : undefined;
     const amtDisplay = approvedAmt ? ` for ₹${parseFloat(approvedAmt).toLocaleString('en-IN')}` : '';
 
+    let warning: string | undefined;
+    const inv = invoices.find(i => i.id === invoiceId);
+    if (status === 'approved' && inv?.settlementType === 'settlement' && approvedAmt) {
+      let settlements = settlementCache[invoiceId];
+      if (!settlements) {
+        try {
+          const res = await fetch(`/api/settlements?taxInvoiceId=${encodeURIComponent(invoiceId)}`);
+          if (res.ok) {
+            const data = await res.json();
+            settlements = data.settlements || [];
+            setSettlementCache(prev => ({ ...prev, [invoiceId]: settlements! }));
+          }
+        } catch { /* non-critical */ }
+      }
+      if (settlements && settlements.length > 0) {
+        const totalAdvancePaid = settlements.reduce((sum, s) => sum + (s.totalDisbursed || 0), 0);
+        const parsedApproved = parseFloat(approvedAmt) || 0;
+        if (totalAdvancePaid > 0 && parsedApproved < totalAdvancePaid) {
+          const shortfall = totalAdvancePaid - parsedApproved;
+          warning = `The vendor was already paid ₹${totalAdvancePaid.toLocaleString('en-IN')} in advances against linked proformas. Approving ₹${parsedApproved.toLocaleString('en-IN')} means accounts will need to raise a debit note of ₹${shortfall.toLocaleString('en-IN')}.`;
+        }
+      }
+    }
+
     setConfirmDialog({
       invoiceId,
       invoiceNumber,
       action: status,
       message: `Are you sure you want to ${actionLabels[status] || status} invoice ${invoiceNumber}${amtDisplay}?`,
+      warning,
     });
   };
 
@@ -1193,7 +1219,7 @@ export default function ApproverDashboard() {
                           <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-100 text-emerald-700 border border-emerald-200">Tax Invoice</span>
                         )}
                         {invoice.settlementType === 'settlement' && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 border border-blue-200">Settlement</span>
+                          <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 border border-blue-200">Linked</span>
                         )}
                         {needsExtension(invoice) && (
                           <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-pink-100 text-pink-700 border border-pink-200 animate-pulse">Extension Required</span>
@@ -2250,7 +2276,18 @@ export default function ApproverDashboard() {
               )}
             </div>
             <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Action</h3>
-            <p className="text-sm text-gray-600 mb-5">{confirmDialog.message}</p>
+            <p className="text-sm text-gray-600 mb-3">{confirmDialog.message}</p>
+            {confirmDialog.warning && (
+              <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-left">
+                <p className="text-xs font-semibold text-amber-800 mb-1 flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                  </svg>
+                  Debit Note Warning
+                </p>
+                <p className="text-[11px] text-amber-700">{confirmDialog.warning}</p>
+              </div>
+            )}
             <div className="flex gap-2">
               <button onClick={() => setConfirmDialog(null)}
                 className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors min-h-[44px]">
