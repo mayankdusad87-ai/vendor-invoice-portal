@@ -1046,6 +1046,9 @@ function SubmitInvoice() {
                           <div className="space-y-2 max-h-64 overflow-y-auto">
                             {availableAdvances.map((adv) => {
                               const isSelected = selectedAdvances[adv.id] !== undefined;
+                              const isPaid = adv.totalDisbursed > 0;
+                              const statusLabel = adv.status === 'paid' ? 'Paid' : adv.status === 'partially_paid' ? 'Partially Paid' : adv.status === 'approved' ? 'Approved' : 'Pending Approval';
+                              const statusColor = isPaid ? 'text-green-600' : adv.status === 'approved' ? 'text-blue-600' : 'text-amber-600';
                               return (
                                 <div
                                   key={adv.id}
@@ -1070,17 +1073,27 @@ function SubmitInvoice() {
                                         </p>
                                         <p className="text-xs text-gray-500">
                                           {adv.invoiceDate} &middot; {adv.invoiceType === 'advance' ? 'Advance' : 'RA'}
+                                          {' '}&middot; <span className={statusColor}>{statusLabel}</span>
                                         </p>
                                       </div>
                                     </div>
                                     <div className="text-right">
-                                      <p className="text-sm font-semibold text-gray-900">
-                                        &#8377;{Number(adv.availableForSettlement).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                      </p>
-                                      <p className="text-xs text-gray-500">available</p>
+                                      {isPaid ? (
+                                        <>
+                                          <p className="text-sm font-semibold text-gray-900">
+                                            &#8377;{Number(adv.availableForSettlement).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                          </p>
+                                          <p className="text-xs text-gray-500">available to settle</p>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <p className="text-sm font-semibold text-amber-600">₹0.00</p>
+                                          <p className="text-xs text-amber-500">not yet paid</p>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
-                                  {isSelected && (
+                                  {isSelected && isPaid && (
                                     <div className="mt-2 ml-6">
                                       <label className="text-xs text-gray-600">Amount to settle:</label>
                                       <input
@@ -1101,6 +1114,13 @@ function SubmitInvoice() {
                                       <p className="text-xs text-gray-400 mt-0.5">
                                         Disbursed: &#8377;{adv.totalDisbursed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                         {' '}&middot; Max: &#8377;{adv.availableForSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                      </p>
+                                    </div>
+                                  )}
+                                  {isSelected && !isPaid && (
+                                    <div className="mt-2 ml-6">
+                                      <p className="text-xs text-amber-600 bg-amber-50 rounded p-2 border border-amber-200">
+                                        Linked for reference only — no payment has been made against this proforma yet. Settlement amount will be ₹0.
                                       </p>
                                     </div>
                                   )}

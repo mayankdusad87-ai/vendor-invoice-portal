@@ -2921,11 +2921,8 @@ export async function getAvailableAdvancesForSettlement(
     const advSettlements = settlements.filter((s) => s.advanceInvoiceId === adv.id);
     const totalConsumed = advSettlements.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0);
 
-    const baseAmount = parseFloat(adv.approvedAmount) || parseFloat(adv.amount) || 0;
-    const gstAmount = parseFloat(adv.gstAmount) || 0;
-    const totalWithGst = baseAmount + gstAmount;
-    const availableForSettlement = Math.max(0, totalWithGst - totalConsumed);
+    const availableForSettlement = Math.max(0, totalDisbursed - totalConsumed);
 
     return { ...adv, totalDisbursed, totalConsumed, availableForSettlement };
-  }).filter((adv) => adv.availableForSettlement > 0);
+  });
 }
