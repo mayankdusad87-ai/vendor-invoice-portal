@@ -2910,7 +2910,7 @@ export async function getAvailableAdvancesForSettlement(
     inv.project === project &&
     (inv.invoiceType === 'advance' || inv.invoiceType === 'ra') &&
     inv.documentStage === 'proforma' &&
-    (inv.status === 'paid' || inv.status === 'partially_paid' || inv.status === 'approved')
+    (inv.status === 'submitted' || inv.status === 'under_review' || inv.status === 'approved' || inv.status === 'partially_paid' || inv.status === 'paid')
   );
 
   return advances.map((adv) => {
@@ -2921,8 +2921,10 @@ export async function getAvailableAdvancesForSettlement(
     const advSettlements = settlements.filter((s) => s.advanceInvoiceId === adv.id);
     const totalConsumed = advSettlements.reduce((sum, s) => sum + (parseFloat(s.consumedAmount) || 0), 0);
 
-    const approvedAmount = parseFloat(adv.approvedAmount) || parseFloat(adv.totalAmount) || 0;
-    const availableForSettlement = Math.max(0, approvedAmount - totalConsumed);
+    const baseAmount = parseFloat(adv.approvedAmount) || parseFloat(adv.amount) || 0;
+    const gstAmount = parseFloat(adv.gstAmount) || 0;
+    const totalWithGst = baseAmount + gstAmount;
+    const availableForSettlement = Math.max(0, totalWithGst - totalConsumed);
 
     return { ...adv, totalDisbursed, totalConsumed, availableForSettlement };
   }).filter((adv) => adv.availableForSettlement > 0);
